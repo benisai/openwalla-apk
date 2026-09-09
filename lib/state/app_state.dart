@@ -798,6 +798,28 @@ class NlbwProtocolUsage {
   int get totalBytes => downloadBytes + uploadBytes;
 }
 
+class StatisticsPreloadData {
+  final String routerId;
+  final bool hasSupport;
+  final MonthlyUsageSettings settings;
+  final String interfaceName;
+  final Map<String, List<VnstatUsageSample>> usageSamples;
+  final List<NlbwDeviceUsage> topDevices;
+  final List<NlbwProtocolUsage> protocolUsage;
+
+  const StatisticsPreloadData({
+    required this.routerId,
+    required this.hasSupport,
+    required this.settings,
+    required this.interfaceName,
+    required this.usageSamples,
+    required this.topDevices,
+    required this.protocolUsage,
+  });
+
+  List<VnstatUsageSample>? samplesFor(String key) => usageSamples[key];
+}
+
 class LiveDeviceTrafficCounter {
   final String ip;
   final String mac;
@@ -1356,6 +1378,25 @@ class AppState extends ChangeNotifier {
   // Dashboard preferences state
   DashboardPreferences _dashboardPreferences = DashboardPreferences();
   DashboardPreferences get dashboardPreferences => _dashboardPreferences;
+  StatisticsPreloadData? _statisticsPreloadData;
+  Future<StatisticsPreloadData>? _statisticsPreloadFuture;
+  String? _statisticsPreloadRouterId;
+  String? _statisticsPreloadFutureRouterId;
+  StatisticsPreloadData? get statisticsPreloadData {
+    final routerId = _routerService?.selectedRouter?.id;
+    if (routerId == null || _statisticsPreloadData?.routerId != routerId) {
+      return null;
+    }
+    return _statisticsPreloadData;
+  }
+
+  Future<StatisticsPreloadData>? get statisticsPreloadFuture {
+    final routerId = _routerService?.selectedRouter?.id;
+    if (routerId == null || _statisticsPreloadFutureRouterId != routerId) {
+      return null;
+    }
+    return _statisticsPreloadFuture;
+  }
 
   List<model.Router> get routers => _routerService?.routers ?? [];
   model.Router? get selectedRouter => _routerService?.selectedRouter;
@@ -1539,6 +1580,7 @@ class AppState extends ChangeNotifier {
       final previousRefreshSeconds =
           _dashboardPreferences.liveThroughputRefreshSeconds;
       _dashboardPreferences = prefs;
+      clearStatisticsPreload();
       final routerId = _routerService?.selectedRouter?.id;
       final key = routerId != null
           ? 'dashboard_preferences:$routerId'
@@ -1553,6 +1595,126 @@ class AppState extends ChangeNotifier {
       Logger.exception('Failed to save dashboard preferences', e, stack);
       rethrow;
     }
+  }
+
+  void clearStatisticsPreload() {
+    _statisticsPreloadData = null;
+    _statisticsPreloadFuture = null;
+    _statisticsPreloadRouterId = null;
+    _statisticsPreloadFutureRouterId = null;
+  }
+
+  void warmStatisticsData({bool force = false}) {
+    final routerId = _routerService?.selectedRouter?.id;
+    if (routerId == null || _authService?.sysauth == null) return;
+    if (!force && _statisticsPreloadData?.routerId == routerId) return;
+    if (!force && _statisticsPreloadFutureRouterId == routerId) return;
+
+    if (force || _statisticsPreloadRouterId != routerId) {
+      _statisticsPreloadData = null;
+    }
+
+    _statisticsPreloadRouterId = routerId;
+    _statisticsPreloadFutureRouterId = routerId;
+    final future = _loadStatisticsPreloadData(routerId);
+    _statisticsPreloadFuture = future;
+    unawaited(
+      future
+          .then((data) {
+            if (_statisticsPreloadFutureRouterId == routerId) {
+              _statisticsPreloadData = data;
+            }
+          })
+          .catchError((Object e, StackTrace stack) {
+            Logger.debug('Background statistics preload failed: $e');
+            Logger.debug('Background statistics preload stack: $stack');
+          })
+          .whenComplete(() {
+            if (_statisticsPreloadFutureRouterId == routerId) {
+              _statisticsPreloadFuture = null;
+              _statisticsPreloadFutureRouterId = null;
+            }
+          }),
+    );
+  }
+
+  Future<StatisticsPreloadData> _loadStatisticsPreloadData(
+    String routerId,
+  ) async {
+    final hasSupport = await hasStatisticsSupport();
+    final settings = await fetchMonthlyUsageSettings();
+    final interfaceName = settings.interfaceName.isNotEmpty
+        ? settings.interfaceName
+        : _primaryVnstatInterfaceName();
+
+    final usageSamples = <String, List<VnstatUsageSample>>{};
+    var topDevices = const <NlbwDeviceUsage>[];
+    var protocolUsage = const <NlbwProtocolUsage>[];
+
+    if (hasSupport) {
+      final results = await Future.wait<dynamic>([
+        fetchVnstatUsageSamples(
+          period: 'daily',
+          interfaceName: interfaceName,
+          limit: 45,
+        ),
+        fetchVnstatUsageSamples(
+          period: '5min',
+          interfaceName: interfaceName,
+          limit: 12,
+        ),
+        fetchVnstatUsageSamples(
+          period: 'hourly',
+          interfaceName: interfaceName,
+          limit: 12,
+        ),
+        fetchVnstatUsageSamples(
+          period: 'hourly',
+          interfaceName: interfaceName,
+          limit: 24,
+        ),
+        fetchVnstatUsageSamples(
+          period: 'daily',
+          interfaceName: interfaceName,
+          limit: 7,
+        ),
+        fetchNlbwTopDevices(limit: 5),
+        fetchNlbwProtocolUsage(limit: 5),
+      ]);
+      usageSamples['monthly-summary'] = results[0] as List<VnstatUsageSample>;
+      usageSamples['5min:12'] = results[1] as List<VnstatUsageSample>;
+      usageSamples['hourly:12'] = results[2] as List<VnstatUsageSample>;
+      usageSamples['hourly:24'] = results[3] as List<VnstatUsageSample>;
+      usageSamples['daily:7'] = results[4] as List<VnstatUsageSample>;
+      topDevices = results[5] as List<NlbwDeviceUsage>;
+      protocolUsage = results[6] as List<NlbwProtocolUsage>;
+    }
+
+    return StatisticsPreloadData(
+      routerId: routerId,
+      hasSupport: hasSupport,
+      settings: settings,
+      interfaceName: interfaceName,
+      usageSamples: usageSamples,
+      topDevices: topDevices,
+      protocolUsage: protocolUsage,
+    );
+  }
+
+  String _primaryVnstatInterfaceName() {
+    final interfaces =
+        dashboardData?['interfaceDump']?['interface'] as List<dynamic>?;
+    if (interfaces == null) return 'br-lan';
+    final names = interfaces
+        .whereType<Map<String, dynamic>>()
+        .map((interface) => interface['interface']?.toString())
+        .whereType<String>()
+        .where((name) => name != 'loopback' && name != 'lo')
+        .toList();
+    return names.firstWhere(
+      (name) => name == 'br-lan',
+      orElse: () => names.isNotEmpty ? names.first : 'br-lan',
+    );
   }
 
   Future<String> runRouterSetupCommand(
@@ -2008,6 +2170,7 @@ class AppState extends ChangeNotifier {
     // Clear throughput data when switching routers to prevent mixing data from different routers
     _cancelThroughputTimer();
     _resetCpuStatSample();
+    clearStatisticsPreload();
 
     // Determine a safe context before any awaits
     final safeContext = context?.mounted == true
@@ -2029,6 +2192,7 @@ class AppState extends ChangeNotifier {
     );
     if (loginSuccess) {
       await fetchDashboardData();
+      warmStatisticsData();
     }
     _isLoading = false;
     notifyListeners();
@@ -2105,6 +2269,7 @@ class AppState extends ChangeNotifier {
         }
         await fetchDashboardData();
         _startThroughputTimer();
+        warmStatisticsData();
         _isLoading = false;
         notifyListeners();
         return true;
@@ -2168,6 +2333,7 @@ class AppState extends ChangeNotifier {
       }
 
       await fetchDashboardData();
+      warmStatisticsData();
     } catch (e) {
       _dashboardError = 'Failed to reconnect: $e';
       _dashboardData = null;
