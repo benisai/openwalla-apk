@@ -7777,6 +7777,10 @@ class AppState extends ChangeNotifier {
 
   void finishRebootRecovery() {
     _isRebooting = false;
+    if (_dashboardData != null) {
+      _startThroughputTimer();
+      _startSystemInfoTimer();
+    }
     notifyListeners();
   }
 
