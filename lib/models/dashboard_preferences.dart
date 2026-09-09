@@ -3,6 +3,8 @@ enum DashboardFlowMode { detailed, simple }
 class DashboardPreferences {
   final Set<String> enabledWirelessInterfaces;
   final Set<String> enabledWiredInterfaces;
+  final bool wirelessInterfaceSelectionInitialized;
+  final bool wiredInterfaceSelectionInitialized;
   final String? primaryThroughputInterface;
   final bool showAllThroughput;
   final bool showNetworkPerformanceCard;
@@ -23,6 +25,8 @@ class DashboardPreferences {
   DashboardPreferences({
     Set<String>? enabledWirelessInterfaces,
     Set<String>? enabledWiredInterfaces,
+    this.wirelessInterfaceSelectionInitialized = false,
+    this.wiredInterfaceSelectionInitialized = false,
     this.primaryThroughputInterface,
     this.showAllThroughput = true,
     this.showNetworkPerformanceCard = false,
@@ -58,6 +62,8 @@ class DashboardPreferences {
   DashboardPreferences copyWith({
     Set<String>? enabledWirelessInterfaces,
     Set<String>? enabledWiredInterfaces,
+    bool? wirelessInterfaceSelectionInitialized,
+    bool? wiredInterfaceSelectionInitialized,
     String? primaryThroughputInterface,
     bool? showAllThroughput,
     bool? showNetworkPerformanceCard,
@@ -80,6 +86,12 @@ class DashboardPreferences {
           enabledWirelessInterfaces ?? this.enabledWirelessInterfaces,
       enabledWiredInterfaces:
           enabledWiredInterfaces ?? this.enabledWiredInterfaces,
+      wirelessInterfaceSelectionInitialized:
+          wirelessInterfaceSelectionInitialized ??
+          this.wirelessInterfaceSelectionInitialized,
+      wiredInterfaceSelectionInitialized:
+          wiredInterfaceSelectionInitialized ??
+          this.wiredInterfaceSelectionInitialized,
       primaryThroughputInterface:
           primaryThroughputInterface ?? this.primaryThroughputInterface,
       showAllThroughput: showAllThroughput ?? this.showAllThroughput,
@@ -108,6 +120,9 @@ class DashboardPreferences {
   Map<String, dynamic> toJson() => {
     'enabledWirelessInterfaces': enabledWirelessInterfaces.toList(),
     'enabledWiredInterfaces': enabledWiredInterfaces.toList(),
+    'wirelessInterfaceSelectionInitialized':
+        wirelessInterfaceSelectionInitialized,
+    'wiredInterfaceSelectionInitialized': wiredInterfaceSelectionInitialized,
     'primaryThroughputInterface': primaryThroughputInterface,
     'showAllThroughput': showAllThroughput,
     'showNetworkPerformanceCard': showNetworkPerformanceCard,
@@ -134,6 +149,10 @@ class DashboardPreferences {
       enabledWiredInterfaces: Set<String>.from(
         json['enabledWiredInterfaces'] ?? [],
       ),
+      wirelessInterfaceSelectionInitialized:
+          json['wirelessInterfaceSelectionInitialized'] == true,
+      wiredInterfaceSelectionInitialized:
+          json['wiredInterfaceSelectionInitialized'] == true,
       primaryThroughputInterface: json['primaryThroughputInterface'],
       showAllThroughput: json['showAllThroughput'] ?? true,
       showNetworkPerformanceCard: json['showNetworkPerformanceCard'] ?? false,

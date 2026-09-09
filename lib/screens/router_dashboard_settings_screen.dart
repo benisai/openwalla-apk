@@ -43,6 +43,8 @@ class _RouterDashboardSettingsScreenState
   String? _errorMessage;
   final Set<String> _availableWirelessInterfaces = {};
   final Set<String> _availableWiredInterfaces = {};
+  final Set<String> _disabledWirelessInterfaces = {};
+  final Set<String> _disabledWiredInterfaces = {};
   final List<String> _allInterfaces = [];
   Timer? _autoSaveTimer;
   String? _selectedRouterId;
@@ -82,6 +84,8 @@ class _RouterDashboardSettingsScreenState
       final appState = ref.read(appStateProvider);
       _availableWirelessInterfaces.clear();
       _availableWiredInterfaces.clear();
+      _disabledWirelessInterfaces.clear();
+      _disabledWiredInterfaces.clear();
       _allInterfaces.clear();
 
       if (appState.dashboardData == null) {
@@ -97,6 +101,9 @@ class _RouterDashboardSettingsScreenState
       }
       _preferences = appState.dashboardPreferences;
       _extractAvailableInterfaces(appState.dashboardData);
+      if (_applyDefaultInterfaceSelections()) {
+        await appState.saveDashboardPreferences(_preferences);
+      }
       setState(() => _isLoading = false);
     } catch (e) {
       setState(() {
@@ -136,13 +143,13 @@ class _RouterDashboardSettingsScreenState
             final interfaceDisabled = _isDisabled(config['disabled']);
             final ssid = iwinfo['ssid'] ?? config['ssid'];
             final deviceName = config['device'] ?? radioName;
-            if (!radioDisabled &&
-                !interfaceDisabled &&
-                ssid != null &&
-                ssid.toString().isNotEmpty) {
+            if (ssid != null && ssid.toString().isNotEmpty) {
               final interfaceId = '$ssid ($deviceName)';
               _availableWirelessInterfaces.add(interfaceId);
               _allInterfaces.add(interfaceId);
+              if (radioDisabled || interfaceDisabled) {
+                _disabledWirelessInterfaces.add(interfaceId);
+              }
             }
           }
         }
@@ -157,17 +164,48 @@ class _RouterDashboardSettingsScreenState
         final name = interface['interface'] as String? ?? '';
         final isUp = interface['up'] == true;
         final isDisabled = _isDisabled(interface['disabled']);
-        if (name.isNotEmpty &&
-            name != 'loopback' &&
-            name != 'lo' &&
-            isUp &&
-            !isDisabled) {
+        if (name.isNotEmpty && name != 'loopback' && name != 'lo') {
           _availableWiredInterfaces.add(name);
           _allInterfaces.add(name);
+          if (!isUp || isDisabled) {
+            _disabledWiredInterfaces.add(name);
+          }
         }
       }
     }
     _allInterfaces.sort();
+  }
+
+  bool _applyDefaultInterfaceSelections() {
+    var next = _preferences;
+    var changed = false;
+
+    if (!next.wirelessInterfaceSelectionInitialized &&
+        _disabledWirelessInterfaces.isNotEmpty) {
+      next = next.copyWith(
+        enabledWirelessInterfaces: _availableWirelessInterfaces
+            .where(
+              (interface) => !_disabledWirelessInterfaces.contains(interface),
+            )
+            .toSet(),
+        wirelessInterfaceSelectionInitialized: true,
+      );
+      changed = true;
+    }
+
+    if (!next.wiredInterfaceSelectionInitialized &&
+        _disabledWiredInterfaces.isNotEmpty) {
+      next = next.copyWith(
+        enabledWiredInterfaces: _availableWiredInterfaces
+            .where((interface) => !_disabledWiredInterfaces.contains(interface))
+            .toSet(),
+        wiredInterfaceSelectionInitialized: true,
+      );
+      changed = true;
+    }
+
+    _preferences = next;
+    return changed;
   }
 
   bool _isDisabled(dynamic value) {
@@ -904,12 +942,14 @@ class _RouterDashboardSettingsScreenState
                     if (value) {
                       _preferences = _preferences.copyWith(
                         enabledWirelessInterfaces: {},
+                        wirelessInterfaceSelectionInitialized: true,
                       );
                     } else {
                       _preferences = _preferences.copyWith(
                         enabledWirelessInterfaces: Set.from(
                           _availableWirelessInterfaces,
                         ),
+                        wirelessInterfaceSelectionInitialized: true,
                       );
                     }
                   });
@@ -921,7 +961,8 @@ class _RouterDashboardSettingsScreenState
             ],
           ),
         ),
-        if (_preferences.enabledWirelessInterfaces.isNotEmpty) ...[
+        if (_preferences.enabledWirelessInterfaces.isNotEmpty ||
+            _disabledWirelessInterfaces.isNotEmpty) ...[
           SizedBox(height: LuciSpacing.sm),
           ...sortedInterfaces.map((interface) {
             final isEnabled = _preferences.enabledWirelessInterfaces.contains(
@@ -956,6 +997,7 @@ class _RouterDashboardSettingsScreenState
                     }
                     _preferences = _preferences.copyWith(
                       enabledWirelessInterfaces: newSet,
+                      wirelessInterfaceSelectionInitialized: true,
                     );
                   });
                   _onPreferenceChanged();
@@ -1001,12 +1043,14 @@ class _RouterDashboardSettingsScreenState
                     if (value) {
                       _preferences = _preferences.copyWith(
                         enabledWiredInterfaces: {},
+                        wiredInterfaceSelectionInitialized: true,
                       );
                     } else {
                       _preferences = _preferences.copyWith(
                         enabledWiredInterfaces: Set.from(
                           _availableWiredInterfaces,
                         ),
+                        wiredInterfaceSelectionInitialized: true,
                       );
                     }
                   });
@@ -1018,7 +1062,8 @@ class _RouterDashboardSettingsScreenState
             ],
           ),
         ),
-        if (_preferences.enabledWiredInterfaces.isNotEmpty) ...[
+        if (_preferences.enabledWiredInterfaces.isNotEmpty ||
+            _disabledWiredInterfaces.isNotEmpty) ...[
           SizedBox(height: LuciSpacing.sm),
           ...sortedInterfaces.map((interface) {
             final isEnabled = _preferences.enabledWiredInterfaces.contains(
@@ -1055,6 +1100,7 @@ class _RouterDashboardSettingsScreenState
                     }
                     _preferences = _preferences.copyWith(
                       enabledWiredInterfaces: newSet,
+                      wiredInterfaceSelectionInitialized: true,
                     );
                   });
                   _onPreferenceChanged();
