@@ -4,33 +4,34 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:luci_mobile/design/luci_design_system.dart';
 import 'package:luci_mobile/main.dart';
+import 'package:luci_mobile/screens/login_screen.dart';
 
-class RebootCountdownScreen extends ConsumerStatefulWidget {
-  const RebootCountdownScreen({super.key, this.duration = 60});
+class RebootCountdownDialog extends ConsumerStatefulWidget {
+  const RebootCountdownDialog({
+    super.key,
+    this.duration = 60,
+    this.maxAttempts = 2,
+  });
 
   final int duration;
+  final int maxAttempts;
 
   @override
-  ConsumerState<RebootCountdownScreen> createState() =>
-      _RebootCountdownScreenState();
+  ConsumerState<RebootCountdownDialog> createState() =>
+      _RebootCountdownDialogState();
 }
 
-class _RebootCountdownScreenState extends ConsumerState<RebootCountdownScreen> {
+class _RebootCountdownDialogState extends ConsumerState<RebootCountdownDialog> {
   Timer? _timer;
   late int _secondsRemaining;
+  int _attempt = 1;
+  bool _checking = false;
 
   @override
   void initState() {
     super.initState();
     _secondsRemaining = widget.duration;
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted) return;
-      if (_secondsRemaining <= 1) {
-        _goToDashboard();
-        return;
-      }
-      setState(() => _secondsRemaining--);
-    });
+    _startCountdown();
   }
 
   @override
@@ -39,58 +40,111 @@ class _RebootCountdownScreenState extends ConsumerState<RebootCountdownScreen> {
     super.dispose();
   }
 
-  void _goToDashboard() {
+  void _startCountdown() {
     _timer?.cancel();
-    ref.read(appStateProvider).requestTab(0);
+    setState(() {
+      _checking = false;
+      _secondsRemaining = widget.duration;
+    });
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      if (_secondsRemaining <= 1) {
+        _timer?.cancel();
+        unawaited(_tryReconnect());
+        return;
+      }
+      setState(() => _secondsRemaining--);
+    });
+  }
+
+  Future<void> _tryReconnect() async {
+    setState(() {
+      _checking = true;
+      _secondsRemaining = 0;
+    });
+
+    final appState = ref.read(appStateProvider);
+    await appState.retryDashboardConnection();
     if (!mounted) return;
-    unawaited(Navigator.of(context).pushNamedAndRemoveUntil('/', (_) => false));
+
+    final reconnected =
+        appState.dashboardData != null && appState.dashboardError == null;
+    if (reconnected) {
+      appState.finishRebootRecovery();
+      appState.requestTab(0);
+      final navigator = Navigator.of(context, rootNavigator: true);
+      navigator.pop();
+      unawaited(navigator.pushNamedAndRemoveUntil('/', (_) => false));
+      return;
+    }
+
+    if (_attempt < widget.maxAttempts) {
+      _attempt++;
+      _startCountdown();
+      return;
+    }
+
+    appState.finishRebootRecovery();
+    appState.logout();
+    final navigator = Navigator.of(context, rootNavigator: true);
+    navigator.pop();
+    unawaited(
+      navigator.pushAndRemoveUntil(
+        MaterialPageRoute(builder: (context) => const LoginScreen()),
+        (route) => false,
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final progress = 1 - (_secondsRemaining / widget.duration).clamp(0.0, 1.0);
+    final progress = _checking
+        ? 1.0
+        : 1 - (_secondsRemaining / widget.duration).clamp(0.0, 1.0);
 
-    return Scaffold(
-      body: Container(
-        width: double.infinity,
-        height: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 32),
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 28),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(24, 26, 24, 24),
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              colorScheme.surfaceContainerLowest,
-              colorScheme.surface,
-              colorScheme.surfaceContainer,
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+          color: colorScheme.surfaceContainer,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: colorScheme.outlineVariant.withValues(alpha: 0.45),
           ),
         ),
-        child: SafeArea(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Stack(
-                alignment: Alignment.center,
-                children: [
-                  SizedBox(
-                    width: 164,
-                    height: 164,
-                    child: CircularProgressIndicator(
-                      value: progress,
-                      strokeWidth: 10,
-                      strokeCap: StrokeCap.round,
-                      backgroundColor: colorScheme.surfaceContainerHighest,
-                    ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                SizedBox(
+                  width: 146,
+                  height: 146,
+                  child: CircularProgressIndicator(
+                    value: progress,
+                    strokeWidth: 10,
+                    strokeCap: StrokeCap.round,
+                    backgroundColor: colorScheme.surfaceContainerHighest,
                   ),
+                ),
+                if (_checking)
+                  const SizedBox(
+                    width: 44,
+                    height: 44,
+                    child: CircularProgressIndicator(strokeWidth: 4),
+                  )
+                else
                   Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
                         '$_secondsRemaining',
-                        style: theme.textTheme.displayMedium?.copyWith(
+                        style: theme.textTheme.displaySmall?.copyWith(
                           color: colorScheme.onSurface,
                           fontWeight: FontWeight.w800,
                         ),
@@ -104,43 +158,28 @@ class _RebootCountdownScreenState extends ConsumerState<RebootCountdownScreen> {
                       ),
                     ],
                   ),
-                ],
+              ],
+            ),
+            const SizedBox(height: 26),
+            Text(
+              _checking ? 'Checking Connection' : 'Rebooting Router',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.titleLarge?.copyWith(
+                color: colorScheme.onSurface,
+                fontWeight: FontWeight.w800,
               ),
-              const SizedBox(height: 36),
-              Text(
-                'Rebooting Router',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  color: colorScheme.onSurface,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                'Openwalla will return to the dashboard when the router has had time to come back online.',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodyLarge?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                  height: 1.35,
-                ),
-              ),
-              const SizedBox(height: 32),
-              OutlinedButton.icon(
-                onPressed: _goToDashboard,
-                icon: const Icon(Icons.dashboard_outlined),
-                label: const Text('Go to Dashboard'),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 14,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: LuciCardStyles.standardRadius,
-                  ),
-                ),
-              ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _checking
+                  ? 'Trying to log back into the router now.'
+                  : 'Attempt $_attempt of ${widget.maxAttempts}. Openwalla will try to reconnect when the timer finishes.',
+              textAlign: TextAlign.center,
+              style: LuciTextStyles.cardSubtitle(
+                context,
+              ).copyWith(height: 1.35),
+            ),
+          ],
         ),
       ),
     );

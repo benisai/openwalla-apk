@@ -3,8 +3,6 @@ import 'dart:io';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:dio/dio.dart';
-import 'package:dio/io.dart';
 import 'package:luci_mobile/services/secure_storage_service.dart';
 import 'package:luci_mobile/services/router_service.dart';
 import 'package:luci_mobile/services/ssh_service.dart';
@@ -1353,14 +1351,10 @@ class AppState extends ChangeNotifier {
 
   Timer? _throughputTimer;
   Timer? _systemInfoTimer;
-  Timer? _pollingTimer;
   int? _lastCpuTotalTicks;
   int? _lastCpuIdleTicks;
   double? _lastCpuUsagePercent;
   int _lastCpuCoreCount = 1;
-  int _pollAttempts = 0;
-  static const int _maxPollAttempts =
-      40; // Max 40 attempts = ~5 minutes with backoff
 
   // Add rebooting state
   bool _isRebooting = false;
@@ -7773,11 +7767,6 @@ class AppState extends ChangeNotifier {
         _authService!.useHttps,
         context: context,
       );
-      // Wait 30 seconds before starting to poll for router availability
-      // Some routers take longer to reboot
-      Future.delayed(const Duration(seconds: 30), () {
-        _pollRouterAvailability();
-      });
       return result;
     } catch (e) {
       _isRebooting = false;
@@ -7786,159 +7775,9 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  void _pollRouterAvailability() {
-    // Reset poll attempts
-    _pollAttempts = 0;
-    _pollingTimer?.cancel();
-
-    // Start polling with exponential backoff
-    _scheduleNextPoll();
-  }
-
-  void _scheduleNextPoll() {
-    if (_pollAttempts >= _maxPollAttempts) {
-      // Max attempts reached, stop polling
-      _isRebooting = false;
-      notifyListeners();
-      // print('[Reboot] Timeout: Router did not come back online after $_maxPollAttempts attempts');
-
-      // Show a user-friendly message
-      if (onRouterBackOnline != null) {
-        // Reuse the callback to show timeout message
-        onRouterBackOnline!();
-      }
-      return;
-    }
-
-    // Calculate delay with exponential backoff: 3s, 3s, 5s, 8s, 12s, 18s, then 20s intervals
-    int delaySeconds;
-    if (_pollAttempts < 2) {
-      delaySeconds = 3;
-    } else if (_pollAttempts < 4) {
-      delaySeconds = 5;
-    } else if (_pollAttempts < 6) {
-      delaySeconds = 8;
-    } else if (_pollAttempts < 8) {
-      delaySeconds = 12;
-    } else if (_pollAttempts < 10) {
-      delaySeconds = 18;
-    } else {
-      delaySeconds = 20; // Cap at 20 seconds for remaining attempts
-    }
-
-    _pollingTimer = Timer(Duration(seconds: delaySeconds), () async {
-      _pollAttempts++;
-      final available = await _pingRouter();
-
-      if (available) {
-        // Router is back online
-        _pollingTimer?.cancel();
-        _pollingTimer = null;
-        _isRebooting = false;
-        _pollAttempts = 0;
-        notifyListeners();
-
-        // Notify UI that router is back online
-        if (onRouterBackOnline != null) {
-          onRouterBackOnline!();
-        }
-
-        // Force relogin
-        if (_routerService?.selectedRouter != null) {
-          await login(
-            _routerService!.selectedRouter!.ipAddress,
-            _routerService!.selectedRouter!.username,
-            _routerService!.selectedRouter!.password,
-            _routerService!.selectedRouter!.useHttps,
-          );
-        }
-      } else {
-        // Schedule next poll
-        _scheduleNextPoll();
-      }
-    });
-  }
-
-  Future<bool> _pingRouter() async {
-    if (_authService?.ipAddress == null) return false;
-
-    // Clear cached HTTP clients for this host to avoid stale connections
-    if (_pollAttempts == 0) {
-      _httpClientManager.disposeClient(
-        _authService!.ipAddress!,
-        _authService!.useHttps,
-      );
-    }
-
-    // Try multiple endpoints in order
-    final scheme = _authService!.useHttps ? 'https' : 'http';
-    final endpoints = [
-      '/', // Root
-      '/cgi-bin/luci/', // LuCI login page
-      '/cgi-bin/luci/admin', // Admin page
-    ];
-
-    for (final endpoint in endpoints) {
-      try {
-        final url = '$scheme://${_authService!.ipAddress}$endpoint';
-
-        // Create a fresh Dio client for pinging to avoid certificate/connection issues
-        final dio = Dio(
-          BaseOptions(
-            connectTimeout: const Duration(seconds: 5),
-            receiveTimeout: const Duration(seconds: 5),
-            sendTimeout: const Duration(seconds: 5),
-            followRedirects: false,
-            validateStatus: (code) => code != null && code >= 200 && code < 500,
-          ),
-        );
-
-        if (_authService!.useHttps) {
-          final adapter = IOHttpClientAdapter();
-          adapter.createHttpClient = () {
-            final httpClient = HttpClient();
-            httpClient.connectionTimeout = const Duration(seconds: 5);
-            // Accept any cert for ping only
-            httpClient.badCertificateCallback = (cert, host, port) => true;
-            return httpClient;
-          };
-          dio.httpClientAdapter = adapter;
-        }
-
-        // print('[Ping] Attempt $_pollAttempts: Checking $url');
-        final response = await dio.get(url);
-        // print('[Ping] Response from $endpoint: ${response.statusCode}');
-
-        // Accept various status codes as "alive"
-        final isAlive =
-            response.statusCode != null &&
-            response.statusCode! >= 200 &&
-            response.statusCode! < 500;
-
-        if (isAlive) {
-          if (_pollAttempts > 5) {
-            // If we've been polling for a while and get a response,
-            // wait a bit more to ensure services are fully started
-            await Future.delayed(const Duration(seconds: 5));
-          }
-          return true;
-        }
-      } catch (e) {
-        // Try next endpoint
-        if (endpoint == endpoints.last) {
-          // print('[Ping] All endpoints failed on attempt $_pollAttempts');
-          // print('[Ping] Last error: ${e.toString()}');
-
-          if (e is SocketException) {
-            // print('[Ping] Socket error: ${e.message}, OS Error: ${e.osError}');
-          } else if (e is HandshakeException) {
-            // print('[Ping] SSL handshake error - router may still be starting');
-          }
-        }
-      }
-    }
-
-    return false;
+  void finishRebootRecovery() {
+    _isRebooting = false;
+    notifyListeners();
   }
 
   Future<bool> checkRouterAvailability() async {
@@ -8066,8 +7905,6 @@ class AppState extends ChangeNotifier {
   void dispose() {
     _throughputTimer?.cancel();
     _systemInfoTimer?.cancel();
-    _pollingTimer?.cancel();
-    _pollAttempts = 0;
     _isRebooting = false;
     super.dispose();
   }

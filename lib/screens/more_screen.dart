@@ -161,51 +161,15 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
               child: const Text('Reboot'),
               onPressed: () async {
                 Navigator.of(context).pop();
-                // Show persistent warning snackbar
-                final theme = Theme.of(context);
-                final colorScheme = theme.colorScheme;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Row(
-                      children: [
-                        Icon(
-                          Icons.warning_amber_rounded,
-                          color: colorScheme.onPrimary,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            'Rebooting… Connection will be interrupted.',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: colorScheme.onPrimary,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    backgroundColor: colorScheme.primary,
-                    behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    margin: const EdgeInsets.symmetric(
-                      horizontal: 24,
-                      vertical: 16,
-                    ),
-                    duration: const Duration(days: 1), // effectively indefinite
-                  ),
-                );
                 final success = await appState.reboot();
                 if (!context.mounted) return;
-                ScaffoldMessenger.of(context).hideCurrentSnackBar();
                 if (success) {
-                  unawaited(
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (context) =>
-                            const RebootCountdownScreen(duration: 60),
-                      ),
+                  await showDialog<void>(
+                    context: context,
+                    barrierDismissible: false,
+                    builder: (context) => const RebootCountdownDialog(
+                      duration: 60,
+                      maxAttempts: 2,
                     ),
                   );
                   return;
