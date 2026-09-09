@@ -9035,6 +9035,7 @@ class AppState extends ChangeNotifier {
       if (mac == normalizedMac) hostSection = section;
     });
 
+    var changed = false;
     if (cleanStaticIp.isNotEmpty) {
       if (hostSection == null || hostSection!.isEmpty) {
         final addResult = await _apiService!.call(
@@ -9046,6 +9047,7 @@ class AppState extends ChangeNotifier {
           params: {'config': 'dhcp', 'type': 'host'},
         );
         hostSection = _extractAddedSection(addResult);
+        changed = true;
       }
       if (hostSection == null || hostSection!.isEmpty) {
         throw StateError('Unable to create DHCP host reservation');
@@ -9062,6 +9064,7 @@ class AppState extends ChangeNotifier {
           'ip': cleanStaticIp,
         },
       );
+      changed = true;
     } else if (hostSection != null && hostSection!.isNotEmpty) {
       await _apiService!.call(
         router.ipAddress,
@@ -9071,7 +9074,10 @@ class AppState extends ChangeNotifier {
         method: 'delete',
         params: {'config': 'dhcp', 'section': hostSection},
       );
+      changed = true;
     }
+
+    if (!changed) return;
 
     await _apiService!.uciCommit(
       router.ipAddress,

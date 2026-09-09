@@ -846,21 +846,17 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
   }
 
   Future<void> _showStaticIpDialog() async {
-    final controller = TextEditingController(
-      text: _staticIpEnabled
-          ? _currentStaticIp
-          : widget.client.ipAddress == 'N/A'
-          ? ''
-          : widget.client.ipAddress,
-    );
     final result = await showDialog<_StaticIpDialogResult>(
       context: context,
       builder: (context) => _StaticIpDialog(
-        controller: controller,
+        initialIpAddress: _staticIpEnabled
+            ? _currentStaticIp
+            : widget.client.ipAddress == 'N/A'
+            ? ''
+            : widget.client.ipAddress,
         hasReservation: _staticIpEnabled,
       ),
     );
-    controller.dispose();
     if (result == null || !mounted) return;
 
     final nextStaticIp = result.enabled ? result.ipAddress.trim() : '';
@@ -869,6 +865,7 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
       return;
     }
 
+    final messenger = ScaffoldMessenger.of(context);
     setState(() => _isSaving = true);
     try {
       await ref
@@ -891,7 +888,7 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
         _isSaving = false;
         _hasSavedChanges = true;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(
           content: Text(
             result.enabled
@@ -930,16 +927,18 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
     );
     if (confirmed != true || !mounted) return;
 
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
     setState(() => _isDeleting = true);
     try {
       await ref
           .read(appStateProvider)
           .deleteOpenwallaDeviceRecord(widget.client, context: context);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         const SnackBar(content: Text('Device database entry removed.')),
       );
-      Navigator.of(context).pop(true);
+      navigator.pop(true);
     } catch (e) {
       if (!mounted) return;
       _showError('Failed to remove device entry: $e');
@@ -1415,11 +1414,11 @@ class _StaticIpDialogResult {
 }
 
 class _StaticIpDialog extends StatefulWidget {
-  final TextEditingController controller;
+  final String initialIpAddress;
   final bool hasReservation;
 
   const _StaticIpDialog({
-    required this.controller,
+    required this.initialIpAddress,
     required this.hasReservation,
   });
 
@@ -1429,11 +1428,19 @@ class _StaticIpDialog extends StatefulWidget {
 
 class _StaticIpDialogState extends State<_StaticIpDialog> {
   late bool _enabled;
+  late final TextEditingController _controller;
 
   @override
   void initState() {
     super.initState();
     _enabled = widget.hasReservation;
+    _controller = TextEditingController(text: widget.initialIpAddress);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
   }
 
   @override
@@ -1453,7 +1460,7 @@ class _StaticIpDialogState extends State<_StaticIpDialog> {
           ),
           const SizedBox(height: 12),
           TextField(
-            controller: widget.controller,
+            controller: _controller,
             enabled: _enabled,
             keyboardType: TextInputType.number,
             decoration: const InputDecoration(
@@ -1480,7 +1487,7 @@ class _StaticIpDialogState extends State<_StaticIpDialog> {
           onPressed: () => Navigator.of(context).pop(
             _StaticIpDialogResult(
               enabled: _enabled,
-              ipAddress: widget.controller.text,
+              ipAddress: _controller.text,
             ),
           ),
           icon: const Icon(Icons.push_pin_rounded),
