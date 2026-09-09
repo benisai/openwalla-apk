@@ -296,6 +296,64 @@ class _RouterDashboardSettingsScreenState
             ],
           ),
         ),
+        const SizedBox(height: LuciSpacing.sm),
+        Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: LuciSpacing.md,
+            vertical: LuciSpacing.sm,
+          ),
+          decoration: BoxDecoration(
+            color: Theme.of(
+              context,
+            ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Refresh Interval',
+                      style: LuciTextStyles.detailValue(
+                        context,
+                      ).copyWith(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'How often Live Traffic updates on the dashboard and detail page',
+                      style: LuciTextStyles.cardSubtitle(context),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: LuciSpacing.md),
+              DropdownButton<int>(
+                value: _preferences.liveThroughputRefreshSeconds,
+                underline: const SizedBox.shrink(),
+                borderRadius: BorderRadius.circular(12),
+                items: const [2, 3, 5, 10]
+                    .map(
+                      (seconds) => DropdownMenuItem<int>(
+                        value: seconds,
+                        child: Text('${seconds}s'),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() {
+                    _preferences = _preferences.copyWith(
+                      liveThroughputRefreshSeconds: value,
+                    );
+                  });
+                  _onPreferenceChanged();
+                },
+              ),
+            ],
+          ),
+        ),
         if (!_preferences.showAllThroughput && interfaces.isNotEmpty) ...[
           SizedBox(height: LuciSpacing.sm),
           ...interfaces.map((iface) {

@@ -17,6 +17,7 @@ class DashboardPreferences {
   final bool showSchedulerShortcut;
   final int shortcutPanelVisibleCount;
   final List<String> shortcutOrder;
+  final int liveThroughputRefreshSeconds;
   final DashboardFlowMode flowMode;
 
   DashboardPreferences({
@@ -36,6 +37,7 @@ class DashboardPreferences {
     this.showSchedulerShortcut = true,
     this.shortcutPanelVisibleCount = 6,
     List<String>? shortcutOrder,
+    this.liveThroughputRefreshSeconds = 3,
     this.flowMode = DashboardFlowMode.detailed,
   }) : enabledWirelessInterfaces = enabledWirelessInterfaces ?? {},
        enabledWiredInterfaces = enabledWiredInterfaces ?? {},
@@ -70,6 +72,7 @@ class DashboardPreferences {
     bool? showSchedulerShortcut,
     int? shortcutPanelVisibleCount,
     List<String>? shortcutOrder,
+    int? liveThroughputRefreshSeconds,
     DashboardFlowMode? flowMode,
   }) {
     return DashboardPreferences(
@@ -96,6 +99,8 @@ class DashboardPreferences {
       shortcutPanelVisibleCount:
           shortcutPanelVisibleCount ?? this.shortcutPanelVisibleCount,
       shortcutOrder: shortcutOrder ?? this.shortcutOrder,
+      liveThroughputRefreshSeconds:
+          liveThroughputRefreshSeconds ?? this.liveThroughputRefreshSeconds,
       flowMode: flowMode ?? this.flowMode,
     );
   }
@@ -117,6 +122,7 @@ class DashboardPreferences {
     'showSchedulerShortcut': showSchedulerShortcut,
     'shortcutPanelVisibleCount': shortcutPanelVisibleCount,
     'shortcutOrder': shortcutOrder,
+    'liveThroughputRefreshSeconds': liveThroughputRefreshSeconds,
     'flowMode': flowMode.name,
   };
 
@@ -144,6 +150,9 @@ class DashboardPreferences {
         json['shortcutPanelVisibleCount'],
       ),
       shortcutOrder: _parseShortcutOrder(json['shortcutOrder']),
+      liveThroughputRefreshSeconds: _parseLiveThroughputRefreshSeconds(
+        json['liveThroughputRefreshSeconds'],
+      ),
       flowMode: DashboardFlowMode.values.firstWhere(
         (mode) => mode.name == json['flowMode']?.toString(),
         orElse: () => DashboardFlowMode.detailed,
@@ -154,6 +163,11 @@ class DashboardPreferences {
   static int _parseShortcutPanelVisibleCount(dynamic value) {
     final parsed = value is int ? value : int.tryParse(value?.toString() ?? '');
     return parsed == 3 ? 3 : 6;
+  }
+
+  static int _parseLiveThroughputRefreshSeconds(dynamic value) {
+    final parsed = value is int ? value : int.tryParse(value?.toString() ?? '');
+    return const {2, 3, 5, 10}.contains(parsed) ? parsed! : 3;
   }
 
   static List<String> _parseShortcutOrder(dynamic value) {

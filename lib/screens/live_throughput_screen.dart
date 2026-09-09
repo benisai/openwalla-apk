@@ -18,7 +18,6 @@ class LiveThroughputScreen extends ConsumerStatefulWidget {
 }
 
 class _LiveThroughputScreenState extends ConsumerState<LiveThroughputScreen> {
-  static const _refreshInterval = Duration(seconds: 5);
   static const _historyLimit = 36;
   static const _blue = Color(0xFF188CFF);
   static const _orange = Color(0xFFF27C24);
@@ -33,6 +32,15 @@ class _LiveThroughputScreenState extends ConsumerState<LiveThroughputScreen> {
   bool _paused = false;
   bool _loading = true;
   String? _error;
+
+  Duration get _refreshInterval {
+    return Duration(
+      seconds: ref
+          .read(appStateProvider)
+          .dashboardPreferences
+          .liveThroughputRefreshSeconds,
+    );
+  }
 
   @override
   void initState() {

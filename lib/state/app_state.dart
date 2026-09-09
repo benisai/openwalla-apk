@@ -1536,12 +1536,18 @@ class AppState extends ChangeNotifier {
 
   Future<void> saveDashboardPreferences(DashboardPreferences prefs) async {
     try {
+      final previousRefreshSeconds =
+          _dashboardPreferences.liveThroughputRefreshSeconds;
       _dashboardPreferences = prefs;
       final routerId = _routerService?.selectedRouter?.id;
       final key = routerId != null
           ? 'dashboard_preferences:$routerId'
           : 'dashboard_preferences';
       await _secureStorageService.writeValue(key, jsonEncode(prefs.toJson()));
+      if (previousRefreshSeconds != prefs.liveThroughputRefreshSeconds &&
+          _throughputTimer != null) {
+        _startThroughputTimer();
+      }
       notifyListeners();
     } catch (e, stack) {
       Logger.exception('Failed to save dashboard preferences', e, stack);
@@ -7374,9 +7380,12 @@ class AppState extends ChangeNotifier {
     if (_isRebooting) {
       return;
     }
-    _throughputTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
-      _updateThroughputOnly();
-    });
+    _throughputTimer = Timer.periodic(
+      Duration(seconds: _dashboardPreferences.liveThroughputRefreshSeconds),
+      (timer) {
+        _updateThroughputOnly();
+      },
+    );
   }
 
   void _startSystemInfoTimer() {
