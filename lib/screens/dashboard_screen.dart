@@ -55,15 +55,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_loadDashboardAndPreloadStatistics());
+      ref.read(appStateProvider).fetchDashboardData();
       _startSummaryRefreshTimer();
     });
-  }
-
-  Future<void> _loadDashboardAndPreloadStatistics({bool force = false}) async {
-    final appState = ref.read(appStateProvider);
-    await appState.fetchDashboardData();
-    unawaited(appState.preloadStatisticsData(force: force));
   }
 
   @override
@@ -1763,7 +1757,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
     }
 
     return RefreshIndicator(
-      onRefresh: () => _loadDashboardAndPreloadStatistics(force: true),
+      onRefresh: () => appState.fetchDashboardData(),
       child: LayoutBuilder(
         builder: (context, constraints) {
           final isLandscape =
@@ -1819,8 +1813,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                     preferences.showFlowsCard &&
                     _hasDashboardFlowsCard(appState);
                 return RefreshIndicator(
-                  onRefresh: () =>
-                      _loadDashboardAndPreloadStatistics(force: true),
+                  onRefresh: () => appState.fetchDashboardData(),
                   child: SingleChildScrollView(
                     physics: const AlwaysScrollableScrollPhysics(),
                     child: ConstrainedBox(

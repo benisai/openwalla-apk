@@ -798,26 +798,6 @@ class NlbwProtocolUsage {
   int get totalBytes => downloadBytes + uploadBytes;
 }
 
-class StatisticsPreloadData {
-  final bool hasSupport;
-  final MonthlyUsageSettings settings;
-  final String interfaceName;
-  final Map<String, List<VnstatUsageSample>> usageSamples;
-  final List<NlbwDeviceUsage> topDevices;
-  final List<NlbwProtocolUsage> protocolUsage;
-
-  const StatisticsPreloadData({
-    required this.hasSupport,
-    required this.settings,
-    required this.interfaceName,
-    required this.usageSamples,
-    required this.topDevices,
-    required this.protocolUsage,
-  });
-
-  List<VnstatUsageSample>? samplesFor(String key) => usageSamples[key];
-}
-
 class LiveDeviceTrafficCounter {
   final String ip;
   final String mac;
@@ -1376,9 +1356,6 @@ class AppState extends ChangeNotifier {
   // Dashboard preferences state
   DashboardPreferences _dashboardPreferences = DashboardPreferences();
   DashboardPreferences get dashboardPreferences => _dashboardPreferences;
-  StatisticsPreloadData? _statisticsPreloadData;
-  Future<StatisticsPreloadData>? _statisticsPreloadFuture;
-  StatisticsPreloadData? get statisticsPreloadData => _statisticsPreloadData;
 
   List<model.Router> get routers => _routerService?.routers ?? [];
   model.Router? get selectedRouter => _routerService?.selectedRouter;
@@ -1562,7 +1539,6 @@ class AppState extends ChangeNotifier {
       final previousRefreshSeconds =
           _dashboardPreferences.liveThroughputRefreshSeconds;
       _dashboardPreferences = prefs;
-      clearStatisticsPreload();
       final routerId = _routerService?.selectedRouter?.id;
       final key = routerId != null
           ? 'dashboard_preferences:$routerId'
@@ -1577,11 +1553,6 @@ class AppState extends ChangeNotifier {
       Logger.exception('Failed to save dashboard preferences', e, stack);
       rethrow;
     }
-  }
-
-  void clearStatisticsPreload() {
-    _statisticsPreloadData = null;
-    _statisticsPreloadFuture = null;
   }
 
   Future<String> runRouterSetupCommand(
@@ -1759,106 +1730,6 @@ class AppState extends ChangeNotifier {
     }
 
     return false;
-  }
-
-  Future<StatisticsPreloadData> preloadStatisticsData({bool force = false}) {
-    if (!force && _statisticsPreloadData != null) {
-      return Future.value(_statisticsPreloadData);
-    }
-    if (!force && _statisticsPreloadFuture != null) {
-      return _statisticsPreloadFuture!;
-    }
-
-    final future = _loadStatisticsPreloadData();
-    _statisticsPreloadFuture = future;
-    future
-        .then((data) {
-          if (_statisticsPreloadFuture == future) {
-            _statisticsPreloadData = data;
-          }
-        })
-        .whenComplete(() {
-          if (_statisticsPreloadFuture == future) {
-            _statisticsPreloadFuture = null;
-          }
-        });
-    return future;
-  }
-
-  Future<StatisticsPreloadData> _loadStatisticsPreloadData() async {
-    final hasSupport = await hasStatisticsSupport();
-    final settings = await fetchMonthlyUsageSettings();
-    final interfaceName = settings.interfaceName.isNotEmpty
-        ? settings.interfaceName
-        : _primaryVnstatInterfaceName();
-
-    final usageSamples = <String, List<VnstatUsageSample>>{};
-    var topDevices = const <NlbwDeviceUsage>[];
-    var protocolUsage = const <NlbwProtocolUsage>[];
-
-    if (hasSupport) {
-      final results = await Future.wait<dynamic>([
-        fetchVnstatUsageSamples(
-          period: 'daily',
-          interfaceName: interfaceName,
-          limit: 45,
-        ),
-        fetchVnstatUsageSamples(
-          period: '5min',
-          interfaceName: interfaceName,
-          limit: 12,
-        ),
-        fetchVnstatUsageSamples(
-          period: 'hourly',
-          interfaceName: interfaceName,
-          limit: 12,
-        ),
-        fetchVnstatUsageSamples(
-          period: 'hourly',
-          interfaceName: interfaceName,
-          limit: 24,
-        ),
-        fetchVnstatUsageSamples(
-          period: 'daily',
-          interfaceName: interfaceName,
-          limit: 7,
-        ),
-        fetchNlbwTopDevices(limit: 5),
-        fetchNlbwProtocolUsage(limit: 5),
-      ]);
-      usageSamples['monthly-summary'] = results[0] as List<VnstatUsageSample>;
-      usageSamples['5min:12'] = results[1] as List<VnstatUsageSample>;
-      usageSamples['hourly:12'] = results[2] as List<VnstatUsageSample>;
-      usageSamples['hourly:24'] = results[3] as List<VnstatUsageSample>;
-      usageSamples['daily:7'] = results[4] as List<VnstatUsageSample>;
-      topDevices = results[5] as List<NlbwDeviceUsage>;
-      protocolUsage = results[6] as List<NlbwProtocolUsage>;
-    }
-
-    return StatisticsPreloadData(
-      hasSupport: hasSupport,
-      settings: settings,
-      interfaceName: interfaceName,
-      usageSamples: usageSamples,
-      topDevices: topDevices,
-      protocolUsage: protocolUsage,
-    );
-  }
-
-  String _primaryVnstatInterfaceName() {
-    final interfaces =
-        dashboardData?['interfaceDump']?['interface'] as List<dynamic>?;
-    if (interfaces == null) return 'br-lan';
-    final names = interfaces
-        .whereType<Map<String, dynamic>>()
-        .map((interface) => interface['interface']?.toString())
-        .whereType<String>()
-        .where((name) => name != 'loopback' && name != 'lo')
-        .toList();
-    return names.firstWhere(
-      (name) => name == 'br-lan',
-      orElse: () => names.isNotEmpty ? names.first : 'br-lan',
-    );
   }
 
   Future<OpenwrtFeatureStatus> getOpenwrtFeatureStatus(
