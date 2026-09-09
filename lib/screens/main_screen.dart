@@ -43,62 +43,24 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     const MoreScreen(),
   ];
 
-  List<NavigationDestination> _destinations({
-    required bool showStatistics,
-    required Color? Function(int index) getTabColor,
-    required double Function(int index) getTabOpacity,
-  }) {
-    var index = 0;
-    final dashboardIndex = index++;
-    final statisticsIndex = showStatistics ? index++ : null;
-    final moreIndex = index;
-
-    return [
-      NavigationDestination(
-        selectedIcon: Opacity(
-          opacity: getTabOpacity(dashboardIndex),
-          child: Icon(Icons.dashboard, color: getTabColor(dashboardIndex)),
-        ),
-        icon: Opacity(
-          opacity: getTabOpacity(dashboardIndex),
-          child: Icon(
-            Icons.dashboard_outlined,
-            color: getTabColor(dashboardIndex),
-          ),
-        ),
-        label: 'Dashboard',
+  List<NavigationDestination> _destinations({required bool showStatistics}) => [
+    const NavigationDestination(
+      selectedIcon: Icon(Icons.dashboard),
+      icon: Icon(Icons.dashboard_outlined),
+      label: 'Dashboard',
+    ),
+    if (showStatistics)
+      const NavigationDestination(
+        selectedIcon: Icon(Icons.query_stats_rounded),
+        icon: Icon(Icons.query_stats_outlined),
+        label: 'Statistics',
       ),
-      if (statisticsIndex != null)
-        NavigationDestination(
-          selectedIcon: Opacity(
-            opacity: getTabOpacity(statisticsIndex),
-            child: Icon(
-              Icons.query_stats_rounded,
-              color: getTabColor(statisticsIndex),
-            ),
-          ),
-          icon: Opacity(
-            opacity: getTabOpacity(statisticsIndex),
-            child: Icon(
-              Icons.query_stats_outlined,
-              color: getTabColor(statisticsIndex),
-            ),
-          ),
-          label: 'Statistics',
-        ),
-      NavigationDestination(
-        selectedIcon: Opacity(
-          opacity: getTabOpacity(moreIndex),
-          child: const Icon(Icons.more_horiz),
-        ),
-        icon: Opacity(
-          opacity: getTabOpacity(moreIndex),
-          child: const Icon(Icons.more_horiz_outlined),
-        ),
-        label: 'More',
-      ),
-    ];
-  }
+    const NavigationDestination(
+      selectedIcon: Icon(Icons.more_horiz),
+      icon: Icon(Icons.more_horiz_outlined),
+      label: 'More',
+    ),
+  ];
 
   void _onItemTapped(int index) {
     setState(() {
@@ -147,26 +109,10 @@ class _MainScreenState extends ConsumerState<MainScreen> {
         builder: (context) {
           final showStatistics =
               appState.dashboardPreferences.showStatisticsTab;
-          final isRebooting = ref.watch(
-            appStateProvider.select((state) => state.isRebooting),
-          );
-          final moreIndex = showStatistics ? 2 : 1;
-          Color? getTabColor(int index) => (isRebooting && index != moreIndex)
-              ? Colors.grey.withAlpha(128)
-              : null;
-          double getTabOpacity(int index) =>
-              (isRebooting && index != moreIndex) ? 0.5 : 1.0;
-          final destinations = _destinations(
-            showStatistics: showStatistics,
-            getTabColor: getTabColor,
-            getTabOpacity: getTabOpacity,
-          );
+          final destinations = _destinations(showStatistics: showStatistics);
           final safeIndex = _selectedIndex.clamp(0, destinations.length - 1);
           return NavigationBar(
             onDestinationSelected: (index) {
-              if (isRebooting && index != destinations.length - 1) {
-                return;
-              }
               _onItemTapped(index);
             },
             selectedIndex: safeIndex,

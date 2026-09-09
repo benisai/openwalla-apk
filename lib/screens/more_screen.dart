@@ -143,7 +143,6 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
   }
 
   Future<void> _showRebootDialog(BuildContext context) async {
-    final appState = ref.read(appStateProvider);
     return showDialog<void>(
       context: context,
       builder: (BuildContext context) {
@@ -161,22 +160,14 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
               child: const Text('Reboot'),
               onPressed: () async {
                 Navigator.of(context).pop();
-                final success = await appState.reboot();
                 if (!context.mounted) return;
-                if (success) {
-                  await showDialog<void>(
-                    context: context,
-                    barrierDismissible: false,
-                    builder: (context) => const RebootCountdownDialog(
-                      duration: 60,
-                      maxAttempts: 2,
-                    ),
-                  );
-                  return;
-                }
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Failed to send reboot command.'),
+                await showDialog<void>(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (context) => const RebootCountdownDialog(
+                    duration: 60,
+                    maxAttempts: 2,
+                    sendRebootCommand: true,
                   ),
                 );
               },

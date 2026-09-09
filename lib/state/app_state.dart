@@ -7767,6 +7767,10 @@ class AppState extends ChangeNotifier {
         _authService!.useHttps,
         context: context,
       );
+      if (!result) {
+        _isRebooting = false;
+        notifyListeners();
+      }
       return result;
     } catch (e) {
       _isRebooting = false;

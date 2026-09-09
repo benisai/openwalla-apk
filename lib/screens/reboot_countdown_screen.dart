@@ -12,10 +12,12 @@ class RebootCountdownDialog extends ConsumerStatefulWidget {
     super.key,
     this.duration = 60,
     this.maxAttempts = 2,
+    this.sendRebootCommand = false,
   });
 
   final int duration;
   final int maxAttempts;
+  final bool sendRebootCommand;
 
   @override
   ConsumerState<RebootCountdownDialog> createState() =>
@@ -27,6 +29,8 @@ class _RebootCountdownDialogState extends ConsumerState<RebootCountdownDialog>
   late final AnimationController _controller;
   int _attempt = 1;
   bool _checking = false;
+  bool _sendingReboot = false;
+  bool _sendFailed = false;
 
   @override
   void initState() {
@@ -40,7 +44,11 @@ class _RebootCountdownDialogState extends ConsumerState<RebootCountdownDialog>
             unawaited(_tryReconnect());
           }
         });
-    _controller.forward();
+    if (widget.sendRebootCommand) {
+      unawaited(_sendRebootAndStart());
+    } else {
+      _controller.forward();
+    }
   }
 
   @override
@@ -52,11 +60,33 @@ class _RebootCountdownDialogState extends ConsumerState<RebootCountdownDialog>
   void _restartCountdown() {
     setState(() {
       _checking = false;
+      _sendFailed = false;
     });
     _controller
       ..duration = Duration(seconds: widget.duration)
       ..reset()
       ..forward();
+  }
+
+  Future<void> _sendRebootAndStart() async {
+    setState(() {
+      _sendingReboot = true;
+      _sendFailed = false;
+    });
+    final sent = await ref.read(appStateProvider).reboot(context: context);
+    if (!mounted) return;
+    if (!sent) {
+      ref.read(appStateProvider).finishRebootRecovery();
+      setState(() {
+        _sendingReboot = false;
+        _sendFailed = true;
+      });
+      return;
+    }
+    setState(() {
+      _sendingReboot = false;
+    });
+    unawaited(_controller.forward());
   }
 
   Future<void> _tryReconnect() async {
@@ -137,7 +167,9 @@ class _RebootCountdownDialogState extends ConsumerState<RebootCountdownDialog>
           child: AnimatedBuilder(
             animation: _controller,
             builder: (context, _) {
-              final progress = _checking ? 1.0 : _controller.value;
+              final progress = (_checking || _sendingReboot || _sendFailed)
+                  ? 1.0
+                  : _controller.value;
               return Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -159,21 +191,32 @@ class _RebootCountdownDialogState extends ConsumerState<RebootCountdownDialog>
                                 .withValues(alpha: 0.58),
                           ),
                         ),
-                        if (_checking)
+                        if (_checking || _sendingReboot || _sendFailed)
                           Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              SizedBox(
-                                width: 42,
-                                height: 42,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 4,
-                                  color: colorScheme.primary,
+                              if (!_sendFailed)
+                                SizedBox(
+                                  width: 42,
+                                  height: 42,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 4,
+                                    color: colorScheme.primary,
+                                  ),
+                                )
+                              else
+                                Icon(
+                                  Icons.error_outline_rounded,
+                                  size: 48,
+                                  color: colorScheme.error,
                                 ),
-                              ),
                               const SizedBox(height: 14),
                               Text(
-                                'Checking',
+                                _sendFailed
+                                    ? 'Failed'
+                                    : _sendingReboot
+                                    ? 'Starting'
+                                    : 'Checking',
                                 style: theme.textTheme.labelLarge?.copyWith(
                                   color: colorScheme.onSurfaceVariant,
                                   fontWeight: FontWeight.w800,
@@ -218,13 +261,17 @@ class _RebootCountdownDialogState extends ConsumerState<RebootCountdownDialog>
                       Expanded(
                         child: _CountdownStat(
                           label: 'Progress',
-                          value: '${(progress * 100).round()}%',
+                          value: _sendingReboot
+                              ? 'Ready'
+                              : '${(progress * 100).round()}%',
                         ),
                       ),
                       Expanded(
                         child: _CountdownStat(
                           label: 'Remaining',
-                          value: _checking
+                          value: _sendFailed
+                              ? '-'
+                              : (_checking || _sendingReboot)
                               ? 'Login'
                               : '${(widget.duration * (1 - progress)).ceil()}s',
                         ),
@@ -233,7 +280,11 @@ class _RebootCountdownDialogState extends ConsumerState<RebootCountdownDialog>
                   ),
                   const SizedBox(height: 20),
                   Text(
-                    _checking
+                    _sendFailed
+                        ? 'Openwalla could not send the reboot command. You can close this and try again.'
+                        : _sendingReboot
+                        ? 'Sending reboot command to the router.'
+                        : _checking
                         ? 'Trying to reconnect to the router.'
                         : 'Openwalla will try to log back in when the timer finishes.',
                     textAlign: TextAlign.center,
@@ -241,6 +292,14 @@ class _RebootCountdownDialogState extends ConsumerState<RebootCountdownDialog>
                       context,
                     ).copyWith(height: 1.35),
                   ),
+                  if (_sendFailed) ...[
+                    const SizedBox(height: 18),
+                    OutlinedButton(
+                      onPressed: () =>
+                          Navigator.of(context, rootNavigator: true).pop(),
+                      child: const Text('Close'),
+                    ),
+                  ],
                 ],
               );
             },
