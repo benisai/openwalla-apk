@@ -7761,11 +7761,17 @@ class AppState extends ChangeNotifier {
     notifyListeners();
 
     try {
+      try {
+        await runOpenwallaStateBackupAction('save', context: context);
+      } catch (e, stack) {
+        Logger.warning('Openwalla state save before reboot failed: $e');
+        Logger.debug('Openwalla state save before reboot stack: $stack');
+      }
+
       final result = await _apiService!.reboot(
         _authService!.ipAddress!,
         _authService!.sysauth!,
         _authService!.useHttps,
-        context: context,
       );
       if (!result) {
         _isRebooting = false;

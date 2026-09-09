@@ -40,18 +40,6 @@ class _StatisticsScreenState extends ConsumerState<StatisticsScreen> {
   );
 
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final appState = ref.read(appStateProvider);
-      if (appState.dashboardData == null) {
-        appState.fetchDashboardData();
-      }
-      appState.warmStatisticsData();
-    });
-  }
-
-  @override
   void dispose() {
     _usageRangeController.dispose();
     super.dispose();
@@ -59,9 +47,14 @@ class _StatisticsScreenState extends ConsumerState<StatisticsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final appState = ref.watch(appStateProvider);
+    final appState = ref.read(appStateProvider);
+    final isInitialDashboardLoading = ref.watch(
+      appStateProvider.select(
+        (state) => state.isDashboardLoading && state.dashboardData == null,
+      ),
+    );
 
-    if (appState.isDashboardLoading && appState.dashboardData == null) {
+    if (isInitialDashboardLoading) {
       return Scaffold(
         appBar: LuciAppBar(
           title: 'Statistics',
@@ -95,7 +88,6 @@ class _StatisticsScreenState extends ConsumerState<StatisticsScreen> {
             _topDevicesFuture = null;
             _protocolUsageFuture = null;
             await appState.fetchDashboardData();
-            appState.warmStatisticsData(force: true);
           },
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),

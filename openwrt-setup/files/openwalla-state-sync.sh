@@ -141,6 +141,7 @@ save_copy() {
 	local src="$1"
 	local dst="$2"
 	[ -f "$src" ] || return 0
+	mkdir -p "$(dirname "$dst")" 2>/dev/null || true
 	cp -f "$src" "$dst" 2>/dev/null || true
 }
 
@@ -190,6 +191,7 @@ restore_copy() {
 	local src="$1"
 	local dst="$2"
 	[ -f "$src" ] || return 0
+	mkdir -p "$(dirname "$dst")" 2>/dev/null || true
 	cp -f "$src" "$dst" 2>/dev/null || true
 }
 
@@ -253,6 +255,7 @@ save_state() {
 	save_vnstat_dir "$state_dir"
 	save_runtime_logs "$state_dir"
 	date +%s >"$STATE_TS_FILE" 2>/dev/null || true
+	save_copy "$STATE_TS_FILE" "$state_dir/openwalla-state-sync.last"
 }
 
 restore_state() {
@@ -280,6 +283,7 @@ restore_state() {
 	restore_copy "$state_dir/openwalla-speedtest-monitor.txt" "$speedtest_file"
 	restore_copy "$state_dir/openwalla-quarantine-known.txt" "$quarantine_state_file"
 	restore_copy "$state_dir/openwalla.config" "/etc/config/openwalla"
+	restore_copy "$state_dir/openwalla-state-sync.last" "$STATE_TS_FILE"
 	restore_vnstat_dir "$state_dir"
 	restore_runtime_logs "$state_dir"
 }
@@ -288,7 +292,7 @@ print_status() {
 	local state_dir interval last size files last_iso
 	state_dir="$(read_state_dir)"
 	interval="$(read_backup_time_min)"
-	last="$(cat "$STATE_TS_FILE" 2>/dev/null || echo 0)"
+	last="$(cat "$STATE_TS_FILE" 2>/dev/null || cat "$state_dir/openwalla-state-sync.last" 2>/dev/null || echo 0)"
 	case "$last" in
 	''|*[!0-9]*) last=0 ;;
 	esac
