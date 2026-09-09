@@ -111,7 +111,7 @@ class _NetworkPerformanceScreenState
         context: mounted ? context : null,
       ),
       appState.fetchNotifications(
-        limit: 3,
+        limit: 1,
         includeArchived: true,
         context: mounted ? context : null,
       ),
@@ -609,7 +609,7 @@ class _RecentEventsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final events = notifications.take(3).toList();
+    final events = notifications.take(1).toList();
 
     return _OpenwallaPanel(
       child: Column(
