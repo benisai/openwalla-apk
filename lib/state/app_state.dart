@@ -7084,7 +7084,10 @@ class AppState extends ChangeNotifier {
       context: context,
     );
     final output = _commandOutput(result).trim();
-    return output.isEmpty ? 'Openwalla state $action completed.' : output;
+    if (output.isEmpty || output == '{code: 0}') {
+      return action == 'restore' ? 'Restore completed.' : 'Backup completed.';
+    }
+    return output;
   }
 
   OpenwallaServiceStatus? _parseServiceStatusLine(String line) {

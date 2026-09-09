@@ -31,8 +31,11 @@ class _BackupRestoreScreenState extends ConsumerState<BackupRestoreScreen> {
   }
 
   Future<void> _refresh() async {
-    setState(() => _statusFuture = _loadStatus());
-    await _statusFuture;
+    final future = _loadStatus();
+    setState(() {
+      _statusFuture = future;
+    });
+    await future;
   }
 
   Future<void> _runAction(String action) async {
