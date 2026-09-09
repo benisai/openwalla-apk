@@ -40,7 +40,7 @@
 ## Installation
 ```
 On Openwrt Router:
-wget https://raw.githubusercontent.com/benisai/luci-mobile-apk/main/openwrt-setup/Setup-Openwrt-WGet-Files.sh
+wget https://raw.githubusercontent.com/benisai/openwalla-apk/main/openwrt-setup/Setup-Openwrt-WGet-Files.sh
 chmod +X Setup-Openwrt-WGet-Files.sh
 
 ./Setup-Openwrt-WGet-Files.sh 

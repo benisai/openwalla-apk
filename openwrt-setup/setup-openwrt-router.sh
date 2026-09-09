@@ -13,7 +13,7 @@ have_cmd() {
 	command -v "$1" >/dev/null 2>&1
 }
 
-OPENWALLA_GITHUB_REPO="${OPENWALLA_GITHUB_REPO:-benisai/luci-mobile-apk}"
+OPENWALLA_GITHUB_REPO="${OPENWALLA_GITHUB_REPO:-benisai/openwalla-apk}"
 OPENWALLA_GITHUB_REF="${OPENWALLA_GITHUB_REF:-main}"
 OPENWALLA_RAW_BASE="${OPENWALLA_RAW_BASE:-https://raw.githubusercontent.com/$OPENWALLA_GITHUB_REPO/$OPENWALLA_GITHUB_REF/openwrt-setup}"
 OPENWALLA_ROOT="${OPENWALLA_ROOT:-/root/openwalla}"

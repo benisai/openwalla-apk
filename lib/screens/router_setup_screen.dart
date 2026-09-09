@@ -19,7 +19,7 @@ class RouterSetupScreen extends ConsumerStatefulWidget {
 
 class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
   static const _rawSetupBase =
-      'https://raw.githubusercontent.com/benisai/luci-mobile-apk/main/openwrt-setup';
+      'https://raw.githubusercontent.com/benisai/openwalla-apk/main/openwrt-setup';
 
   static const _defaultFeatures = ['monitoring'];
 
