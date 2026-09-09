@@ -362,7 +362,8 @@ class _CountdownRingPainter extends CustomPainter {
     final radius = math.min(size.width, size.height) / 2 - 12;
     final rect = Rect.fromCircle(center: center, radius: radius);
     const startAngle = -math.pi / 2;
-    final sweepAngle = math.pi * 2 * progress.clamp(0.0, 1.0);
+    final remainingProgress = (1 - progress).clamp(0.0, 1.0);
+    final sweepAngle = -math.pi * 2 * remainingProgress;
 
     final trackPaint = Paint()
       ..color = trackColor
