@@ -8848,6 +8848,53 @@ class AppState extends ChangeNotifier {
     await fetchDashboardData();
   }
 
+  Future<void> saveClientDeviceIdentity(
+    Client client, {
+    required String hostname,
+    required String deviceIcon,
+    BuildContext? context,
+  }) async {
+    if (_reviewerModeEnabled) {
+      notifyListeners();
+      return;
+    }
+
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) {
+      throw StateError('No selected router connection is available');
+    }
+
+    final normalizedMac = _normalizeMacAddress(client.macAddress);
+    if (!RegExp(r'^([0-9A-F]{2}:){5}[0-9A-F]{2}$').hasMatch(normalizedMac)) {
+      throw ArgumentError('A valid device MAC address is required');
+    }
+
+    final cleanName = hostname.trim().isEmpty
+        ? client.hostname
+        : hostname.trim();
+    final dbCommand = _deviceSettingsDbCommand(
+      mac: normalizedMac,
+      ip: client.ipAddress == 'N/A' ? '' : client.ipAddress,
+      hostname: cleanName,
+      staticIpAddress: client.staticIpAddress ?? '',
+      deviceIcon: deviceIcon.trim(),
+    );
+    await _apiService!.call(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      object: 'file',
+      method: 'exec',
+      params: {
+        'command': '/bin/sh',
+        'params': ['-c', dbCommand],
+      },
+      context: context,
+    );
+    notifyListeners();
+  }
+
   String _deviceSettingsDbCommand({
     required String mac,
     required String ip,

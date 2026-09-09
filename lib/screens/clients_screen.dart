@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:luci_mobile/models/client.dart';
@@ -730,33 +732,108 @@ class _DeviceSettingsSheet extends ConsumerStatefulWidget {
 class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
   final _nameController = TextEditingController();
   final _ipController = TextEditingController();
+  final _nameFocusNode = FocusNode();
   bool _staticIpEnabled = false;
   String _selectedIconKey = 'device';
+  late final String _initialName;
+  late final String _initialStaticIp;
+  late final bool _initialStaticIpEnabled;
+  late String _savedName;
+  late String _savedIconKey;
   late bool _isBlocked;
+  bool _isEditingName = false;
   bool _isSaving = false;
+  bool _isSavingName = false;
   bool _isBlocking = false;
+  bool _hasSavedChanges = false;
 
   @override
   void initState() {
     super.initState();
-    _nameController.text = widget.client.hostname;
+    _initialName = widget.client.hostname;
+    _nameController.text = _initialName;
     _ipController.text = widget.client.staticIpAddress?.isNotEmpty == true
         ? widget.client.staticIpAddress!
         : widget.client.ipAddress == 'N/A'
         ? ''
         : widget.client.ipAddress;
     _staticIpEnabled = widget.client.staticIpAddress?.isNotEmpty == true;
+    _initialStaticIpEnabled = _staticIpEnabled;
+    _initialStaticIp = _staticIpEnabled ? _ipController.text.trim() : '';
     _isBlocked = widget.client.isBlocked;
     _selectedIconKey = widget.client.deviceIcon?.trim().isNotEmpty == true
         ? widget.client.deviceIcon!.trim()
         : 'device';
+    _savedName = _initialName;
+    _savedIconKey = _selectedIconKey;
+    _nameController.addListener(_handleNameChanged);
   }
 
   @override
   void dispose() {
+    _nameController.removeListener(_handleNameChanged);
     _nameController.dispose();
     _ipController.dispose();
+    _nameFocusNode.dispose();
     super.dispose();
+  }
+
+  bool get _identityDirty =>
+      _nameController.text.trim() != _savedName ||
+      _selectedIconKey != _savedIconKey;
+
+  bool get _staticIpDirty {
+    final currentStaticIp = _staticIpEnabled ? _ipController.text.trim() : '';
+    return _staticIpEnabled != _initialStaticIpEnabled ||
+        currentStaticIp != _initialStaticIp;
+  }
+
+  void _handleNameChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _editName() {
+    setState(() => _isEditingName = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_nameFocusNode.hasFocus) _nameFocusNode.requestFocus();
+    });
+  }
+
+  Future<bool> _saveNameOnly() async {
+    final name = _nameController.text.trim();
+    if (name.isEmpty) {
+      _showError('Device name is required.');
+      return false;
+    }
+
+    setState(() => _isSavingName = true);
+    try {
+      await ref
+          .read(appStateProvider)
+          .saveClientDeviceIdentity(
+            widget.client,
+            hostname: name,
+            deviceIcon: _selectedIconKey,
+            context: context,
+          );
+      if (!mounted) return false;
+      setState(() {
+        _savedName = name;
+        _savedIconKey = _selectedIconKey;
+        _isEditingName = false;
+        _isSavingName = false;
+        _hasSavedChanges = true;
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Device name saved.')));
+      return true;
+    } catch (e) {
+      if (!mounted) return false;
+      _showError('Failed to save device name: $e');
+      setState(() => _isSavingName = false);
+      return false;
+    }
   }
 
   Future<void> _save() async {
@@ -767,6 +844,12 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
     }
     if (_staticIpEnabled && _ipController.text.trim().isEmpty) {
       _showError('Static IP address is required.');
+      return;
+    }
+
+    if (!_staticIpDirty) {
+      final saved = await _saveNameOnly();
+      if (mounted && saved) Navigator.of(context).pop(true);
       return;
     }
 
@@ -915,6 +998,7 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final selectedIcon = _deviceIconOptionFor(_selectedIconKey).icon;
+    final isIdentityBusy = _isSaving || _isSavingName || _isBlocking;
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.fromLTRB(
@@ -931,7 +1015,7 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
               Row(
                 children: [
                   InkWell(
-                    onTap: _isSaving ? null : _pickIcon,
+                    onTap: isIdentityBusy ? null : _pickIcon,
                     borderRadius: BorderRadius.circular(8),
                     child: Stack(
                       clipBehavior: Clip.none,
@@ -983,29 +1067,58 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
                   Expanded(
                     child: TextField(
                       controller: _nameController,
-                      enabled: !_isSaving,
+                      focusNode: _nameFocusNode,
+                      enabled: !_isSaving && !_isSavingName,
+                      readOnly: !_isEditingName,
                       style: theme.textTheme.titleMedium?.copyWith(
                         color: colorScheme.onSurface,
                         fontWeight: FontWeight.w900,
                       ),
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         border: InputBorder.none,
                         contentPadding: EdgeInsets.zero,
                         isDense: true,
                         hintText: 'Device name',
-                        suffixIcon: Icon(Icons.edit_rounded),
-                        suffixIconConstraints: BoxConstraints(
+                        suffixIcon: IconButton(
+                          tooltip: _identityDirty
+                              ? 'Save device name'
+                              : 'Edit device name',
+                          onPressed: isIdentityBusy
+                              ? null
+                              : _identityDirty
+                              ? _saveNameOnly
+                              : _editName,
+                          icon: _isSavingName
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : Icon(
+                                  _identityDirty
+                                      ? Icons.save_rounded
+                                      : Icons.edit_rounded,
+                                ),
+                        ),
+                        suffixIconConstraints: const BoxConstraints(
                           minWidth: 28,
                           minHeight: 28,
                         ),
                       ),
+                      onSubmitted: (_) {
+                        if (_identityDirty && !isIdentityBusy) {
+                          unawaited(_saveNameOnly());
+                        }
+                      },
                     ),
                   ),
                   IconButton(
                     tooltip: 'Close',
-                    onPressed: _isSaving
+                    onPressed: (_isSaving || _isSavingName)
                         ? null
-                        : () => Navigator.of(context).pop(false),
+                        : () => Navigator.of(context).pop(_hasSavedChanges),
                     icon: const Icon(Icons.close_rounded),
                   ),
                 ],
