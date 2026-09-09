@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:luci_mobile/main.dart';
+import 'package:luci_mobile/screens/backup_restore_screen.dart';
 import 'package:luci_mobile/screens/login_screen.dart';
 import 'package:luci_mobile/screens/reboot_countdown_screen.dart';
 import 'package:luci_mobile/screens/settings_screen.dart';
@@ -269,6 +270,20 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
                           : () => _showRebootDialog(context),
                       enabled: !isRebooting,
                       showSpinner: isRebooting,
+                    ),
+                    _buildMoreTile(
+                      context,
+                      icon: Icons.backup_rounded,
+                      iconColor: const Color(0xFF20CF70),
+                      title: 'Backup & Restore',
+                      subtitle: 'Restore Openwalla state after reboot',
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => const BackupRestoreScreen(),
+                          ),
+                        );
+                      },
                     ),
                     _buildMoreTile(
                       context,

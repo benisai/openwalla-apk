@@ -55,6 +55,38 @@ class OpenwallaServiceStatus {
   });
 }
 
+class OpenwallaStateBackupStatus {
+  final bool installed;
+  final String stateDir;
+  final int backupTimeMinutes;
+  final DateTime? lastBackupAt;
+  final int fileCount;
+  final String size;
+  final String message;
+
+  const OpenwallaStateBackupStatus({
+    required this.installed,
+    required this.stateDir,
+    required this.backupTimeMinutes,
+    required this.lastBackupAt,
+    required this.fileCount,
+    required this.size,
+    this.message = '',
+  });
+
+  factory OpenwallaStateBackupStatus.notInstalled([String message = '']) {
+    return OpenwallaStateBackupStatus(
+      installed: false,
+      stateDir: '/overlay/openwalla-state',
+      backupTimeMinutes: 720,
+      lastBackupAt: null,
+      fileCount: 0,
+      size: '0 B',
+      message: message,
+    );
+  }
+}
+
 enum OpenwrtFeature { wireguard, adblock, sqm }
 
 class OpenwrtFeatureStatus {
@@ -6757,6 +6789,119 @@ class AppState extends ChangeNotifier {
         .map(_parseServiceStatusLine)
         .whereType<OpenwallaServiceStatus>()
         .toList();
+  }
+
+  Future<OpenwallaStateBackupStatus> fetchOpenwallaStateBackupStatus({
+    BuildContext? context,
+  }) async {
+    if (_reviewerModeEnabled) {
+      return OpenwallaStateBackupStatus(
+        installed: true,
+        stateDir: '/overlay/openwalla-state',
+        backupTimeMinutes: 720,
+        lastBackupAt: DateTime.now().subtract(const Duration(minutes: 8)),
+        fileCount: 14,
+        size: '3.2M',
+      );
+    }
+
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) {
+      return OpenwallaStateBackupStatus.notInstalled('Router is not connected');
+    }
+
+    try {
+      final result = await _apiService!.call(
+        router.ipAddress,
+        sysauth,
+        router.useHttps,
+        object: 'file',
+        method: 'exec',
+        params: {
+          'command': '/usr/bin/openwalla-state-sync',
+          'params': ['status'],
+        },
+        context: context,
+      );
+      return _parseStateBackupStatus(_commandOutput(result));
+    } catch (e, stack) {
+      Logger.warning('Optional Openwalla state backup status failed: $e');
+      Logger.debug('Optional Openwalla state backup status stack: $stack');
+      return OpenwallaStateBackupStatus.notInstalled(e.toString());
+    }
+  }
+
+  OpenwallaStateBackupStatus _parseStateBackupStatus(String output) {
+    final values = <String, String>{};
+    for (final line in output.split('\n')) {
+      final trimmed = line.trim();
+      if (trimmed.isEmpty) continue;
+      final separator = trimmed.indexOf('|');
+      if (separator <= 0) continue;
+      values[trimmed.substring(0, separator)] = trimmed.substring(
+        separator + 1,
+      );
+    }
+
+    if (values['installed'] != '1') {
+      return OpenwallaStateBackupStatus.notInstalled(output.trim());
+    }
+
+    final lastEpoch = int.tryParse(values['last_backup_epoch'] ?? '');
+    DateTime? lastBackupAt;
+    if (lastEpoch != null && lastEpoch > 0) {
+      lastBackupAt = DateTime.fromMillisecondsSinceEpoch(
+        lastEpoch * 1000,
+        isUtc: true,
+      ).toLocal();
+    }
+
+    return OpenwallaStateBackupStatus(
+      installed: true,
+      stateDir: values['state_dir']?.isNotEmpty == true
+          ? values['state_dir']!
+          : '/overlay/openwalla-state',
+      backupTimeMinutes: int.tryParse(values['backup_time_min'] ?? '') ?? 720,
+      lastBackupAt: lastBackupAt,
+      fileCount: int.tryParse(values['file_count'] ?? '') ?? 0,
+      size: values['size']?.isNotEmpty == true ? values['size']! : '0 B',
+    );
+  }
+
+  Future<String> runOpenwallaStateBackupAction(
+    String action, {
+    BuildContext? context,
+  }) async {
+    if (!const {'backup', 'save', 'restore'}.contains(action)) {
+      throw Exception('Unsupported state backup action: $action');
+    }
+    if (_reviewerModeEnabled) {
+      return action == 'restore'
+          ? 'Reviewer restore completed'
+          : 'Reviewer backup completed';
+    }
+
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) {
+      throw Exception('Router is not connected');
+    }
+
+    final result = await _apiService!.call(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      object: 'file',
+      method: 'exec',
+      params: {
+        'command': '/usr/bin/openwalla-state-sync',
+        'params': [action],
+      },
+      context: context,
+    );
+    final output = _commandOutput(result).trim();
+    return output.isEmpty ? 'Openwalla state $action completed.' : output;
   }
 
   OpenwallaServiceStatus? _parseServiceStatusLine(String line) {

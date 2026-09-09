@@ -284,6 +284,35 @@ restore_state() {
 	restore_runtime_logs "$state_dir"
 }
 
+print_status() {
+	local state_dir interval last size files last_iso
+	state_dir="$(read_state_dir)"
+	interval="$(read_backup_time_min)"
+	last="$(cat "$STATE_TS_FILE" 2>/dev/null || echo 0)"
+	case "$last" in
+	''|*[!0-9]*) last=0 ;;
+	esac
+	if [ "$last" -gt 0 ]; then
+		last_iso="$(date -u -d "@$last" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -r "$last" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "")"
+	else
+		last_iso=""
+	fi
+	if [ -d "$state_dir" ]; then
+		size="$(du -sh "$state_dir" 2>/dev/null | awk '{print $1}')"
+		files="$(find "$state_dir" -type f 2>/dev/null | wc -l | tr -d ' ')"
+	else
+		size="0 B"
+		files="0"
+	fi
+	printf "installed|1\n"
+	printf "state_dir|%s\n" "$state_dir"
+	printf "backup_time_min|%s\n" "$interval"
+	printf "last_backup_epoch|%s\n" "$last"
+	printf "last_backup_iso|%s\n" "$last_iso"
+	printf "file_count|%s\n" "$files"
+	printf "size|%s\n" "$size"
+}
+
 save_if_due() {
 	local interval now last elapsed
 	interval="$(read_backup_time_min)"
@@ -345,11 +374,14 @@ sync_cron() {
 }
 
 case "${1:-}" in
-save)
+save|backup)
 	save_state
 	;;
 restore)
 	restore_state
+	;;
+status)
+	print_status
 	;;
 save-if-due)
 	save_if_due
@@ -358,7 +390,7 @@ sync-cron)
 	sync_cron
 	;;
 *)
-	echo "usage: $0 {save|restore|save-if-due|sync-cron}"
+	echo "usage: $0 {save|backup|restore|status|save-if-due|sync-cron}"
 	exit 1
 	;;
 esac
