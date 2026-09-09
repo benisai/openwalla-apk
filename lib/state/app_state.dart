@@ -8897,26 +8897,6 @@ class AppState extends ChangeNotifier {
       throw ArgumentError('A valid static IP address is required');
     }
 
-    final dbCommand = _deviceSettingsDbCommand(
-      mac: normalizedMac,
-      ip: client.ipAddress == 'N/A' ? '' : client.ipAddress,
-      hostname: cleanName,
-      staticIpAddress: cleanStaticIp,
-      deviceIcon: cleanDeviceIcon,
-    );
-    await _apiService!.call(
-      router.ipAddress,
-      sysauth,
-      router.useHttps,
-      object: 'file',
-      method: 'exec',
-      params: {
-        'command': '/bin/sh',
-        'params': ['-c', dbCommand],
-      },
-      context: context,
-    );
-
     final dhcp = await _apiService!.call(
       router.ipAddress,
       sysauth,
@@ -8978,14 +8958,31 @@ class AppState extends ChangeNotifier {
       router.useHttps,
       config: 'dhcp',
     );
-    await _apiService!.systemExec(
-      router.ipAddress,
-      sysauth,
-      router.useHttps,
-      command:
-          '/etc/init.d/dnsmasq restart 2>/dev/null || /etc/init.d/odhcpd restart 2>/dev/null || true',
-    );
-    await fetchDashboardData();
+
+    try {
+      final dbCommand = _deviceSettingsDbCommand(
+        mac: normalizedMac,
+        ip: client.ipAddress == 'N/A' ? '' : client.ipAddress,
+        hostname: cleanName,
+        staticIpAddress: cleanStaticIp,
+        deviceIcon: cleanDeviceIcon,
+      );
+      await _apiService!.call(
+        router.ipAddress,
+        sysauth,
+        router.useHttps,
+        object: 'file',
+        method: 'exec',
+        params: {
+          'command': '/bin/sh',
+          'params': ['-c', dbCommand],
+        },
+      );
+    } catch (e, stack) {
+      Logger.debug('Optional device DB static IP cache update failed: $e');
+      Logger.debug('Optional device DB static IP cache stack: $stack');
+    }
+    notifyListeners();
   }
 
   Future<void> saveClientDeviceIdentity(
@@ -9125,7 +9122,8 @@ class AppState extends ChangeNotifier {
   String? _extractAddedSection(dynamic result) {
     final data = _extractRpcData(result);
     if (data is Map) {
-      return (data['section'] ?? data['name'])?.toString();
+      return (data['section'] ?? data['.name'] ?? data['name'] ?? data['sid'])
+          ?.toString();
     }
     if (data is String) return data;
     return null;
