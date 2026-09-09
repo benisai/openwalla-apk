@@ -736,10 +736,9 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
   bool _staticIpEnabled = false;
   String _selectedIconKey = 'device';
   late final String _initialName;
-  late final String _initialStaticIp;
-  late final bool _initialStaticIpEnabled;
   late String _savedName;
   late String _savedIconKey;
+  late String _currentStaticIp;
   late bool _isBlocked;
   bool _isEditingName = false;
   bool _isSaving = false;
@@ -758,8 +757,7 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
         ? ''
         : widget.client.ipAddress;
     _staticIpEnabled = widget.client.staticIpAddress?.isNotEmpty == true;
-    _initialStaticIpEnabled = _staticIpEnabled;
-    _initialStaticIp = _staticIpEnabled ? _ipController.text.trim() : '';
+    _currentStaticIp = _staticIpEnabled ? _ipController.text.trim() : '';
     _isBlocked = widget.client.isBlocked;
     _selectedIconKey = widget.client.deviceIcon?.trim().isNotEmpty == true
         ? widget.client.deviceIcon!.trim()
@@ -781,12 +779,6 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
   bool get _identityDirty =>
       _nameController.text.trim() != _savedName ||
       _selectedIconKey != _savedIconKey;
-
-  bool get _staticIpDirty {
-    final currentStaticIp = _staticIpEnabled ? _ipController.text.trim() : '';
-    return _staticIpEnabled != _initialStaticIpEnabled ||
-        currentStaticIp != _initialStaticIp;
-  }
 
   void _handleNameChanged() {
     if (mounted) setState(() {});
@@ -842,14 +834,37 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
       _showError('Device name is required.');
       return;
     }
-    if (_staticIpEnabled && _ipController.text.trim().isEmpty) {
-      _showError('Static IP address is required.');
+
+    if (_identityDirty) {
+      final saved = await _saveNameOnly();
+      if (mounted && saved) Navigator.of(context).pop(true);
       return;
     }
 
-    if (!_staticIpDirty) {
-      final saved = await _saveNameOnly();
-      if (mounted && saved) Navigator.of(context).pop(true);
+    Navigator.of(context).pop(_hasSavedChanges);
+  }
+
+  Future<void> _showStaticIpDialog() async {
+    final controller = TextEditingController(
+      text: _staticIpEnabled
+          ? _currentStaticIp
+          : widget.client.ipAddress == 'N/A'
+          ? ''
+          : widget.client.ipAddress,
+    );
+    final result = await showDialog<_StaticIpDialogResult>(
+      context: context,
+      builder: (context) => _StaticIpDialog(
+        controller: controller,
+        hasReservation: _staticIpEnabled,
+      ),
+    );
+    controller.dispose();
+    if (result == null || !mounted) return;
+
+    final nextStaticIp = result.enabled ? result.ipAddress.trim() : '';
+    if (result.enabled && nextStaticIp.isEmpty) {
+      _showError('Static IP address is required.');
       return;
     }
 
@@ -859,17 +874,36 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
           .read(appStateProvider)
           .saveClientDeviceSettings(
             widget.client,
-            hostname: name,
-            staticIpEnabled: _staticIpEnabled,
-            staticIpAddress: _ipController.text.trim(),
+            hostname: _nameController.text.trim(),
+            staticIpEnabled: result.enabled,
+            staticIpAddress: nextStaticIp,
             deviceIcon: _selectedIconKey,
             context: context,
           );
       if (!mounted) return;
-      Navigator.of(context).pop(true);
+      setState(() {
+        _staticIpEnabled = result.enabled;
+        _currentStaticIp = nextStaticIp;
+        _ipController.text = nextStaticIp.isNotEmpty
+            ? nextStaticIp
+            : widget.client.ipAddress == 'N/A'
+            ? ''
+            : widget.client.ipAddress;
+        _isSaving = false;
+        _hasSavedChanges = true;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            result.enabled
+                ? 'Static IP reservation saved.'
+                : 'Static IP reservation removed.',
+          ),
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
-      _showError('Failed to save device settings: $e');
+      _showError('Failed to update static IP: $e');
       setState(() => _isSaving = false);
     }
   }
@@ -1127,6 +1161,16 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
               _DeviceUsagePanel(client: widget.client),
               _ActiveScheduleNotice(client: widget.client),
               const SizedBox(height: 22),
+              _DeviceAddressRow(
+                label: _staticIpEnabled ? 'IP Address (Static)' : 'IP Address',
+                value: _currentStaticIp.isNotEmpty
+                    ? _currentStaticIp
+                    : widget.client.ipAddress,
+                isPinned: _staticIpEnabled,
+                isBusy: _isSaving,
+                onPinTap: _showStaticIpDialog,
+              ),
+              const SizedBox(height: 18),
               Text(
                 'MAC Address',
                 style: theme.textTheme.labelLarge?.copyWith(
@@ -1141,27 +1185,6 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
                 decoration: const InputDecoration(
                   prefixIcon: Icon(Icons.memory_rounded),
                   hintText: 'MAC address',
-                ),
-              ),
-              const SizedBox(height: 18),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Static IP Address'),
-                subtitle: const Text('Reserve a permanent IP for this device'),
-                value: _staticIpEnabled,
-                onChanged: _isSaving
-                    ? null
-                    : (value) => setState(() => _staticIpEnabled = value),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _ipController,
-                enabled: !_isSaving && _staticIpEnabled,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  prefixIcon: Icon(Icons.lan_rounded),
-                  labelText: 'IP Address',
-                  hintText: '192.168.1.50',
                 ),
               ),
               const SizedBox(height: 20),
@@ -1221,6 +1244,170 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
+    );
+  }
+}
+
+class _DeviceAddressRow extends StatelessWidget {
+  final String label;
+  final String value;
+  final bool isPinned;
+  final bool isBusy;
+  final VoidCallback onPinTap;
+
+  const _DeviceAddressRow({
+    required this.label,
+    required this.value,
+    required this.isPinned,
+    required this.isBusy,
+    required this.onPinTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final pinColor = isPinned
+        ? const Color(0xFF188CFF)
+        : colorScheme.onSurfaceVariant.withValues(alpha: 0.62);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.22),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.3),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.lan_rounded, size: 20, color: colorScheme.primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  value.isEmpty || value == 'N/A' ? 'No IP address' : value,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: colorScheme.onSurface,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          IconButton.filledTonal(
+            tooltip: isPinned ? 'Edit static IP' : 'Pin static IP',
+            onPressed: isBusy ? null : onPinTap,
+            style: IconButton.styleFrom(
+              backgroundColor: pinColor.withValues(
+                alpha: isPinned ? 0.18 : 0.1,
+              ),
+            ),
+            icon: isBusy
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Icon(Icons.push_pin_rounded, color: pinColor),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StaticIpDialogResult {
+  final bool enabled;
+  final String ipAddress;
+
+  const _StaticIpDialogResult({required this.enabled, required this.ipAddress});
+}
+
+class _StaticIpDialog extends StatefulWidget {
+  final TextEditingController controller;
+  final bool hasReservation;
+
+  const _StaticIpDialog({
+    required this.controller,
+    required this.hasReservation,
+  });
+
+  @override
+  State<_StaticIpDialog> createState() => _StaticIpDialogState();
+}
+
+class _StaticIpDialogState extends State<_StaticIpDialog> {
+  late bool _enabled;
+
+  @override
+  void initState() {
+    super.initState();
+    _enabled = widget.hasReservation;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return AlertDialog(
+      title: const Text('Static IP Reservation'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Pin this IP address'),
+            subtitle: const Text('Reserve this address for the device MAC.'),
+            value: _enabled,
+            onChanged: (value) => setState(() => _enabled = value),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: widget.controller,
+            enabled: _enabled,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              prefixIcon: Icon(Icons.lan_rounded),
+              labelText: 'IP Address',
+              hintText: '192.168.1.50',
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        if (widget.hasReservation)
+          TextButton(
+            onPressed: () => Navigator.of(
+              context,
+            ).pop(const _StaticIpDialogResult(enabled: false, ipAddress: '')),
+            child: Text('Clear', style: TextStyle(color: colorScheme.error)),
+          ),
+        FilledButton.icon(
+          onPressed: () => Navigator.of(context).pop(
+            _StaticIpDialogResult(
+              enabled: _enabled,
+              ipAddress: widget.controller.text,
+            ),
+          ),
+          icon: const Icon(Icons.push_pin_rounded),
+          label: const Text('Save'),
+        ),
+      ],
     );
   }
 }
