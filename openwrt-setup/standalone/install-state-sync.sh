@@ -28,6 +28,7 @@ uci commit openwalla
 
 /usr/bin/openwalla-state-sync restore || true
 /usr/bin/openwalla-state-sync sync-cron || true
+/usr/bin/openwalla-state-sync save || true
 
 if [ -f /etc/rc.local ]; then
 	if ! grep -q '/usr/bin/openwalla-state-sync restore' /etc/rc.local 2>/dev/null; then

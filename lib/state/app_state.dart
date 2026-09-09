@@ -6963,7 +6963,18 @@ class AppState extends ChangeNotifier {
     } catch (e, stack) {
       Logger.warning('Optional Openwalla state backup status failed: $e');
       Logger.debug('Optional Openwalla state backup status stack: $stack');
-      return OpenwallaStateBackupStatus.notInstalled(e.toString());
+      try {
+        final sshOutput = await runRouterSetupCommandViaSsh(
+          '/usr/bin/openwalla-state-sync status',
+        );
+        return _parseStateBackupStatus(sshOutput);
+      } catch (sshError, sshStack) {
+        Logger.debug(
+          'Optional Openwalla state backup SSH status failed: $sshError',
+        );
+        Logger.debug('Optional Openwalla state backup SSH stack: $sshStack');
+        return OpenwallaStateBackupStatus.notInstalled(e.toString());
+      }
     }
   }
 

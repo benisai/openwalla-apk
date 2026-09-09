@@ -131,11 +131,15 @@ class _BackupRestoreScreenState extends ConsumerState<BackupRestoreScreen> {
                 if (!status.installed)
                   _MissingStateSyncCard(
                     message: status.message,
-                    onSetup: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (context) => const RouterSetupScreen(),
-                      ),
-                    ),
+                    onSetup: () async {
+                      await Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => const RouterSetupScreen(),
+                        ),
+                      );
+                      if (!mounted) return;
+                      await _refresh();
+                    },
                     onRefresh: _refresh,
                   )
                 else ...[

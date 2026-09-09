@@ -33,6 +33,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
   bool _isInstalling = false;
   bool _isUninstalling = false;
   bool _showDetails = false;
+  bool _setupComplete = false;
   String? _lastOutput;
   final Set<String> _uninstallFeatures = {};
 
@@ -104,6 +105,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
 
     setState(() {
       _isInstalling = true;
+      _setupComplete = false;
       _lastOutput =
           'Connecting to router over SSH...\nRunning Openwalla setup command...\n\nConsole output will appear here as the install runs.';
     });
@@ -141,9 +143,10 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
         _lastOutput = output.trim().isEmpty
             ? 'Setup finished. The router did not return console output.'
             : output.trim();
+        _setupComplete = true;
       });
       console.setOutput(_lastOutput!);
-      _showSnack('Router setup finished.');
+      _showSnack('Setup Complete', success: true);
     } catch (e) {
       if (!mounted) return;
       console.setOutput(
@@ -153,6 +156,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
         _lastOutput =
             'SSH install failed. Make sure SSH is enabled on the router and the saved router username/password can log in as root. You can still copy the SSH command below and run it manually.\n\n$e';
         _showDetails = true;
+        _setupComplete = false;
       });
       _showSnack('Router setup could not run over SSH.');
     } finally {
@@ -247,10 +251,13 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
     await appState.saveDashboardPreferences(prefs);
   }
 
-  void _showSnack(String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+  void _showSnack(String message, {bool success = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: success ? const Color(0xFF20CF70) : null,
+      ),
+    );
   }
 
   void _nextStep() {
@@ -336,6 +343,10 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
               ),
             ],
             if (_wizardStep == _lastWizardStep) ...[
+              if (_setupComplete) ...[
+                const SizedBox(height: 16),
+                const _SetupCompleteBanner(),
+              ],
               const SizedBox(height: 16),
               Align(
                 alignment: Alignment.center,
@@ -856,6 +867,40 @@ class _FlowInstallWarningCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _SetupCompleteBanner extends StatelessWidget {
+  const _SetupCompleteBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    const green = Color(0xFF20CF70);
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: green.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: green.withValues(alpha: 0.45)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.check_circle_rounded, color: green),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Setup Complete',
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                color: colorScheme.onSurface,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
