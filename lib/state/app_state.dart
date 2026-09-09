@@ -8156,6 +8156,36 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  Future<bool> refreshOpenwallaDeviceInventory({BuildContext? context}) async {
+    if (_reviewerModeEnabled) return true;
+
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) {
+      return false;
+    }
+
+    try {
+      await _apiService!.call(
+        router.ipAddress,
+        sysauth,
+        router.useHttps,
+        object: 'file',
+        method: 'exec',
+        params: {
+          'command': '/usr/bin/openwalla-devices-collector',
+          'params': ['--once'],
+        },
+        context: context,
+      );
+      return true;
+    } catch (e, stack) {
+      Logger.debug('Optional manual devices collector refresh failed: $e');
+      Logger.debug('Optional manual devices collector refresh stack: $stack');
+      return false;
+    }
+  }
+
   String _normalizeMacAddress(String mac) =>
       mac.trim().toUpperCase().replaceAll('-', ':');
 

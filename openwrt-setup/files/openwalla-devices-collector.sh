@@ -9,6 +9,8 @@
 # present. Quarantined devices are detected from Openwalla firewall rule names.
 # Existing hostnames in the DB are preserved, so app-side device renames are not
 # overwritten by DHCP/wireless names.
+# Run /usr/bin/openwalla-devices-collector --once to trigger an immediate scan
+# from the app or shell without waiting for the background polling interval.
 
 set -u
 

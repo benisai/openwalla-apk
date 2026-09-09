@@ -127,7 +127,11 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
     if (_isRefreshingClients) return;
     setState(() => _isRefreshingClients = true);
     try {
-      await ref.read(appStateProvider).fetchDashboardData();
+      final appState = ref.read(appStateProvider);
+      if (!_aggregateAllRouters) {
+        await appState.refreshOpenwallaDeviceInventory(context: context);
+      }
+      await appState.fetchDashboardData();
       if (!mounted) return;
       setState(() {
         _computeClientsFuture();
