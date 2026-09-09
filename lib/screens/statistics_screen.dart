@@ -91,6 +91,7 @@ class _StatisticsScreenState extends ConsumerState<StatisticsScreen> {
             _topDevicesFuture = null;
             _protocolUsageFuture = null;
             await appState.fetchDashboardData();
+            await appState.preloadStatisticsData(force: true);
           },
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
@@ -118,6 +119,7 @@ class _StatisticsScreenState extends ConsumerState<StatisticsScreen> {
                   return FutureBuilder<MonthlyUsageSettings>(
                     future: _monthlyUsageSettings(),
                     builder: (context, snapshot) {
+                      final preferences = appState.dashboardPreferences;
                       final interfaceName =
                           (snapshot.data?.interfaceName.isNotEmpty ?? false)
                           ? snapshot.data!.interfaceName
@@ -125,13 +127,17 @@ class _StatisticsScreenState extends ConsumerState<StatisticsScreen> {
                       final settings = snapshot.data;
                       return Column(
                         children: [
-                          _buildMonthlyUsageCard(
-                            interfaceName,
-                            monthlyLimitGb: settings?.monthlyLimitGb ?? 0,
-                          ),
-                          const SizedBox(height: 12),
-                          _buildUsageCard(interfaceName),
-                          const SizedBox(height: 12),
+                          if (preferences.showMonthlyUsageCard) ...[
+                            _buildMonthlyUsageCard(
+                              interfaceName,
+                              monthlyLimitGb: settings?.monthlyLimitGb ?? 0,
+                            ),
+                            const SizedBox(height: 12),
+                          ],
+                          if (preferences.showUsageCard) ...[
+                            _buildUsageCard(interfaceName),
+                            const SizedBox(height: 12),
+                          ],
                           _buildTopDevicesCard(),
                           const SizedBox(height: 12),
                           _buildActivityAnalysisCard(),
@@ -149,27 +155,39 @@ class _StatisticsScreenState extends ConsumerState<StatisticsScreen> {
   }
 
   Future<MonthlyUsageSettings> _monthlyUsageSettings() {
+    final preload = ref.read(appStateProvider).statisticsPreloadData;
+    if (preload != null) return Future.value(preload.settings);
     return _monthlyUsageSettingsFuture ??= ref
         .read(appStateProvider)
-        .fetchMonthlyUsageSettings();
+        .preloadStatisticsData()
+        .then((data) => data.settings);
   }
 
   Future<bool> _statisticsSupport() {
+    final preload = ref.read(appStateProvider).statisticsPreloadData;
+    if (preload != null) return Future.value(preload.hasSupport);
     return _statisticsSupportFuture ??= ref
         .read(appStateProvider)
-        .hasStatisticsSupport(context: context);
+        .preloadStatisticsData()
+        .then((data) => data.hasSupport);
   }
 
   Future<List<NlbwDeviceUsage>> _topDevices() {
+    final preload = ref.read(appStateProvider).statisticsPreloadData;
+    if (preload != null) return Future.value(preload.topDevices);
     return _topDevicesFuture ??= ref
         .read(appStateProvider)
-        .fetchNlbwTopDevices(limit: 5);
+        .preloadStatisticsData()
+        .then((data) => data.topDevices);
   }
 
   Future<List<NlbwProtocolUsage>> _protocolUsage() {
+    final preload = ref.read(appStateProvider).statisticsPreloadData;
+    if (preload != null) return Future.value(preload.protocolUsage);
     return _protocolUsageFuture ??= ref
         .read(appStateProvider)
-        .fetchNlbwProtocolUsage(limit: 5);
+        .preloadStatisticsData()
+        .then((data) => data.protocolUsage);
   }
 
   void _openRouterSetup() {
@@ -482,6 +500,11 @@ class _StatisticsScreenState extends ConsumerState<StatisticsScreen> {
 
   Future<List<VnstatUsageSample>> _monthlyUsageFuture(String interfaceName) {
     final key = '$interfaceName:monthly-summary';
+    final preload = ref.read(appStateProvider).statisticsPreloadData;
+    if (preload?.interfaceName == interfaceName) {
+      final samples = preload?.samplesFor('monthly-summary');
+      if (samples != null) return Future.value(samples);
+    }
     return _usageFutures.putIfAbsent(
       key,
       () => ref
@@ -511,6 +534,11 @@ class _StatisticsScreenState extends ConsumerState<StatisticsScreen> {
       _StatsUsageRange.week => 7,
     };
     final key = '$interfaceName:$period:$limit';
+    final preload = ref.read(appStateProvider).statisticsPreloadData;
+    if (preload?.interfaceName == interfaceName) {
+      final samples = preload?.samplesFor('$period:$limit');
+      if (samples != null) return Future.value(samples);
+    }
     return _usageFutures.putIfAbsent(
       key,
       () => ref
