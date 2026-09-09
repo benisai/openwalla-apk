@@ -8873,11 +8873,10 @@ class AppState extends ChangeNotifier {
     final cleanName = hostname.trim().isEmpty
         ? client.hostname
         : hostname.trim();
-    final dbCommand = _deviceSettingsDbCommand(
+    final dbCommand = _deviceIdentityDbCommand(
       mac: normalizedMac,
       ip: client.ipAddress == 'N/A' ? '' : client.ipAddress,
       hostname: cleanName,
-      staticIpAddress: client.staticIpAddress ?? '',
       deviceIcon: deviceIcon.trim(),
     );
     await _apiService!.call(
@@ -8893,6 +8892,25 @@ class AppState extends ChangeNotifier {
       context: context,
     );
     notifyListeners();
+  }
+
+  String _deviceIdentityDbCommand({
+    required String mac,
+    required String ip,
+    required String hostname,
+    required String deviceIcon,
+  }) {
+    final escMac = mac.toLowerCase().replaceAll("'", "''");
+    final escIp = ip.replaceAll("'", "''");
+    final escHostname = hostname.replaceAll("'", "''");
+    final escDeviceIcon = deviceIcon.replaceAll("'", "''");
+    final upsertSql =
+        "INSERT INTO devices (mac, ip, hostname, icon) VALUES ('$escMac', '$escIp', '$escHostname', '$escDeviceIcon') ON CONFLICT(mac) DO UPDATE SET hostname=excluded.hostname, icon=excluded.icon, ip=CASE WHEN excluded.ip != '' THEN excluded.ip ELSE devices.ip END;";
+    return 'db="${_devicesDbExpression()}"; '
+        'if command -v sqlite3 >/dev/null 2>&1; then sqlite=sqlite3; '
+        'elif command -v sqlite3-cli >/dev/null 2>&1; then sqlite=sqlite3-cli; '
+        'else echo "sqlite3 not installed" >&2; exit 127; fi; '
+        '"\$sqlite" "\$db" ${_shellQuote(upsertSql)}';
   }
 
   String _deviceSettingsDbCommand({
