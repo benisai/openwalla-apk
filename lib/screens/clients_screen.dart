@@ -744,6 +744,7 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
   bool _isSaving = false;
   bool _isSavingName = false;
   bool _isBlocking = false;
+  bool _isDeleting = false;
   bool _hasSavedChanges = false;
 
   @override
@@ -872,12 +873,10 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
     try {
       await ref
           .read(appStateProvider)
-          .saveClientDeviceSettings(
+          .saveClientStaticIpReservation(
             widget.client,
-            hostname: _nameController.text.trim(),
             staticIpEnabled: result.enabled,
             staticIpAddress: nextStaticIp,
-            deviceIcon: _selectedIconKey,
             context: context,
           );
       if (!mounted) return;
@@ -905,6 +904,46 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
       if (!mounted) return;
       _showError('Failed to update static IP: $e');
       setState(() => _isSaving = false);
+    }
+  }
+
+  Future<void> _deleteDeviceRecord() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove device entry?'),
+        content: const Text(
+          'This removes the device from the Openwalla devices database only. If the device is still present on the network, it can reappear on the next device collector poll.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.tonalIcon(
+            onPressed: () => Navigator.of(context).pop(true),
+            icon: const Icon(Icons.delete_outline_rounded),
+            label: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _isDeleting = true);
+    try {
+      await ref
+          .read(appStateProvider)
+          .deleteOpenwallaDeviceRecord(widget.client, context: context);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Device database entry removed.')),
+      );
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      if (!mounted) return;
+      _showError('Failed to remove device entry: $e');
+      setState(() => _isDeleting = false);
     }
   }
 
@@ -1032,7 +1071,8 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final selectedIcon = _deviceIconOptionFor(_selectedIconKey).icon;
-    final isIdentityBusy = _isSaving || _isSavingName || _isBlocking;
+    final isIdentityBusy =
+        _isSaving || _isSavingName || _isBlocking || _isDeleting;
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.fromLTRB(
@@ -1150,7 +1190,7 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
                   ),
                   IconButton(
                     tooltip: 'Close',
-                    onPressed: (_isSaving || _isSavingName)
+                    onPressed: (_isSaving || _isSavingName || _isDeleting)
                         ? null
                         : () => Navigator.of(context).pop(_hasSavedChanges),
                     icon: const Icon(Icons.close_rounded),
@@ -1193,8 +1233,14 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
                   Expanded(child: _buildBlockButton(context)),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: FilledButton.icon(
-                      onPressed: (_isSaving || _isBlocking) ? null : _save,
+                    child: FilledButton.tonalIcon(
+                      onPressed:
+                          (_isSaving ||
+                              _isSavingName ||
+                              _isBlocking ||
+                              _isDeleting)
+                          ? null
+                          : _save,
                       icon: _isSaving
                           ? const SizedBox(
                               width: 18,
@@ -1206,6 +1252,37 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
                     ),
                   ),
                 ],
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed:
+                      (_isSaving || _isSavingName || _isBlocking || _isDeleting)
+                      ? null
+                      : _deleteDeviceRecord,
+                  icon: _isDeleting
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.delete_outline_rounded),
+                  label: Text(_isDeleting ? 'Removing' : 'Remove Device Entry'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: colorScheme.error.withValues(alpha: 0.88),
+                    side: BorderSide(
+                      color: colorScheme.error.withValues(alpha: 0.32),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
               ),
             ],
           ),
@@ -1220,7 +1297,9 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
         ? theme.colorScheme.primary
         : theme.colorScheme.error;
     return OutlinedButton.icon(
-      onPressed: (_isSaving || _isBlocking) ? null : _toggleInternetBlock,
+      onPressed: (_isSaving || _isBlocking || _isDeleting)
+          ? null
+          : _toggleInternetBlock,
       icon: _isBlocking
           ? SizedBox(
               width: 18,

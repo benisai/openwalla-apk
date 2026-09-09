@@ -3654,9 +3654,7 @@ class AppState extends ChangeNotifier {
             record.scheduledBlock,
         totalUploadBytes: record.totalUploadBytes,
         totalDownloadBytes: record.totalDownloadBytes,
-        staticIpAddress: record.staticIpAddress.isEmpty
-            ? null
-            : record.staticIpAddress,
+        staticIpAddress: null,
         status: record.quarantined
             ? 'blocked'
             : record.scheduledBlock
@@ -3674,6 +3672,109 @@ class AppState extends ChangeNotifier {
       return a.hostname.toLowerCase().compareTo(b.hostname.toLowerCase());
     });
     return clients;
+  }
+
+  Iterable<Client> _applyStaticDhcpReservations(
+    Iterable<Client> clients,
+    Map<String, String> staticLeases,
+  ) sync* {
+    for (final client in clients) {
+      final mac = _normalizeMacAddress(client.macAddress);
+      final staticIp = staticLeases[mac]?.trim() ?? '';
+      yield client.copyWith(
+        staticIpAddress: staticIp.isEmpty ? null : staticIp,
+      );
+    }
+  }
+
+  Future<Map<String, String>> fetchStaticDhcpReservations({
+    BuildContext? context,
+  }) async {
+    if (_reviewerModeEnabled) return {_mockQuarantineMac: '10.0.0.250'};
+
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) {
+      return {};
+    }
+
+    try {
+      final dhcp = await _apiService!.call(
+        router.ipAddress,
+        sysauth,
+        router.useHttps,
+        object: 'uci',
+        method: 'get',
+        params: {'config': 'dhcp'},
+        context: context,
+      );
+      return _staticDhcpReservationsFromUci(dhcp);
+    } catch (e, stack) {
+      Logger.debug('Optional static DHCP reservations fetch failed: $e');
+      Logger.debug('Optional static DHCP reservations stack: $stack');
+      return {};
+    }
+  }
+
+  Map<String, String> _staticDhcpReservationsFromUci(dynamic dhcp) {
+    final values = _extractUciValues(dhcp);
+    final reservations = <String, String>{};
+    values.forEach((_, value) {
+      if (value['.type']?.toString() != 'host') return;
+      final mac = _normalizeMacAddress(value['mac']?.toString() ?? '');
+      final ip = value['ip']?.toString().trim() ?? '';
+      if (mac.isNotEmpty && mac != 'N/A' && ip.isNotEmpty) {
+        reservations[mac] = ip;
+      }
+    });
+    return reservations;
+  }
+
+  Future<Map<String, String>> fetchAggregatedStaticDhcpReservations() async {
+    if (_reviewerModeEnabled) return {_mockQuarantineMac: '10.0.0.250'};
+    final routers = _routerService?.routers ?? const <model.Router>[];
+    if (routers.isEmpty || _apiService == null) return {};
+    if (routers.length > 1) return {};
+
+    final tasks = routers.map((router) async {
+      try {
+        String? token;
+        var useHttps = router.useHttps;
+        if (_apiService is RealApiService) {
+          final real = _apiService as RealApiService;
+          final login = await real.loginWithProtocolDetection(
+            router.ipAddress,
+            router.username,
+            router.password,
+            router.useHttps,
+          );
+          token = login.token;
+          useHttps = login.actualUseHttps;
+        } else {
+          token = _authService?.sysauth;
+        }
+        if (token == null) return <String, String>{};
+        final dhcp = await _apiService!.call(
+          router.ipAddress,
+          token,
+          useHttps,
+          object: 'uci',
+          method: 'get',
+          params: {'config': 'dhcp'},
+        );
+        return _staticDhcpReservationsFromUci(dhcp);
+      } catch (e, stack) {
+        Logger.debug('Optional aggregated static DHCP fetch failed: $e');
+        Logger.debug('Optional aggregated static DHCP stack: $stack');
+        return <String, String>{};
+      }
+    }).toList();
+
+    final reservations = <String, String>{};
+    for (final result in await Future.wait(tasks)) {
+      reservations.addAll(result);
+    }
+    return reservations;
   }
 
   Future<List<LiveDeviceTrafficCounter>> fetchLiveDeviceTrafficCounters({
@@ -7927,15 +8028,19 @@ class AppState extends ChangeNotifier {
   /// as wireless if their MAC appears in any router's associated stations list.
   Future<List<Client>> fetchAggregatedClients() async {
     try {
+      final staticLeasesFuture = fetchAggregatedStaticDhcpReservations();
       final activeDeviceRecords = await fetchDeviceRecords(
         aggregateAllRouters: true,
       );
       if (activeDeviceRecords.$1.isNotEmpty) {
         final quarantinedMacs = await fetchAggregatedQuarantinedMacs();
-        return _applyQuarantineState(
-          _clientsFromDeviceDbRecords(activeDeviceRecords),
-          quarantinedMacs,
-        );
+        return _applyStaticDhcpReservations(
+          _applyQuarantineState(
+            _clientsFromDeviceDbRecords(activeDeviceRecords),
+            quarantinedMacs,
+          ),
+          await staticLeasesFuture,
+        ).toList();
       }
 
       final quarantinedMacsFuture = fetchAggregatedQuarantinedMacs();
@@ -7978,7 +8083,10 @@ class AppState extends ChangeNotifier {
       final quarantinedMacs = await quarantinedMacsFuture;
       final deviceRecords = await deviceRecordsFuture;
       final list = _applyQuarantineState(
-        _applyDeviceDbRecords(clients.values, deviceRecords),
+        _applyStaticDhcpReservations(
+          _applyDeviceDbRecords(clients.values, deviceRecords),
+          await staticLeasesFuture,
+        ),
         quarantinedMacs,
       );
 
@@ -8085,13 +8193,18 @@ class AppState extends ChangeNotifier {
       }
       final router = _routerService!.selectedRouter!;
 
+      final staticLeasesFuture = fetchStaticDhcpReservations();
       final activeDeviceRecords = await fetchDeviceRecords();
       if (activeDeviceRecords.$1.isNotEmpty) {
         final quarantinedMacs = await fetchQuarantinedMacsForSelectedRouter();
-        return _applyQuarantineState(
+        final clients = _applyQuarantineState(
           _clientsFromDeviceDbRecords(activeDeviceRecords),
           quarantinedMacs,
         );
+        return _applyStaticDhcpReservations(
+          clients,
+          await staticLeasesFuture,
+        ).toList();
       }
 
       final stationsFuture = _apiService!
@@ -8156,7 +8269,10 @@ class AppState extends ChangeNotifier {
       final deviceRecords = await deviceRecordsFuture;
       final quarantinedMacs = await quarantinedMacsFuture;
       final markedClients = _applyQuarantineState(
-        _applyDeviceDbRecords(clients, deviceRecords),
+        _applyStaticDhcpReservations(
+          _applyDeviceDbRecords(clients, deviceRecords),
+          await staticLeasesFuture,
+        ),
         quarantinedMacs,
       );
 
@@ -8296,9 +8412,7 @@ class AppState extends ChangeNotifier {
         isBlocked: isBlocked,
         totalUploadBytes: record.totalUploadBytes,
         totalDownloadBytes: record.totalDownloadBytes,
-        staticIpAddress: record.staticIpAddress.isEmpty
-            ? null
-            : record.staticIpAddress,
+        staticIpAddress: client.staticIpAddress,
         status: record.quarantined || record.status == 'blocked'
             ? 'blocked'
             : isScheduled
@@ -8876,6 +8990,105 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> saveClientStaticIpReservation(
+    Client client, {
+    required bool staticIpEnabled,
+    required String staticIpAddress,
+    BuildContext? context,
+  }) async {
+    if (_reviewerModeEnabled) {
+      notifyListeners();
+      return;
+    }
+
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) {
+      throw StateError('No selected router connection is available');
+    }
+
+    final normalizedMac = _normalizeMacAddress(client.macAddress);
+    if (!RegExp(r'^([0-9A-F]{2}:){5}[0-9A-F]{2}$').hasMatch(normalizedMac)) {
+      throw ArgumentError('A valid device MAC address is required');
+    }
+
+    final cleanStaticIp = staticIpEnabled ? staticIpAddress.trim() : '';
+    if (cleanStaticIp.isNotEmpty && !_isValidIpAddress(cleanStaticIp)) {
+      throw ArgumentError('A valid static IP address is required');
+    }
+
+    final dhcp = await _apiService!.call(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      object: 'uci',
+      method: 'get',
+      params: {'config': 'dhcp'},
+      context: context,
+    );
+    final dhcpValues = _extractUciValues(dhcp);
+    String? hostSection;
+    dhcpValues.forEach((section, values) {
+      if (hostSection != null) return;
+      if (values['.type']?.toString() != 'host') return;
+      final mac = _normalizeMacAddress(values['mac']?.toString() ?? '');
+      if (mac == normalizedMac) hostSection = section;
+    });
+
+    if (cleanStaticIp.isNotEmpty) {
+      if (hostSection == null || hostSection!.isEmpty) {
+        final addResult = await _apiService!.call(
+          router.ipAddress,
+          sysauth,
+          router.useHttps,
+          object: 'uci',
+          method: 'add',
+          params: {'config': 'dhcp', 'type': 'host'},
+        );
+        hostSection = _extractAddedSection(addResult);
+      }
+      if (hostSection == null || hostSection!.isEmpty) {
+        throw StateError('Unable to create DHCP host reservation');
+      }
+      await _apiService!.uciSet(
+        router.ipAddress,
+        sysauth,
+        router.useHttps,
+        config: 'dhcp',
+        section: hostSection!,
+        values: {
+          'name': _sanitizeDhcpHostName(client.hostname),
+          'mac': normalizedMac,
+          'ip': cleanStaticIp,
+        },
+      );
+    } else if (hostSection != null && hostSection!.isNotEmpty) {
+      await _apiService!.call(
+        router.ipAddress,
+        sysauth,
+        router.useHttps,
+        object: 'uci',
+        method: 'delete',
+        params: {'config': 'dhcp', 'section': hostSection},
+      );
+    }
+
+    await _apiService!.uciCommit(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      config: 'dhcp',
+    );
+    await _apiService!.systemExec(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      command:
+          '/etc/init.d/odhcpd restart 2>/dev/null || service odhcpd restart 2>/dev/null || true; /etc/init.d/dnsmasq restart 2>/dev/null || service dnsmasq restart 2>/dev/null || true',
+    );
+    notifyListeners();
+  }
+
   Future<void> saveClientDeviceIdentity(
     Client client, {
     required String hostname,
@@ -8916,6 +9129,43 @@ class AppState extends ChangeNotifier {
       params: {
         'command': '/bin/sh',
         'params': ['-c', dbCommand],
+      },
+      context: context,
+    );
+    notifyListeners();
+  }
+
+  Future<void> deleteOpenwallaDeviceRecord(
+    Client client, {
+    BuildContext? context,
+  }) async {
+    if (_reviewerModeEnabled) {
+      notifyListeners();
+      return;
+    }
+
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) {
+      throw StateError('No selected router connection is available');
+    }
+
+    final normalizedMac = _normalizeMacAddress(client.macAddress);
+    if (!RegExp(r'^([0-9A-F]{2}:){5}[0-9A-F]{2}$').hasMatch(normalizedMac)) {
+      throw ArgumentError('A valid device MAC address is required');
+    }
+
+    final escMac = normalizedMac.toLowerCase().replaceAll("'", "''");
+    final sql = "DELETE FROM devices WHERE lower(mac) = '$escMac';";
+    await _apiService!.call(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      object: 'file',
+      method: 'exec',
+      params: {
+        'command': '/bin/sh',
+        'params': ['-c', _sqliteCommand(_devicesDbExpression(), sql)],
       },
       context: context,
     );
