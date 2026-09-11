@@ -34,6 +34,13 @@ class _StatisticsScreenState extends ConsumerState<StatisticsScreen> {
   Future<List<NlbwDeviceUsage>>? _topDevicesFuture;
   Future<List<NlbwProtocolUsage>>? _protocolUsageFuture;
   final Map<String, Future<List<VnstatUsageSample>>> _usageFutures = {};
+  StatisticsPreloadData? _boundPreloadData;
+  Future<StatisticsPreloadData>? _boundPreloadFuture;
+  Future<MonthlyUsageSettings>? _preloadSettingsFuture;
+  Future<bool>? _preloadSupportFuture;
+  Future<List<NlbwDeviceUsage>>? _preloadTopDevicesFuture;
+  Future<List<NlbwProtocolUsage>>? _preloadProtocolUsageFuture;
+  final Map<String, Future<List<VnstatUsageSample>>> _preloadUsageFutures = {};
   bool _isInstallingSupport = false;
   final PageController _usageRangeController = PageController(
     initialPage: _StatsUsageRange.day.index,
@@ -87,6 +94,7 @@ class _StatisticsScreenState extends ConsumerState<StatisticsScreen> {
             _statisticsSupportFuture = null;
             _topDevicesFuture = null;
             _protocolUsageFuture = null;
+            _clearPreloadBindings();
             appState.clearStatisticsPreload();
             await appState.fetchDashboardData();
           },
@@ -149,10 +157,16 @@ class _StatisticsScreenState extends ConsumerState<StatisticsScreen> {
   Future<MonthlyUsageSettings> _monthlyUsageSettings() {
     final appState = ref.read(appStateProvider);
     final preload = appState.statisticsPreloadData;
-    if (preload != null) return Future.value(preload.settings);
+    if (preload != null) {
+      _bindPreloadData(preload);
+      return _preloadSettingsFuture!;
+    }
     final preloadFuture = appState.statisticsPreloadFuture;
     if (preloadFuture != null) {
-      return preloadFuture.then((data) => data.settings);
+      _bindPreloadFuture(preloadFuture);
+      return _preloadSettingsFuture ??= preloadFuture.then(
+        (data) => data.settings,
+      );
     }
     return _monthlyUsageSettingsFuture ??= ref
         .read(appStateProvider)
@@ -162,10 +176,16 @@ class _StatisticsScreenState extends ConsumerState<StatisticsScreen> {
   Future<bool> _statisticsSupport() {
     final appState = ref.read(appStateProvider);
     final preload = appState.statisticsPreloadData;
-    if (preload != null) return Future.value(preload.hasSupport);
+    if (preload != null) {
+      _bindPreloadData(preload);
+      return _preloadSupportFuture!;
+    }
     final preloadFuture = appState.statisticsPreloadFuture;
     if (preloadFuture != null) {
-      return preloadFuture.then((data) => data.hasSupport);
+      _bindPreloadFuture(preloadFuture);
+      return _preloadSupportFuture ??= preloadFuture.then(
+        (data) => data.hasSupport,
+      );
     }
     return _statisticsSupportFuture ??= ref
         .read(appStateProvider)
@@ -175,10 +195,16 @@ class _StatisticsScreenState extends ConsumerState<StatisticsScreen> {
   Future<List<NlbwDeviceUsage>> _topDevices() {
     final appState = ref.read(appStateProvider);
     final preload = appState.statisticsPreloadData;
-    if (preload != null) return Future.value(preload.topDevices);
+    if (preload != null) {
+      _bindPreloadData(preload);
+      return _preloadTopDevicesFuture!;
+    }
     final preloadFuture = appState.statisticsPreloadFuture;
     if (preloadFuture != null) {
-      return preloadFuture.then((data) => data.topDevices);
+      _bindPreloadFuture(preloadFuture);
+      return _preloadTopDevicesFuture ??= preloadFuture.then(
+        (data) => data.topDevices,
+      );
     }
     return _topDevicesFuture ??= ref
         .read(appStateProvider)
@@ -188,14 +214,46 @@ class _StatisticsScreenState extends ConsumerState<StatisticsScreen> {
   Future<List<NlbwProtocolUsage>> _protocolUsage() {
     final appState = ref.read(appStateProvider);
     final preload = appState.statisticsPreloadData;
-    if (preload != null) return Future.value(preload.protocolUsage);
+    if (preload != null) {
+      _bindPreloadData(preload);
+      return _preloadProtocolUsageFuture!;
+    }
     final preloadFuture = appState.statisticsPreloadFuture;
     if (preloadFuture != null) {
-      return preloadFuture.then((data) => data.protocolUsage);
+      _bindPreloadFuture(preloadFuture);
+      return _preloadProtocolUsageFuture ??= preloadFuture.then(
+        (data) => data.protocolUsage,
+      );
     }
     return _protocolUsageFuture ??= ref
         .read(appStateProvider)
         .fetchNlbwProtocolUsage(limit: 5);
+  }
+
+  void _clearPreloadBindings() {
+    _boundPreloadData = null;
+    _boundPreloadFuture = null;
+    _preloadSettingsFuture = null;
+    _preloadSupportFuture = null;
+    _preloadTopDevicesFuture = null;
+    _preloadProtocolUsageFuture = null;
+    _preloadUsageFutures.clear();
+  }
+
+  void _bindPreloadData(StatisticsPreloadData preload) {
+    if (identical(_boundPreloadData, preload)) return;
+    _clearPreloadBindings();
+    _boundPreloadData = preload;
+    _preloadSettingsFuture = Future.value(preload.settings);
+    _preloadSupportFuture = Future.value(preload.hasSupport);
+    _preloadTopDevicesFuture = Future.value(preload.topDevices);
+    _preloadProtocolUsageFuture = Future.value(preload.protocolUsage);
+  }
+
+  void _bindPreloadFuture(Future<StatisticsPreloadData> preloadFuture) {
+    if (identical(_boundPreloadFuture, preloadFuture)) return;
+    _clearPreloadBindings();
+    _boundPreloadFuture = preloadFuture;
   }
 
   void _openRouterSetup() {
@@ -245,6 +303,7 @@ class _StatisticsScreenState extends ConsumerState<StatisticsScreen> {
         _statisticsSupportFuture = null;
         _topDevicesFuture = null;
         _protocolUsageFuture = null;
+        _clearPreloadBindings();
       });
       await ref.read(appStateProvider).fetchDashboardData();
       if (!mounted) return;
@@ -510,23 +569,33 @@ class _StatisticsScreenState extends ConsumerState<StatisticsScreen> {
     final key = '$interfaceName:monthly-summary';
     final preload = ref.read(appStateProvider).statisticsPreloadData;
     if (preload?.interfaceName == interfaceName) {
-      final samples = preload?.samplesFor('monthly-summary');
-      if (samples != null) return Future.value(samples);
+      _bindPreloadData(preload!);
+      final samples = preload.samplesFor('monthly-summary');
+      if (samples != null) {
+        return _preloadUsageFutures.putIfAbsent(
+          key,
+          () => Future.value(samples),
+        );
+      }
     }
     final preloadFuture = ref.read(appStateProvider).statisticsPreloadFuture;
     if (preloadFuture != null) {
-      return preloadFuture.then((data) {
-        if (data.interfaceName == interfaceName) {
-          return data.samplesFor('monthly-summary') ?? const [];
-        }
-        return ref
-            .read(appStateProvider)
-            .fetchVnstatUsageSamples(
-              period: 'daily',
-              interfaceName: interfaceName,
-              limit: 45,
-            );
-      });
+      _bindPreloadFuture(preloadFuture);
+      return _preloadUsageFutures.putIfAbsent(
+        key,
+        () => preloadFuture.then((data) {
+          if (data.interfaceName == interfaceName) {
+            return data.samplesFor('monthly-summary') ?? const [];
+          }
+          return ref
+              .read(appStateProvider)
+              .fetchVnstatUsageSamples(
+                period: 'daily',
+                interfaceName: interfaceName,
+                limit: 45,
+              );
+        }),
+      );
     }
     return _usageFutures.putIfAbsent(
       key,
@@ -559,23 +628,33 @@ class _StatisticsScreenState extends ConsumerState<StatisticsScreen> {
     final key = '$interfaceName:$period:$limit';
     final preload = ref.read(appStateProvider).statisticsPreloadData;
     if (preload?.interfaceName == interfaceName) {
-      final samples = preload?.samplesFor('$period:$limit');
-      if (samples != null) return Future.value(samples);
+      _bindPreloadData(preload!);
+      final samples = preload.samplesFor('$period:$limit');
+      if (samples != null) {
+        return _preloadUsageFutures.putIfAbsent(
+          key,
+          () => Future.value(samples),
+        );
+      }
     }
     final preloadFuture = ref.read(appStateProvider).statisticsPreloadFuture;
     if (preloadFuture != null) {
-      return preloadFuture.then((data) {
-        if (data.interfaceName == interfaceName) {
-          return data.samplesFor('$period:$limit') ?? const [];
-        }
-        return ref
-            .read(appStateProvider)
-            .fetchVnstatUsageSamples(
-              period: period,
-              interfaceName: interfaceName,
-              limit: limit,
-            );
-      });
+      _bindPreloadFuture(preloadFuture);
+      return _preloadUsageFutures.putIfAbsent(
+        key,
+        () => preloadFuture.then((data) {
+          if (data.interfaceName == interfaceName) {
+            return data.samplesFor('$period:$limit') ?? const [];
+          }
+          return ref
+              .read(appStateProvider)
+              .fetchVnstatUsageSamples(
+                period: period,
+                interfaceName: interfaceName,
+                limit: limit,
+              );
+        }),
+      );
     }
     return _usageFutures.putIfAbsent(
       key,
