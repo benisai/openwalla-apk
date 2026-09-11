@@ -1015,6 +1015,22 @@ class ProcessMemoryUsage {
   });
 }
 
+class ProcessCpuUsage {
+  final int pid;
+  final String name;
+  final String command;
+  final double cpuPercent;
+  final double memoryPercent;
+
+  const ProcessCpuUsage({
+    required this.pid,
+    required this.name,
+    required this.command,
+    required this.cpuPercent,
+    required this.memoryPercent,
+  });
+}
+
 enum OpenwallaFlowProvider { none, netify, conntrack }
 
 class OpenwallaFlowSummary {
@@ -3313,6 +3329,162 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     }
     rows.sort((a, b) => b.rssBytes.compareTo(a.rssBytes));
     return rows;
+  }
+
+  Future<List<ProcessCpuUsage>> fetchTopCpuProcesses({
+    int limit = 10,
+    BuildContext? context,
+  }) async {
+    final safeLimit = limit.clamp(1, 25).toInt();
+    if (_reviewerModeEnabled) {
+      return const [
+        ProcessCpuUsage(
+          pid: 1289,
+          name: 'netifyd',
+          command: '/usr/sbin/netifyd -I br-lan',
+          cpuPercent: 18.4,
+          memoryPercent: 7.1,
+        ),
+        ProcessCpuUsage(
+          pid: 941,
+          name: 'uhttpd',
+          command: '/usr/sbin/uhttpd -f -h /www',
+          cpuPercent: 6.8,
+          memoryPercent: 2.2,
+        ),
+        ProcessCpuUsage(
+          pid: 777,
+          name: 'dnsmasq',
+          command: '/usr/sbin/dnsmasq -C /var/etc/dnsmasq.conf.cfg01411c',
+          cpuPercent: 2.4,
+          memoryPercent: 1.8,
+        ),
+      ].take(safeLimit).toList();
+    }
+
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) {
+      return const [];
+    }
+
+    const processCommand = 'top -bn1 2>/dev/null | head -n 100';
+
+    try {
+      final result = await _apiService!.call(
+        router.ipAddress,
+        sysauth,
+        router.useHttps,
+        object: 'file',
+        method: 'exec',
+        params: {
+          'command': '/bin/sh',
+          'params': ['-c', processCommand],
+        },
+        context: context,
+      );
+      return _parseProcessCpuUsage(_commandOutput(result), safeLimit);
+    } catch (e, stack) {
+      Logger.warning('Optional process CPU fetch failed: $e');
+      Logger.debug('Optional process CPU stack: $stack');
+      return const [];
+    }
+  }
+
+  List<ProcessCpuUsage> _parseProcessCpuUsage(String output, int limit) {
+    final lines = output.split('\n');
+    var cpuIndex = -1;
+    var memoryIndex = -1;
+    var commandIndex = -1;
+    var headerSeen = false;
+    final rows = <ProcessCpuUsage>[];
+
+    for (final line in lines) {
+      final trimmed = line.trim();
+      if (trimmed.isEmpty) continue;
+      final parts = trimmed.split(RegExp(r'\s+'));
+
+      final isHeader =
+          parts.contains('PID') &&
+          parts.any((part) => part.toUpperCase().contains('CPU')) &&
+          parts.any((part) => part.toUpperCase().contains('COMMAND'));
+      if (isHeader) {
+        headerSeen = true;
+        cpuIndex = parts.indexWhere((part) => part.toUpperCase() == '%CPU');
+        memoryIndex = parts.indexWhere((part) => part.toUpperCase() == '%MEM');
+        commandIndex = parts.indexWhere(
+          (part) => part.toUpperCase() == 'COMMAND',
+        );
+        continue;
+      }
+
+      final pid = int.tryParse(parts.first);
+      if (pid == null || pid <= 0) continue;
+
+      var cpuPercent = 0.0;
+      var memoryPercent = 0.0;
+      var command = '';
+
+      if (headerSeen && cpuIndex >= 0 && parts.length > cpuIndex) {
+        cpuPercent = _parsePercentValue(parts[cpuIndex]);
+        if (memoryIndex >= 0 && parts.length > memoryIndex) {
+          memoryPercent = _parsePercentValue(parts[memoryIndex]);
+        }
+        if (commandIndex >= 0 && parts.length > commandIndex) {
+          command = parts.sublist(commandIndex).join(' ');
+        }
+      } else {
+        final percentIndexes = <int>[];
+        for (var i = 1; i < parts.length; i++) {
+          final numeric = _parsePercentValue(parts[i]);
+          if (numeric > 0 || parts[i].contains('%')) percentIndexes.add(i);
+        }
+        if (percentIndexes.isNotEmpty) {
+          cpuPercent = _parsePercentValue(parts[percentIndexes.last]);
+          if (percentIndexes.length > 1) {
+            memoryPercent = _parsePercentValue(
+              parts[percentIndexes[percentIndexes.length - 2]],
+            );
+          }
+          final commandStart = (percentIndexes.last + 1).clamp(0, parts.length);
+          command = parts.sublist(commandStart).join(' ');
+        }
+      }
+
+      if (command.trim().isEmpty && parts.length > 1) {
+        command = parts.last;
+      }
+      if (cpuPercent <= 0 && command.isEmpty) continue;
+
+      final name = _processNameFromCommand(command);
+      rows.add(
+        ProcessCpuUsage(
+          pid: pid,
+          name: name,
+          command: command.isNotEmpty ? command : '[$name]',
+          cpuPercent: cpuPercent.clamp(0, 100).toDouble(),
+          memoryPercent: memoryPercent.clamp(0, 100).toDouble(),
+        ),
+      );
+    }
+
+    rows.sort((a, b) => b.cpuPercent.compareTo(a.cpuPercent));
+    return rows.take(limit).toList();
+  }
+
+  double _parsePercentValue(String value) {
+    final normalized = value.replaceAll('%', '').trim();
+    return double.tryParse(normalized) ?? 0;
+  }
+
+  String _processNameFromCommand(String command) {
+    final trimmed = command.trim();
+    if (trimmed.isEmpty) return 'unknown';
+    final first = trimmed.split(RegExp(r'\s+')).first;
+    if (first.startsWith('[') && first.endsWith(']')) {
+      return first.substring(1, first.length - 1);
+    }
+    return first.split('/').last.trim().isEmpty ? first : first.split('/').last;
   }
 
   String _sqliteCommand(String dbExpression, String sql) {

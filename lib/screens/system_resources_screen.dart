@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:luci_mobile/main.dart';
+import 'package:luci_mobile/screens/cpu_processes_screen.dart';
 import 'package:luci_mobile/screens/memory_processes_screen.dart';
 import 'package:luci_mobile/state/app_state.dart';
 import 'package:luci_mobile/widgets/luci_app_bar.dart';
@@ -178,6 +179,11 @@ class _SystemResourcesScreenState extends ConsumerState<SystemResourcesScreen> {
                 subtitle: '5 second samples',
                 color: const Color(0xFF22C55E),
                 samples: _cpuHistory,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const CpuProcessesScreen(),
+                  ),
+                ),
               ),
               const SizedBox(height: 12),
               _ResourceGraphCard(
