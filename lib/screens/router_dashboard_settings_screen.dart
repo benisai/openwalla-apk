@@ -285,6 +285,61 @@ class _RouterDashboardSettingsScreenState
     );
   }
 
+  Widget _buildStaticSection({
+    required String title,
+    required String subtitle,
+    required List<Widget> children,
+    IconData? icon,
+  }) {
+    return Card(
+      elevation: 2,
+      margin: EdgeInsets.symmetric(
+        horizontal: LuciSpacing.md,
+        vertical: LuciSpacing.sm,
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: LuciCardStyles.standardRadius,
+      ),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          LuciSpacing.md,
+          LuciSpacing.md,
+          LuciSpacing.md,
+          LuciSpacing.sm,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (icon != null) ...[
+                  Icon(icon, color: Theme.of(context).colorScheme.primary),
+                  SizedBox(width: LuciSpacing.md),
+                ],
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title, style: LuciTextStyles.cardTitle(context)),
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle,
+                        style: LuciTextStyles.cardSubtitle(context),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: LuciSpacing.md),
+            ...children,
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildThroughputSection() {
     final interfaces = _availableWiredInterfaces.toList()..sort();
     return _buildSection(
@@ -528,11 +583,10 @@ class _RouterDashboardSettingsScreenState
   }
 
   Widget _buildDashboardCardsSection() {
-    return _buildSection(
+    return _buildStaticSection(
       title: 'Dashboard Cards',
       subtitle: 'Choose which cards appear on the main dashboard',
       icon: Icons.dashboard_customize_rounded,
-      initiallyExpanded: true,
       children: [
         Container(
           decoration: BoxDecoration(
@@ -654,11 +708,10 @@ class _RouterDashboardSettingsScreenState
   }
 
   Widget _buildShortcutPanelSection() {
-    return _buildSection(
+    return _buildStaticSection(
       title: 'Shortcut Panel',
       subtitle: 'Choose the panel density and visible dashboard shortcuts',
       icon: Icons.apps_rounded,
-      initiallyExpanded: true,
       children: [
         Container(
           decoration: BoxDecoration(
