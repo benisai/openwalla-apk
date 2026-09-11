@@ -237,8 +237,6 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
           )
         : appState.dashboardPreferences.copyWith(
             showNetworkPerformanceCard: true,
-            showUsageCard: true,
-            showMonthlyUsageCard: true,
             showFlowsCard: _installSimpleFlows || _installNetify,
             showStatisticsTab: true,
             flowMode: _installNetify

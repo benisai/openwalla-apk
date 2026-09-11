@@ -87,6 +87,7 @@ class _StatisticsScreenState extends ConsumerState<StatisticsScreen> {
             _statisticsSupportFuture = null;
             _topDevicesFuture = null;
             _protocolUsageFuture = null;
+            appState.clearStatisticsPreload();
             await appState.fetchDashboardData();
           },
           child: ListView(

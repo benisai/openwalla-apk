@@ -1574,7 +1574,6 @@ class AppState extends ChangeNotifier {
       final previousRefreshSeconds =
           _dashboardPreferences.liveThroughputRefreshSeconds;
       _dashboardPreferences = prefs;
-      clearStatisticsPreload();
       final routerId = _routerService?.selectedRouter?.id;
       final key = routerId != null
           ? 'dashboard_preferences:$routerId'
@@ -6986,6 +6985,7 @@ class AppState extends ChangeNotifier {
       router.useHttps,
       config: 'openwalla',
     );
+    clearStatisticsPreload();
   }
 
   Future<List<OpenwallaServiceStatus>> fetchOpenwallaServices({

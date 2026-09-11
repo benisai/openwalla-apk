@@ -9,8 +9,6 @@ class DashboardPreferences {
   final bool showAllThroughput;
   final bool showNetworkPerformanceCard;
   final bool showFlowsCard;
-  final bool showUsageCard;
-  final bool showMonthlyUsageCard;
   final bool showStatisticsTab;
   final bool showWifiShortcut;
   final bool showSmartQueueShortcut;
@@ -31,8 +29,6 @@ class DashboardPreferences {
     this.showAllThroughput = true,
     this.showNetworkPerformanceCard = false,
     this.showFlowsCard = false,
-    this.showUsageCard = false,
-    this.showMonthlyUsageCard = false,
     this.showStatisticsTab = true,
     this.showWifiShortcut = true,
     this.showSmartQueueShortcut = true,
@@ -68,8 +64,6 @@ class DashboardPreferences {
     bool? showAllThroughput,
     bool? showNetworkPerformanceCard,
     bool? showFlowsCard,
-    bool? showUsageCard,
-    bool? showMonthlyUsageCard,
     bool? showStatisticsTab,
     bool? showWifiShortcut,
     bool? showSmartQueueShortcut,
@@ -98,8 +92,6 @@ class DashboardPreferences {
       showNetworkPerformanceCard:
           showNetworkPerformanceCard ?? this.showNetworkPerformanceCard,
       showFlowsCard: showFlowsCard ?? this.showFlowsCard,
-      showUsageCard: showUsageCard ?? this.showUsageCard,
-      showMonthlyUsageCard: showMonthlyUsageCard ?? this.showMonthlyUsageCard,
       showStatisticsTab: showStatisticsTab ?? this.showStatisticsTab,
       showWifiShortcut: showWifiShortcut ?? this.showWifiShortcut,
       showSmartQueueShortcut:
@@ -127,8 +119,6 @@ class DashboardPreferences {
     'showAllThroughput': showAllThroughput,
     'showNetworkPerformanceCard': showNetworkPerformanceCard,
     'showFlowsCard': showFlowsCard,
-    'showUsageCard': showUsageCard,
-    'showMonthlyUsageCard': showMonthlyUsageCard,
     'showStatisticsTab': showStatisticsTab,
     'showWifiShortcut': showWifiShortcut,
     'showSmartQueueShortcut': showSmartQueueShortcut,
@@ -157,8 +147,6 @@ class DashboardPreferences {
       showAllThroughput: json['showAllThroughput'] ?? true,
       showNetworkPerformanceCard: json['showNetworkPerformanceCard'] ?? false,
       showFlowsCard: json['showFlowsCard'] ?? false,
-      showUsageCard: json['showUsageCard'] ?? false,
-      showMonthlyUsageCard: json['showMonthlyUsageCard'] ?? false,
       showStatisticsTab: json['showStatisticsTab'] ?? true,
       showWifiShortcut: json['showWifiShortcut'] ?? true,
       showSmartQueueShortcut: json['showSmartQueueShortcut'] ?? true,

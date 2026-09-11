@@ -633,32 +633,6 @@ class _RouterDashboardSettingsScreenState
                 ),
               ],
               _buildCardVisibilitySwitch(
-                title: 'Usage',
-                subtitle: 'Show the recent vnStat usage graph',
-                icon: Icons.bar_chart_rounded,
-                value: _preferences.showUsageCard,
-                onChanged: (value) {
-                  setState(() {
-                    _preferences = _preferences.copyWith(showUsageCard: value);
-                  });
-                  _onPreferenceChanged();
-                },
-              ),
-              _buildCardVisibilitySwitch(
-                title: 'Monthly Usage',
-                subtitle: 'Show the monthly usage progress card',
-                icon: Icons.calendar_month_rounded,
-                value: _preferences.showMonthlyUsageCard,
-                onChanged: (value) {
-                  setState(() {
-                    _preferences = _preferences.copyWith(
-                      showMonthlyUsageCard: value,
-                    );
-                  });
-                  _onPreferenceChanged();
-                },
-              ),
-              _buildCardVisibilitySwitch(
                 title: 'Statistics',
                 subtitle: 'Show the Statistics tab in the bottom navigation',
                 icon: Icons.query_stats_rounded,

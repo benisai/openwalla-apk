@@ -55,9 +55,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(appStateProvider).fetchDashboardData();
+      unawaited(_loadDashboardAndWarmStatistics());
       _startSummaryRefreshTimer();
     });
+  }
+
+  Future<void> _loadDashboardAndWarmStatistics({bool force = false}) async {
+    final appState = ref.read(appStateProvider);
+    await appState.fetchDashboardData();
+    if (!mounted) return;
+    appState.warmStatisticsData(force: force);
   }
 
   @override
@@ -1752,12 +1759,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
             'Unable to fetch dashboard data. Pull down to refresh or tap the button below.',
         icon: Icons.dashboard_outlined,
         actionLabel: 'Fetch Data',
-        onAction: () => appState.fetchDashboardData(),
+        onAction: () => _loadDashboardAndWarmStatistics(force: true),
       );
     }
 
     return RefreshIndicator(
-      onRefresh: () => appState.fetchDashboardData(),
+      onRefresh: () => _loadDashboardAndWarmStatistics(force: true),
       child: LayoutBuilder(
         builder: (context, constraints) {
           final isLandscape =
@@ -1813,7 +1820,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                     preferences.showFlowsCard &&
                     _hasDashboardFlowsCard(appState);
                 return RefreshIndicator(
-                  onRefresh: () => appState.fetchDashboardData(),
+                  onRefresh: () => _loadDashboardAndWarmStatistics(force: true),
                   child: SingleChildScrollView(
                     physics: const AlwaysScrollableScrollPhysics(),
                     child: ConstrainedBox(
