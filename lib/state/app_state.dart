@@ -3487,6 +3487,54 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     return first.split('/').last.trim().isEmpty ? first : first.split('/').last;
   }
 
+  Future<List<String>> fetchSystemLogs({
+    int limit = 300,
+    BuildContext? context,
+  }) async {
+    final safeLimit = limit.clamp(25, 1000).toInt();
+    if (_reviewerModeEnabled) {
+      return const [
+        'Fri Sep 11 10:14:03 2026 daemon.info dnsmasq[1321]: started, version 2.90 cachesize 150',
+        'Fri Sep 11 10:14:05 2026 daemon.notice netifd: Interface lan is now up',
+        'Fri Sep 11 10:14:07 2026 user.info openwalla-ping-monitor: latency 18.4ms target=benisai.com',
+        'Fri Sep 11 10:14:12 2026 kern.info kernel: br-lan: port 1(eth0) entered forwarding state',
+      ].take(safeLimit).toList();
+    }
+
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) {
+      return const [];
+    }
+
+    final command =
+        'if command -v logread >/dev/null 2>&1; then logread 2>/dev/null | tail -n $safeLimit; else dmesg 2>/dev/null | tail -n $safeLimit; fi';
+
+    try {
+      final result = await _apiService!.call(
+        router.ipAddress,
+        sysauth,
+        router.useHttps,
+        object: 'file',
+        method: 'exec',
+        params: {
+          'command': '/bin/sh',
+          'params': ['-c', command],
+        },
+        context: context,
+      );
+      return _commandOutput(result)
+          .split('\n')
+          .map((line) => line.trimRight())
+          .where((line) => line.trim().isNotEmpty)
+          .toList();
+    } catch (e, stack) {
+      Logger.warning('Optional system logs fetch failed: $e');
+      Logger.debug('Optional system logs stack: $stack');
+      return const [];
+    }
+  }
+
   String _sqliteCommand(String dbExpression, String sql) {
     final escapedSql = sql.replaceAll('"', r'\"').replaceAll(r'$', r'\$');
     return 'db="$dbExpression"; '
