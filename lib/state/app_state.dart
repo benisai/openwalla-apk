@@ -999,6 +999,22 @@ class SystemStorageDetails {
   );
 }
 
+class ProcessMemoryUsage {
+  final int pid;
+  final String name;
+  final String command;
+  final int rssBytes;
+  final int virtualBytes;
+
+  const ProcessMemoryUsage({
+    required this.pid,
+    required this.name,
+    required this.command,
+    required this.rssBytes,
+    required this.virtualBytes,
+  });
+}
+
 enum OpenwallaFlowProvider { none, netify, conntrack }
 
 class OpenwallaFlowSummary {
@@ -2039,6 +2055,7 @@ class AppState extends ChangeNotifier {
     if (router == null || sysauth == null || _apiService == null) {
       return false;
     }
+
     try {
       final result = await _apiService!.call(
         router.ipAddress,
@@ -3197,6 +3214,105 @@ class AppState extends ChangeNotifier {
       tempTotalBytes: temp?.total ?? 0,
       tempFreeBytes: temp?.free ?? 0,
     );
+  }
+
+  Future<List<ProcessMemoryUsage>> fetchTopMemoryProcesses({
+    int limit = 10,
+    BuildContext? context,
+  }) async {
+    final safeLimit = limit.clamp(1, 25).toInt();
+    if (_reviewerModeEnabled) {
+      return const [
+        ProcessMemoryUsage(
+          pid: 1289,
+          name: 'netifyd',
+          command: '/usr/sbin/netifyd -I br-lan',
+          rssBytes: 42 * 1024 * 1024,
+          virtualBytes: 72 * 1024 * 1024,
+        ),
+        ProcessMemoryUsage(
+          pid: 941,
+          name: 'uhttpd',
+          command: '/usr/sbin/uhttpd -f -h /www',
+          rssBytes: 18 * 1024 * 1024,
+          virtualBytes: 26 * 1024 * 1024,
+        ),
+        ProcessMemoryUsage(
+          pid: 777,
+          name: 'dnsmasq',
+          command: '/usr/sbin/dnsmasq -C /var/etc/dnsmasq.conf.cfg01411c',
+          rssBytes: 11 * 1024 * 1024,
+          virtualBytes: 15 * 1024 * 1024,
+        ),
+      ].take(safeLimit).toList();
+    }
+
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) {
+      return const [];
+    }
+
+    final processCommand =
+        r'''
+for d in /proc/[0-9]*; do
+  pid="${d##*/}"
+  [ -r "$d/status" ] || continue
+  rss="$(awk '/^VmRSS:/ {print $2; exit}' "$d/status" 2>/dev/null)"
+  vsz="$(awk '/^VmSize:/ {print $2; exit}' "$d/status" 2>/dev/null)"
+  name="$(awk -F"[[:space:]]+" '/^Name:/ {print $2; exit}' "$d/status" 2>/dev/null)"
+  cmd="$(tr "\000" " " < "$d/cmdline" 2>/dev/null | sed 's/[[:space:]]\{1,\}$//')"
+  [ -n "$cmd" ] || cmd="[$name]"
+  printf "%s|%s|%s|%s|%s\n" "${rss:-0}" "${vsz:-0}" "$pid" "${name:-unknown}" "$cmd"
+done | sort -t "|" -k1,1nr | head -n ''' +
+        safeLimit.toString();
+
+    try {
+      final result = await _apiService!.call(
+        router.ipAddress,
+        sysauth,
+        router.useHttps,
+        object: 'file',
+        method: 'exec',
+        params: {
+          'command': '/bin/sh',
+          'params': ['-c', processCommand],
+        },
+        context: context,
+      );
+      return _parseProcessMemoryUsage(_commandOutput(result));
+    } catch (e, stack) {
+      Logger.warning('Optional process memory fetch failed: $e');
+      Logger.debug('Optional process memory stack: $stack');
+      return const [];
+    }
+  }
+
+  List<ProcessMemoryUsage> _parseProcessMemoryUsage(String output) {
+    final rows = <ProcessMemoryUsage>[];
+    for (final line in output.split('\n')) {
+      final trimmed = line.trim();
+      if (trimmed.isEmpty) continue;
+      final parts = trimmed.split('|');
+      if (parts.length < 5) continue;
+      final rssKb = int.tryParse(parts[0].trim()) ?? 0;
+      final virtualKb = int.tryParse(parts[1].trim()) ?? 0;
+      final pid = int.tryParse(parts[2].trim()) ?? 0;
+      final name = parts[3].trim().isNotEmpty ? parts[3].trim() : 'unknown';
+      final command = parts.sublist(4).join('|').trim();
+      if (pid <= 0) continue;
+      rows.add(
+        ProcessMemoryUsage(
+          pid: pid,
+          name: name,
+          command: command.isNotEmpty ? command : '[$name]',
+          rssBytes: rssKb * 1024,
+          virtualBytes: virtualKb * 1024,
+        ),
+      );
+    }
+    rows.sort((a, b) => b.rssBytes.compareTo(a.rssBytes));
+    return rows;
   }
 
   String _sqliteCommand(String dbExpression, String sql) {
