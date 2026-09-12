@@ -187,6 +187,48 @@ save_runtime_logs() {
 	done
 }
 
+file_mtime_epoch() {
+	local file="$1"
+	[ -f "$file" ] || return 1
+	stat -c %Y "$file" 2>/dev/null && return 0
+	stat -f %m "$file" 2>/dev/null && return 0
+	return 1
+}
+
+read_last_backup_epoch() {
+	local state_dir="$1"
+	local last newest file mtime
+	last="$(cat "$STATE_TS_FILE" 2>/dev/null || cat "$state_dir/openwalla-state-sync.last" 2>/dev/null || echo 0)"
+	case "$last" in
+	''|*[!0-9]*) last=0 ;;
+	esac
+	if [ "$last" -gt 0 ]; then
+		echo "$last"
+		return
+	fi
+
+	newest=0
+	for file in \
+		"$state_dir/openwalla-netify.sqlite" \
+		"$state_dir/openwalla-connection-flows.sqlite" \
+		"$state_dir/openwalla-devices.sqlite" \
+		"$state_dir/openwalla-device-bandwidth.sqlite" \
+		"$state_dir/openwalla-notifications.sqlite" \
+		"$state_dir/openwalla-ping-monitor.txt" \
+		"$state_dir/openwalla-dns-monitor.txt" \
+		"$state_dir/openwalla-speedtest-monitor.txt" \
+		"$state_dir/openwalla-quarantine-known.txt" \
+		"$state_dir/openwalla.config"
+	do
+		mtime="$(file_mtime_epoch "$file" 2>/dev/null || echo 0)"
+		case "$mtime" in
+		''|*[!0-9]*) mtime=0 ;;
+		esac
+		[ "$mtime" -gt "$newest" ] && newest="$mtime"
+	done
+	echo "$newest"
+}
+
 restore_copy() {
 	local src="$1"
 	local dst="$2"
@@ -289,13 +331,10 @@ restore_state() {
 }
 
 print_status() {
-	local state_dir interval last size files last_iso
+	local state_dir interval last size files last_iso cron_line service_enabled service_running
 	state_dir="$(read_state_dir)"
 	interval="$(read_backup_time_min)"
-	last="$(cat "$STATE_TS_FILE" 2>/dev/null || cat "$state_dir/openwalla-state-sync.last" 2>/dev/null || echo 0)"
-	case "$last" in
-	''|*[!0-9]*) last=0 ;;
-	esac
+	last="$(read_last_backup_epoch "$state_dir")"
 	if [ "$last" -gt 0 ]; then
 		last_iso="$(date -u -d "@$last" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -r "$last" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "")"
 	else
@@ -308,6 +347,12 @@ print_status() {
 		size="0 B"
 		files="0"
 	fi
+	cron_line="$(grep "$MARKER" "$CRON_PATH" 2>/dev/null | tail -n 1 || true)"
+	service_enabled="0"
+	[ -e /etc/rc.d/S*openwalla-state-sync ] && service_enabled="1"
+	service_running="0"
+	/etc/init.d/openwalla-state-sync enabled >/dev/null 2>&1 && service_enabled="1"
+	/etc/init.d/openwalla-state-sync status >/dev/null 2>&1 && service_running="1"
 	printf "installed|1\n"
 	printf "state_dir|%s\n" "$state_dir"
 	printf "backup_time_min|%s\n" "$interval"
@@ -315,19 +360,33 @@ print_status() {
 	printf "last_backup_iso|%s\n" "$last_iso"
 	printf "file_count|%s\n" "$files"
 	printf "size|%s\n" "$size"
+	printf "cron_line|%s\n" "$cron_line"
+	printf "service_enabled|%s\n" "$service_enabled"
+	printf "service_running|%s\n" "$service_running"
 }
 
 save_if_due() {
-	local interval now last elapsed
+	local state_dir interval now last elapsed
+	state_dir="$(read_state_dir)"
 	interval="$(read_backup_time_min)"
 	now="$(date +%s 2>/dev/null || echo 0)"
-	last="$(cat "$STATE_TS_FILE" 2>/dev/null || echo 0)"
-	case "$last" in
-	''|*[!0-9]*) last=0 ;;
-	esac
+	last="$(read_last_backup_epoch "$state_dir")"
 	elapsed=$((now - last))
 	if [ "$elapsed" -ge $((interval * 60)) ]; then
 		save_state
+	fi
+}
+
+print_debug() {
+	local state_dir
+	state_dir="$(read_state_dir)"
+	print_status
+	printf "runtime_ping_file|%s|%s\n" "$(read_ping_file)" "$(wc -l "$(read_ping_file)" 2>/dev/null | awk '{print $1}' || echo 0)"
+	printf "runtime_dns_file|%s|%s\n" "$(read_dns_file)" "$(wc -l "$(read_dns_file)" 2>/dev/null | awk '{print $1}' || echo 0)"
+	printf "runtime_speedtest_file|%s|%s\n" "$(read_speedtest_file)" "$(wc -l "$(read_speedtest_file)" 2>/dev/null | awk '{print $1}' || echo 0)"
+	printf "checkpoint_files|\n"
+	if [ -d "$state_dir" ]; then
+		find "$state_dir" -maxdepth 2 -type f -exec ls -lh {} \; 2>/dev/null | sed 's/^/file|/'
 	fi
 }
 
@@ -387,6 +446,9 @@ restore)
 status)
 	print_status
 	;;
+debug|diagnose)
+	print_debug
+	;;
 save-if-due)
 	save_if_due
 	;;
@@ -394,7 +456,7 @@ sync-cron)
 	sync_cron
 	;;
 *)
-	echo "usage: $0 {save|backup|restore|status|save-if-due|sync-cron}"
+	echo "usage: $0 {save|backup|restore|status|debug|save-if-due|sync-cron}"
 	exit 1
 	;;
 esac
