@@ -7205,12 +7205,14 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     try {
       final payload = jsonDecode(output);
       if (payload is! Map<String, dynamic>) return const [];
+      final byteMultiplier = _vnstatByteMultiplier(payload);
       final interfaces = _vnstatInterfaces(payload['interfaces']);
       if (interfaces.isEmpty) return const [];
       final picked = _pickVnstatInterface(
         interfaces,
         period: period,
         preferredInterface: preferredInterface,
+        byteMultiplier: byteMultiplier,
       );
       final rows = _vnstatPeriodRows(
         picked is Map ? picked['traffic'] : null,
@@ -7218,7 +7220,10 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       );
       final samples =
           rows
-              .map((row) => _mapVnstatRow(row, period))
+              .map(
+                (row) =>
+                    _mapVnstatRow(row, period, byteMultiplier: byteMultiplier),
+              )
               .whereType<VnstatUsageSample>()
               .toList()
             ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
@@ -7252,6 +7257,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     List<Map> interfaces, {
     required String period,
     String? preferredInterface,
+    int byteMultiplier = 1,
   }) {
     final preferred = preferredInterface?.trim();
     final withRows = interfaces.where((interface) {
@@ -7263,7 +7269,9 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       final exact = withRows.where((interface) {
         return _vnstatInterfaceNames(interface).contains(preferred);
       }).firstOrNull;
-      if (exact != null && _vnstatTrafficTotal(exact, period) > 0) {
+      if (exact != null &&
+          _vnstatTrafficTotal(exact, period, byteMultiplier: byteMultiplier) >
+              0) {
         return exact;
       }
 
@@ -7274,19 +7282,29 @@ done | sort -t "|" -k1,1nr | head -n ''' +
         ).map((name) => name.toLowerCase()).contains(lower);
       }).firstOrNull;
       if (caseInsensitive != null &&
-          _vnstatTrafficTotal(caseInsensitive, period) > 0) {
+          _vnstatTrafficTotal(
+                caseInsensitive,
+                period,
+                byteMultiplier: byteMultiplier,
+              ) >
+              0) {
         return caseInsensitive;
       }
     }
 
     final withTraffic = withRows
       ..sort(
-        (a, b) => _vnstatTrafficTotal(
-          b,
-          period,
-        ).compareTo(_vnstatTrafficTotal(a, period)),
+        (a, b) => _vnstatTrafficTotal(b, period, byteMultiplier: byteMultiplier)
+            .compareTo(
+              _vnstatTrafficTotal(a, period, byteMultiplier: byteMultiplier),
+            ),
       );
-    if (_vnstatTrafficTotal(withTraffic.first, period) > 0) {
+    if (_vnstatTrafficTotal(
+          withTraffic.first,
+          period,
+          byteMultiplier: byteMultiplier,
+        ) >
+        0) {
       return withTraffic.first;
     }
 
@@ -7313,7 +7331,11 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     }.whereType<String>().where((name) => name.trim().isNotEmpty).toSet();
   }
 
-  int _vnstatTrafficTotal(Map interface, String period) {
+  int _vnstatTrafficTotal(
+    Map interface,
+    String period, {
+    int byteMultiplier = 1,
+  }) {
     return _vnstatPeriodRows(interface['traffic'], period).fold<int>(0, (
       sum,
       row,
@@ -7326,6 +7348,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
                 row['received'] ??
                 row['download'] ??
                 row['down'],
+            multiplier: byteMultiplier,
           ) +
           _vnstatBytes(
             row['tx'] ??
@@ -7333,6 +7356,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
                 row['transmitted'] ??
                 row['upload'] ??
                 row['up'],
+            multiplier: byteMultiplier,
           );
     });
   }
@@ -7363,7 +7387,11 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     return const [];
   }
 
-  VnstatUsageSample? _mapVnstatRow(dynamic row, String period) {
+  VnstatUsageSample? _mapVnstatRow(
+    dynamic row,
+    String period, {
+    int byteMultiplier = 1,
+  }) {
     if (row is! Map) return null;
     final timestamp = _resolveVnstatTimestamp(row, period);
     if (timestamp == null) return null;
@@ -7375,6 +7403,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
             row['received'] ??
             row['download'] ??
             row['down'],
+        multiplier: byteMultiplier,
       ),
       uploadBytes: _vnstatBytes(
         row['tx'] ??
@@ -7382,6 +7411,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
             row['transmitted'] ??
             row['upload'] ??
             row['up'],
+        multiplier: byteMultiplier,
       ),
     );
   }
@@ -7446,16 +7476,67 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     return DateTime(year, month, day <= 0 ? 1 : day, hour, minute);
   }
 
-  int _vnstatBytes(dynamic value) {
-    if (value is int) return value < 0 ? 0 : value;
-    if (value is num) return value < 0 ? 0 : value.round();
+  int _vnstatByteMultiplier(Map<String, dynamic> payload) {
+    final jsonVersion = int.tryParse(payload['jsonversion']?.toString() ?? '');
+    if (jsonVersion != null && jsonVersion > 0) {
+      return jsonVersion < 2 ? 1024 : 1;
+    }
+
+    final vnstatVersion = payload['vnstatversion']?.toString() ?? '';
+    final major = int.tryParse(vnstatVersion.split('.').first);
+    if (major != null && major > 0) {
+      return major < 2 ? 1024 : 1;
+    }
+
+    return 1;
+  }
+
+  int _vnstatBytes(dynamic value, {int multiplier = 1}) {
+    if (value is int) return value < 0 ? 0 : value * multiplier;
+    if (value is num) {
+      return value < 0 ? 0 : (value * multiplier).round();
+    }
     if (value is Map) {
+      final unitMultiplier = _vnstatUnitMultiplier(value['unit']);
       return _vnstatBytes(
         value['bytes'] ?? value['value'] ?? value['total'] ?? value['amount'],
+        multiplier: unitMultiplier ?? multiplier,
       );
     }
-    final parsed = int.tryParse(value?.toString() ?? '') ?? 0;
-    return parsed < 0 ? 0 : parsed;
+    final parsed = _parseVnstatNumericText(value?.toString() ?? '');
+    final effectiveMultiplier = parsed.hasUnit ? 1 : multiplier;
+    return parsed.value < 0 ? 0 : (parsed.value * effectiveMultiplier).round();
+  }
+
+  ({double value, bool hasUnit}) _parseVnstatNumericText(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return (value: 0, hasUnit: false);
+    final match = RegExp(
+      r'^([0-9]+(?:\.[0-9]+)?)\s*([KMGTPE]?i?B)?$',
+      caseSensitive: false,
+    ).firstMatch(trimmed);
+    if (match == null) {
+      return (value: double.tryParse(trimmed) ?? 0, hasUnit: false);
+    }
+    final amount = double.tryParse(match.group(1) ?? '') ?? 0;
+    final unitMultiplier = _vnstatUnitMultiplier(match.group(2));
+    return (
+      value: amount * (unitMultiplier ?? 1),
+      hasUnit: unitMultiplier != null,
+    );
+  }
+
+  int? _vnstatUnitMultiplier(dynamic rawUnit) {
+    final unit = rawUnit?.toString().trim().toLowerCase();
+    return switch (unit) {
+      'b' || 'byte' || 'bytes' => 1,
+      'kb' || 'kib' => 1024,
+      'mb' || 'mib' => 1024 * 1024,
+      'gb' || 'gib' => 1024 * 1024 * 1024,
+      'tb' || 'tib' => 1024 * 1024 * 1024 * 1024,
+      'pb' || 'pib' => 1024 * 1024 * 1024 * 1024 * 1024,
+      _ => null,
+    };
   }
 
   int _asInt(dynamic value) {
