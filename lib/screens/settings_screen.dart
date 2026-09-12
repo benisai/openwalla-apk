@@ -855,12 +855,9 @@ class _MonthlyUsageSettingsScreenState
     final appState = ref.read(appStateProvider);
     final settings = await appState.fetchMonthlyUsageSettings(context: context);
     if (!mounted) return;
-    final vnstatInterfaces = await appState.fetchVnstatInterfaceNames(
+    final interfaces = await appState.fetchVnstatInterfaceNames(
       context: context,
     );
-    final interfaces = vnstatInterfaces.isNotEmpty
-        ? vnstatInterfaces
-        : appState.dashboardInterfaceNames();
     if (!mounted) return;
 
     final selectedInterface = _resolveSelectedInterface(
@@ -869,9 +866,7 @@ class _MonthlyUsageSettingsScreenState
     );
 
     setState(() {
-      _interfaces = interfaces.contains(selectedInterface)
-          ? interfaces
-          : [...interfaces, selectedInterface];
+      _interfaces = interfaces;
       _selectedInterface = selectedInterface;
       final now = DateTime.now();
       final safeDay = settings.monthStartDay.clamp(1, 28);
@@ -898,6 +893,15 @@ class _MonthlyUsageSettingsScreenState
   }
 
   Future<void> _saveSettings() async {
+    if (_selectedInterface.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('vnStat is not monitoring any interfaces yet.'),
+        ),
+      );
+      return;
+    }
+
     setState(() => _isSaving = true);
     try {
       await ref
@@ -964,29 +968,37 @@ class _MonthlyUsageSettingsScreenState
                       onTap: _isSaving ? null : _selectStartDate,
                     ),
                     const SizedBox(height: 16),
-                    DropdownButtonFormField<String>(
-                      initialValue: _selectedInterface,
-                      decoration: const InputDecoration(
-                        labelText: 'Interface',
-                        prefixIcon: Icon(Icons.settings_ethernet_rounded),
-                        border: OutlineInputBorder(),
+                    if (_interfaces.isEmpty)
+                      const _MonthlyUsageNotice(
+                        message:
+                            'No vnStat-monitored interfaces were found. Install or start vnstat, then refresh this screen.',
+                      )
+                    else
+                      DropdownButtonFormField<String>(
+                        initialValue: _selectedInterface,
+                        decoration: const InputDecoration(
+                          labelText: 'vnStat Monitored Interface',
+                          helperText:
+                              'Only interfaces returned by vnstat --iflist are shown.',
+                          prefixIcon: Icon(Icons.settings_ethernet_rounded),
+                          border: OutlineInputBorder(),
+                        ),
+                        items: _interfaces
+                            .map(
+                              (interface) => DropdownMenuItem(
+                                value: interface,
+                                child: Text(interface),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: _isSaving
+                            ? null
+                            : (value) {
+                                if (value != null) {
+                                  setState(() => _selectedInterface = value);
+                                }
+                              },
                       ),
-                      items: _interfaces
-                          .map(
-                            (interface) => DropdownMenuItem(
-                              value: interface,
-                              child: Text(interface),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: _isSaving
-                          ? null
-                          : (value) {
-                              if (value != null) {
-                                setState(() => _selectedInterface = value);
-                              }
-                            },
-                    ),
                     const SizedBox(height: 16),
                     TextField(
                       controller: _monthlyLimitController,
@@ -1008,8 +1020,48 @@ class _MonthlyUsageSettingsScreenState
           ? null
           : _SettingsSaveBar(
               isSaving: _isSaving,
-              onPressed: _isSaving ? null : _saveSettings,
+              onPressed: _isSaving || _interfaces.isEmpty
+                  ? null
+                  : _saveSettings,
             ),
+    );
+  }
+}
+
+class _MonthlyUsageNotice extends StatelessWidget {
+  final String message;
+
+  const _MonthlyUsageNotice({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.42),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.35),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline_rounded, color: colorScheme.primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
