@@ -844,14 +844,28 @@ class _RouterDashboardSettingsScreenState
                 },
               ),
               _buildCardVisibilitySwitch(
-                title: 'Scheduler Shortcut',
-                subtitle: 'Show the device block scheduler on the dashboard',
-                icon: Icons.event_available_rounded,
+                title: 'Parental Controls Shortcut',
+                subtitle: 'Show device schedules and block groups',
+                icon: Icons.family_restroom_rounded,
                 value: _preferences.showSchedulerShortcut,
                 onChanged: (value) {
                   setState(() {
                     _preferences = _preferences.copyWith(
                       showSchedulerShortcut: value,
+                    );
+                  });
+                  _onPreferenceChanged();
+                },
+              ),
+              _buildCardVisibilitySwitch(
+                title: 'DDNS Shortcut',
+                subtitle: 'Show Dynamic DNS controls on the dashboard',
+                icon: Icons.cloud_sync_rounded,
+                value: _preferences.showDdnsShortcut,
+                onChanged: (value) {
+                  setState(() {
+                    _preferences = _preferences.copyWith(
+                      showDdnsShortcut: value,
                     );
                   });
                   _onPreferenceChanged();
@@ -919,7 +933,8 @@ class _RouterDashboardSettingsScreenState
       'adblock' => 'AdBlock',
       'services' => 'Services',
       'vpn' => 'VPN',
-      'scheduler' => 'Scheduler',
+      'scheduler' => 'Parental Controls',
+      'ddns' => 'DDNS',
       _ => id,
     };
   }
@@ -934,7 +949,8 @@ class _RouterDashboardSettingsScreenState
       'adblock' => Icons.block_rounded,
       'services' => Icons.miscellaneous_services_rounded,
       'vpn' => Icons.security_rounded,
-      'scheduler' => Icons.event_available_rounded,
+      'scheduler' => Icons.family_restroom_rounded,
+      'ddns' => Icons.cloud_sync_rounded,
       _ => Icons.apps_rounded,
     };
   }

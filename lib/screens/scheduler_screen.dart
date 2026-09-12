@@ -113,7 +113,7 @@ class _SchedulerScreenState extends ConsumerState<SchedulerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: LuciAppBar(
-        title: 'Scheduler',
+        title: 'Parental Controls',
         showBack: true,
         actions: [
           IconButton(
@@ -129,7 +129,7 @@ class _SchedulerScreenState extends ConsumerState<SchedulerScreen> {
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
           children: [
             Text(
-              'Device Groups',
+              'Family Device Groups',
               style: Theme.of(
                 context,
               ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900),

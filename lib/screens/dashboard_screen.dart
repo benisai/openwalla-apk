@@ -11,6 +11,7 @@ import 'package:luci_mobile/models/dashboard_preferences.dart';
 import 'package:luci_mobile/screens/adblock_screen.dart';
 import 'package:luci_mobile/screens/clients_screen.dart';
 import 'package:luci_mobile/screens/dns_screen.dart';
+import 'package:luci_mobile/screens/ddns_screen.dart';
 import 'package:luci_mobile/screens/flows_screen.dart';
 import 'package:luci_mobile/screens/interfaces_screen.dart';
 import 'package:luci_mobile/screens/live_throughput_screen.dart';
@@ -1284,14 +1285,26 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
           if (preferences.showSchedulerShortcut)
             _DashboardShortcutData(
               id: 'scheduler',
-              label: 'Scheduler',
-              icon: Icons.event_available_rounded,
+              label: 'Parental',
+              icon: Icons.family_restroom_rounded,
               color: _openwallaGreen,
               onTap: () {
                 Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (context) => const SchedulerScreen(),
                   ),
+                );
+              },
+            ),
+          if (preferences.showDdnsShortcut)
+            _DashboardShortcutData(
+              id: 'ddns',
+              label: 'DDNS',
+              icon: Icons.cloud_sync_rounded,
+              color: _shortcutDarkBlue,
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (context) => const DdnsScreen()),
                 );
               },
             ),

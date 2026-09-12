@@ -15,6 +15,7 @@ class DashboardPreferences {
   final bool showAdblockShortcut;
   final bool showVpnShortcut;
   final bool showSchedulerShortcut;
+  final bool showDdnsShortcut;
   final bool showInactiveWirelessNetworks;
   final int shortcutPanelVisibleCount;
   final List<String> shortcutOrder;
@@ -36,6 +37,7 @@ class DashboardPreferences {
     this.showAdblockShortcut = true,
     this.showVpnShortcut = true,
     this.showSchedulerShortcut = true,
+    this.showDdnsShortcut = true,
     this.showInactiveWirelessNetworks = false,
     this.shortcutPanelVisibleCount = 6,
     List<String>? shortcutOrder,
@@ -55,6 +57,7 @@ class DashboardPreferences {
     'services',
     'vpn',
     'scheduler',
+    'ddns',
   ];
 
   DashboardPreferences copyWith({
@@ -72,6 +75,7 @@ class DashboardPreferences {
     bool? showAdblockShortcut,
     bool? showVpnShortcut,
     bool? showSchedulerShortcut,
+    bool? showDdnsShortcut,
     bool? showInactiveWirelessNetworks,
     int? shortcutPanelVisibleCount,
     List<String>? shortcutOrder,
@@ -103,6 +107,7 @@ class DashboardPreferences {
       showVpnShortcut: showVpnShortcut ?? this.showVpnShortcut,
       showSchedulerShortcut:
           showSchedulerShortcut ?? this.showSchedulerShortcut,
+      showDdnsShortcut: showDdnsShortcut ?? this.showDdnsShortcut,
       showInactiveWirelessNetworks:
           showInactiveWirelessNetworks ?? this.showInactiveWirelessNetworks,
       shortcutPanelVisibleCount:
@@ -130,6 +135,7 @@ class DashboardPreferences {
     'showAdblockShortcut': showAdblockShortcut,
     'showVpnShortcut': showVpnShortcut,
     'showSchedulerShortcut': showSchedulerShortcut,
+    'showDdnsShortcut': showDdnsShortcut,
     'showInactiveWirelessNetworks': showInactiveWirelessNetworks,
     'shortcutPanelVisibleCount': shortcutPanelVisibleCount,
     'shortcutOrder': shortcutOrder,
@@ -159,6 +165,7 @@ class DashboardPreferences {
       showAdblockShortcut: json['showAdblockShortcut'] ?? true,
       showVpnShortcut: json['showVpnShortcut'] ?? true,
       showSchedulerShortcut: json['showSchedulerShortcut'] ?? true,
+      showDdnsShortcut: json['showDdnsShortcut'] ?? true,
       showInactiveWirelessNetworks:
           json['showInactiveWirelessNetworks'] == true,
       shortcutPanelVisibleCount: _parseShortcutPanelVisibleCount(

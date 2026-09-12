@@ -8,6 +8,7 @@ import 'package:luci_mobile/services/router_service.dart';
 import 'package:luci_mobile/services/ssh_service.dart';
 import 'package:luci_mobile/services/throughput_service.dart';
 import 'package:luci_mobile/models/client.dart';
+import 'package:luci_mobile/models/ddns_info.dart';
 import 'package:luci_mobile/models/router.dart' as model;
 import 'package:luci_mobile/models/dashboard_preferences.dart';
 import 'package:luci_mobile/services/interfaces/auth_service_interface.dart';
@@ -6335,6 +6336,40 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     return result?.toString() ?? '';
   }
 
+  bool _rpcCallSucceeded(dynamic result) {
+    if (result is List && result.isNotEmpty) {
+      return result.first == 0 || result.first == '0';
+    }
+    if (result is Map && result.containsKey('code')) {
+      return result['code'] == 0 || result['code'] == '0';
+    }
+    return result != null;
+  }
+
+  Future<void> _runOptionalInitAction(String service, String action) async {
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) return;
+    try {
+      await _apiService!.call(
+        router.ipAddress,
+        sysauth,
+        router.useHttps,
+        object: 'file',
+        method: 'exec',
+        params: {
+          'command': 'sh',
+          'params': [
+            '-c',
+            '[ -x /etc/init.d/$service ] && /etc/init.d/$service $action || true',
+          ],
+        },
+      );
+    } catch (e) {
+      Logger.debug('Optional init action failed for $service $action: $e');
+    }
+  }
+
   dynamic _extractRpcData(dynamic result) {
     if (result is List && result.length > 1) {
       return result[0] == 0 ? result[1] : null;
@@ -8705,6 +8740,239 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       Logger.debug('Optional manual devices collector refresh failed: $e');
       Logger.debug('Optional manual devices collector refresh stack: $stack');
       return false;
+    }
+  }
+
+  Future<DdnsOverview> fetchDdnsOverview({BuildContext? context}) async {
+    if (_reviewerModeEnabled) {
+      return DdnsOverview.fromDashboardData(null, isReviewerMode: true);
+    }
+
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) {
+      return const DdnsOverview(
+        isInstalled: false,
+        isGlobalEnabled: false,
+        installedPackages: [],
+        instances: [],
+      );
+    }
+
+    Map<String, Map<String, dynamic>> ddnsValues = {};
+    try {
+      final ddns = await _apiService!.call(
+        router.ipAddress,
+        sysauth,
+        router.useHttps,
+        object: 'uci',
+        method: 'get',
+        params: {'config': 'ddns'},
+      );
+      ddnsValues = _extractUciValues(ddns);
+    } catch (e) {
+      Logger.debug('Optional DDNS UCI read failed: $e');
+    }
+
+    final packages = <String>[];
+    try {
+      final result = await _apiService!.call(
+        router.ipAddress,
+        sysauth,
+        router.useHttps,
+        object: 'file',
+        method: 'exec',
+        params: {
+          'command': 'sh',
+          'params': [
+            '-c',
+            "opkg list-installed 2>/dev/null | awk '{print \$1}' | grep -E '^(ddns-scripts|luci-app-ddns)' || true",
+          ],
+        },
+      );
+      packages.addAll(
+        _commandOutput(result)
+            .split('\n')
+            .map((line) => line.trim())
+            .where((line) => line.isNotEmpty),
+      );
+    } catch (e) {
+      Logger.debug('Optional DDNS package read failed: $e');
+    }
+
+    var running = false;
+    var enabled = false;
+    try {
+      final result = await _apiService!.call(
+        router.ipAddress,
+        sysauth,
+        router.useHttps,
+        object: 'file',
+        method: 'exec',
+        params: {
+          'command': 'sh',
+          'params': [
+            '-c',
+            '[ -x /etc/init.d/ddns ] && { /etc/init.d/ddns enabled >/dev/null 2>&1 && echo enabled=1 || echo enabled=0; /etc/init.d/ddns status 2>/dev/null || true; }',
+          ],
+        },
+      );
+      final output = _commandOutput(result).toLowerCase();
+      enabled = output.contains('enabled=1');
+      running =
+          output.contains('running') ||
+          output.contains('active') ||
+          output.contains('started');
+    } catch (e) {
+      Logger.debug('Optional DDNS service status failed: $e');
+    }
+
+    return DdnsOverview.fromDashboardData({
+      'ddns': ddnsValues,
+      'installedPackages': packages,
+      'initScripts': {
+        'ddns': {'running': running, 'enabled': enabled},
+      },
+    });
+  }
+
+  Future<bool> saveDdnsInstance(
+    DdnsInstance instance, {
+    BuildContext? context,
+  }) async {
+    if (_reviewerModeEnabled) return true;
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) return false;
+
+    final result = await _apiService!.call(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      object: 'uci',
+      method: 'set',
+      params: {
+        'config': 'ddns',
+        'section': instance.name,
+        'type': 'service',
+        'values': instance.toUciParams().map(
+          (key, value) => MapEntry(key, value.toString()),
+        ),
+      },
+    );
+    if (!_rpcCallSucceeded(result)) return false;
+    await _apiService!.uciCommit(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      config: 'ddns',
+    );
+    await _runOptionalInitAction('ddns', 'reload');
+    return true;
+  }
+
+  Future<bool> deleteDdnsInstance(
+    String instanceName, {
+    BuildContext? context,
+  }) async {
+    if (_reviewerModeEnabled) return true;
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) return false;
+
+    final result = await _apiService!.call(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      object: 'uci',
+      method: 'delete',
+      params: {'config': 'ddns', 'section': instanceName},
+    );
+    if (!_rpcCallSucceeded(result)) return false;
+    await _apiService!.uciCommit(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      config: 'ddns',
+    );
+    await _runOptionalInitAction('ddns', 'reload');
+    return true;
+  }
+
+  Future<bool> toggleGlobalDdns(bool enabled, {BuildContext? context}) async {
+    if (_reviewerModeEnabled) return true;
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) return false;
+
+    await _apiService!.call(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      object: 'uci',
+      method: 'set',
+      params: {
+        'config': 'ddns',
+        'section': 'global',
+        'type': 'global',
+        'values': {'is_enabled': enabled ? '1' : '0'},
+      },
+    );
+    await _apiService!.uciCommit(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      config: 'ddns',
+    );
+    await _runOptionalInitAction('ddns', enabled ? 'start' : 'stop');
+    return true;
+  }
+
+  Future<DdnsValidationResult> testDdnsConfiguration(
+    DdnsInstance instance, {
+    BuildContext? context,
+  }) async {
+    final host = instance.lookupHost.trim().isNotEmpty
+        ? instance.lookupHost.trim()
+        : instance.domain.trim();
+    if (host.isEmpty) {
+      return DdnsValidationResult.failure('Lookup host or domain is required.');
+    }
+    if (_reviewerModeEnabled) {
+      return DdnsValidationResult.success(
+        testOutput: 'DNS lookup successful for $host',
+      );
+    }
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) {
+      return DdnsValidationResult.failure('No router connection is available.');
+    }
+    try {
+      final result = await _apiService!.call(
+        router.ipAddress,
+        sysauth,
+        router.useHttps,
+        object: 'file',
+        method: 'exec',
+        params: {
+          'command': 'nslookup',
+          'params': [host],
+        },
+      );
+      final output = _commandOutput(result);
+      final lower = output.toLowerCase();
+      if (lower.contains("can't find") ||
+          lower.contains('nxdomain') ||
+          lower.contains('server failure')) {
+        return DdnsValidationResult.failure(
+          'DNS lookup failed for $host.',
+          testOutput: output,
+        );
+      }
+      return DdnsValidationResult.success(testOutput: output);
+    } catch (e) {
+      return DdnsValidationResult.failure('DNS lookup failed: $e');
     }
   }
 
