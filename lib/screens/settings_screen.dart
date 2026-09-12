@@ -113,7 +113,8 @@ class SettingsScreen extends ConsumerWidget {
                     context: context,
                     icon: Icons.palette_outlined,
                     title: 'Theme',
-                    subtitle: _themeModeLabel(appState.themeMode),
+                    subtitle:
+                        '${_themeModeLabel(appState.themeMode)} • ${appState.themeAccent.label}',
                     onTap: () => _openSettingsPage(
                       context,
                       const _ThemeSettingsScreen(),
@@ -270,6 +271,31 @@ class _ThemeSettingsScreen extends ConsumerWidget {
                 ),
               ],
             ),
+            const SizedBox(height: 14),
+            _SettingsFormCard(
+              children: [
+                Text(
+                  'Accent Color',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurface,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Choose the color used for active controls and highlights.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _ThemeAccentPicker(
+                  selected: appState.themeAccent,
+                  onSelected: appState.setThemeAccent,
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -308,6 +334,121 @@ class _ThemeOptionTile extends StatelessWidget {
         color: selected ? colorScheme.primary : colorScheme.onSurfaceVariant,
       ),
       onTap: onTap,
+    );
+  }
+}
+
+class _ThemeAccentPicker extends StatelessWidget {
+  final OpenwallaThemeAccent selected;
+  final ValueChanged<OpenwallaThemeAccent> onSelected;
+
+  const _ThemeAccentPicker({required this.selected, required this.onSelected});
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: OpenwallaThemeAccent.values.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 4,
+        mainAxisSpacing: 10,
+        crossAxisSpacing: 10,
+        childAspectRatio: 0.92,
+      ),
+      itemBuilder: (context, index) {
+        final accent = OpenwallaThemeAccent.values[index];
+        return _ThemeAccentTile(
+          accent: accent,
+          selected: selected == accent,
+          onTap: () => onSelected(accent),
+        );
+      },
+    );
+  }
+}
+
+class _ThemeAccentTile extends StatelessWidget {
+  final OpenwallaThemeAccent accent;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _ThemeAccentTile({
+    required this.accent,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: selected
+                ? accent.color.withValues(alpha: 0.16)
+                : colorScheme.surfaceContainerHighest.withValues(alpha: 0.22),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected
+                  ? accent.color
+                  : colorScheme.outlineVariant.withValues(alpha: 0.35),
+              width: selected ? 2 : 1,
+            ),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      color: accent.color,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: accent.color.withValues(alpha: 0.32),
+                          blurRadius: 12,
+                          offset: const Offset(0, 5),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (selected)
+                    const Icon(
+                      Icons.check_rounded,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                accent.label,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: selected
+                      ? colorScheme.onSurface
+                      : colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

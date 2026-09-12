@@ -22,20 +22,23 @@ class LuCIApp extends ConsumerWidget {
   static const Color _openwallaBackground = Color(0xFF151B29);
   static const Color _openwallaSurface = Color(0xFF202636);
   static const Color _openwallaSurfaceAlt = Color(0xFF242B3B);
-  static const Color _openwallaRed = Color(0xFFFF424B);
   static const Color _openwallaCyan = Color(0xFF18AEEA);
   static const Color _openwallaOrange = Color(0xFFF27C24);
   static const Color _openwallaText = Color(0xFFF8FAFC);
   static const Color _openwallaMuted = Color(0xFF9CA4B5);
 
-  ThemeData _buildOpenwallaTheme(Brightness brightness) {
+  ThemeData _buildOpenwallaTheme(
+    Brightness brightness,
+    OpenwallaThemeAccent accent,
+  ) {
     final isDark = brightness == Brightness.dark;
+    final primaryColor = accent.color;
     final colorScheme =
         ColorScheme.fromSeed(
-          seedColor: _openwallaRed,
+          seedColor: primaryColor,
           brightness: brightness,
         ).copyWith(
-          primary: _openwallaRed,
+          primary: primaryColor,
           secondary: _openwallaCyan,
           tertiary: _openwallaOrange,
           surface: isDark ? _openwallaSurface : const Color(0xFFF5F7FB),
@@ -59,7 +62,7 @@ class LuCIApp extends ConsumerWidget {
           outlineVariant: isDark
               ? const Color(0xFF334056)
               : const Color(0xFFC8D0DD),
-          error: _openwallaRed,
+          error: OpenwallaThemeAccent.red.color,
         );
 
     return ThemeData(
@@ -124,8 +127,8 @@ class LuCIApp extends ConsumerWidget {
     final appState = ref.watch(appStateProvider);
     return MaterialApp(
       title: 'Openwalla',
-      theme: _buildOpenwallaTheme(Brightness.light),
-      darkTheme: _buildOpenwallaTheme(Brightness.dark),
+      theme: _buildOpenwallaTheme(Brightness.light, appState.themeAccent),
+      darkTheme: _buildOpenwallaTheme(Brightness.dark, appState.themeAccent),
       themeMode: appState.themeMode,
       initialRoute: '/splash',
       routes: {

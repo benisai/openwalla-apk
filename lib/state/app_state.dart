@@ -20,6 +20,29 @@ import 'package:luci_mobile/utils/logger.dart';
 
 const int kOpenwallaPingTimelineSampleLimit = 420;
 
+enum OpenwallaThemeAccent {
+  red('Red', Color(0xFFFF424B)),
+  blue('Blue', Color(0xFF1683FF)),
+  grey('Grey', Color(0xFF8B95A7)),
+  pink('Pink', Color(0xFFEC4899)),
+  yellow('Yellow', Color(0xFFEAB308)),
+  orange('Orange', Color(0xFFF27C24)),
+  indigo('Indigo', Color(0xFF4F46E5)),
+  violet('Violet', Color(0xFF8B5CF6));
+
+  final String label;
+  final Color color;
+
+  const OpenwallaThemeAccent(this.label, this.color);
+
+  static OpenwallaThemeAccent fromName(String? name) {
+    return OpenwallaThemeAccent.values.firstWhere(
+      (accent) => accent.name == name,
+      orElse: () => OpenwallaThemeAccent.red,
+    );
+  }
+}
+
 class PingMonitorSettings {
   final String target;
   final int thresholdMs;
@@ -1395,6 +1418,8 @@ class AppState extends ChangeNotifier {
   // Theme mode state
   ThemeMode _themeMode = ThemeMode.system;
   static const String _themeModeKey = 'themeMode';
+  OpenwallaThemeAccent _themeAccent = OpenwallaThemeAccent.red;
+  static const String _themeAccentKey = 'themeAccent';
 
   // Clients view mode (selected router only by default for fast page loads)
   bool _clientsAggregateAllRouters = false;
@@ -1453,6 +1478,7 @@ class AppState extends ChangeNotifier {
     await _loadReviewerMode();
     _initializeServices();
     await _loadThemeMode();
+    await _loadThemeAccent();
     await loadRouters(); // Load routers on app start (sets selectedRouter)
     await _migrateGlobalDashboardPreferencesIfNeeded(); // Proactively migrate legacy prefs
     await _loadClientsViewMode();
@@ -1557,6 +1583,19 @@ class AppState extends ChangeNotifier {
   Future<void> setThemeMode(ThemeMode mode) async {
     _themeMode = mode;
     await _secureStorageService.writeValue(_themeModeKey, mode.name);
+    notifyListeners();
+  }
+
+  Future<void> _loadThemeAccent() async {
+    final stored = await _secureStorageService.readValue(_themeAccentKey);
+    _themeAccent = OpenwallaThemeAccent.fromName(stored);
+    notifyListeners();
+  }
+
+  OpenwallaThemeAccent get themeAccent => _themeAccent;
+  Future<void> setThemeAccent(OpenwallaThemeAccent accent) async {
+    _themeAccent = accent;
+    await _secureStorageService.writeValue(_themeAccentKey, accent.name);
     notifyListeners();
   }
 
