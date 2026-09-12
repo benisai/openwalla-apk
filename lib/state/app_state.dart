@@ -9949,12 +9949,20 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       router.useHttps,
       config: 'dhcp',
     );
-    await _apiService!.systemExec(
-      router.ipAddress,
-      sysauth,
-      router.useHttps,
-      command:
-          '/etc/init.d/odhcpd restart 2>/dev/null || service odhcpd restart 2>/dev/null || true; /etc/init.d/dnsmasq restart 2>/dev/null || service dnsmasq restart 2>/dev/null || true',
+    unawaited(
+      _apiService!
+          .systemExec(
+            router.ipAddress,
+            sysauth,
+            router.useHttps,
+            command:
+                '/etc/init.d/odhcpd restart 2>/dev/null || service odhcpd restart 2>/dev/null || true; /etc/init.d/dnsmasq restart 2>/dev/null || service dnsmasq restart 2>/dev/null || true',
+          )
+          .catchError((Object e, StackTrace stack) {
+            Logger.debug('Background DHCP service restart failed: $e');
+            Logger.debug('Background DHCP service restart stack: $stack');
+            return <String, dynamic>{};
+          }),
     );
     notifyListeners();
   }

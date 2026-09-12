@@ -865,8 +865,20 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
       return;
     }
 
+    final previousStaticIpEnabled = _staticIpEnabled;
+    final previousStaticIp = _currentStaticIp;
+    final previousIpText = _ipController.text;
     final messenger = ScaffoldMessenger.of(context);
-    setState(() => _isSaving = true);
+    setState(() {
+      _staticIpEnabled = result.enabled;
+      _currentStaticIp = nextStaticIp;
+      _ipController.text = nextStaticIp.isNotEmpty
+          ? nextStaticIp
+          : widget.client.ipAddress == 'N/A'
+          ? ''
+          : widget.client.ipAddress;
+      _isSaving = true;
+    });
     try {
       await ref
           .read(appStateProvider)
@@ -878,13 +890,6 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
           );
       if (!mounted) return;
       setState(() {
-        _staticIpEnabled = result.enabled;
-        _currentStaticIp = nextStaticIp;
-        _ipController.text = nextStaticIp.isNotEmpty
-            ? nextStaticIp
-            : widget.client.ipAddress == 'N/A'
-            ? ''
-            : widget.client.ipAddress;
         _isSaving = false;
         _hasSavedChanges = true;
       });
@@ -900,7 +905,12 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
     } catch (e) {
       if (!mounted) return;
       _showError('Failed to update static IP: $e');
-      setState(() => _isSaving = false);
+      setState(() {
+        _staticIpEnabled = previousStaticIpEnabled;
+        _currentStaticIp = previousStaticIp;
+        _ipController.text = previousIpText;
+        _isSaving = false;
+      });
     }
   }
 
