@@ -10,6 +10,7 @@ import 'package:luci_mobile/services/throughput_service.dart';
 import 'package:luci_mobile/models/client.dart';
 import 'package:luci_mobile/models/ddns_info.dart';
 import 'package:luci_mobile/models/router.dart' as model;
+import 'package:luci_mobile/models/wifi_scan_result.dart';
 import 'package:luci_mobile/models/dashboard_preferences.dart';
 import 'package:luci_mobile/services/interfaces/auth_service_interface.dart';
 import 'package:luci_mobile/services/interfaces/api_service_interface.dart';
@@ -5683,6 +5684,226 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       Logger.debug('Optional wireless config stack: $stack');
       return null;
     }
+  }
+
+  List<Map<String, String>> availableWirelessScanDevices() {
+    final wirelessData = _dashboardData?['wireless'] as Map<String, dynamic>?;
+    if (wirelessData == null || wirelessData.isEmpty) {
+      return const [
+        {'radio': 'radio0', 'device': 'radio0', 'label': 'radio0'},
+      ];
+    }
+
+    final devices = <Map<String, String>>[];
+    wirelessData.forEach((radioName, radioData) {
+      if (radioData is! Map<String, dynamic>) return;
+      final interfaces = radioData['interfaces'] as List<dynamic>?;
+      String scanDevice = radioName;
+      String ssid = radioName;
+      if (interfaces != null && interfaces.isNotEmpty) {
+        for (final iface in interfaces) {
+          if (iface is! Map) continue;
+          final config = iface['config'] as Map? ?? const {};
+          final iwinfo = iface['iwinfo'] as Map? ?? const {};
+          final ifname = iface['ifname']?.toString();
+          final mode = config['mode']?.toString();
+          final ifaceSsid =
+              iwinfo['ssid']?.toString() ?? config['ssid']?.toString() ?? '';
+          if (ifname != null && ifname.isNotEmpty) {
+            scanDevice = ifname;
+            if (ifaceSsid.isNotEmpty) ssid = ifaceSsid;
+            if (mode == 'ap') break;
+          }
+        }
+      }
+      final channel = radioData['channel']?.toString() ?? '';
+      final labelParts = [ssid, if (channel.isNotEmpty) 'ch $channel'];
+      devices.add({
+        'radio': radioName,
+        'device': scanDevice,
+        'label': labelParts.join(' • '),
+      });
+    });
+    devices.sort((a, b) => a['radio']!.compareTo(b['radio']!));
+    return devices;
+  }
+
+  Future<List<WifiScanResult>> scanWirelessNetworks({
+    required String device,
+    BuildContext? context,
+  }) async {
+    if (_reviewerModeEnabled) {
+      await Future.delayed(const Duration(milliseconds: 650));
+      return const [
+        WifiScanResult(
+          ssid: 'Openwalla Guest',
+          bssid: 'AA:BB:CC:DD:EE:01',
+          mode: 'Master',
+          channel: 6,
+          frequency: 2437,
+          signal: -42,
+          quality: 83,
+          qualityMax: 100,
+          encryption: WifiEncryption(
+            enabled: true,
+            description: 'WPA2 PSK',
+            wep: false,
+            wpa: 2,
+            authSuites: ['PSK'],
+          ),
+        ),
+        WifiScanResult(
+          ssid: 'CoffeeShop',
+          bssid: 'AA:BB:CC:DD:EE:02',
+          mode: 'Master',
+          channel: 149,
+          frequency: 5745,
+          signal: -69,
+          quality: 51,
+          qualityMax: 100,
+          encryption: WifiEncryption(
+            enabled: false,
+            description: 'Open',
+            wep: false,
+            wpa: 0,
+            authSuites: [],
+          ),
+        ),
+      ];
+    }
+
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) {
+      throw StateError('No selected router connection is available');
+    }
+
+    final result = await _apiService!.call(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      object: 'iwinfo',
+      method: 'scan',
+      params: {'device': device},
+      context: context,
+      receiveTimeout: const Duration(seconds: 120),
+    );
+    final data = _extractRpcData(result);
+    List<dynamic> rawResults = const [];
+    if (data is Map && data['results'] is List) {
+      rawResults = data['results'] as List;
+    } else if (data is List) {
+      rawResults = data;
+    } else if (data is Map) {
+      for (final value in data.values) {
+        if (value is List) {
+          rawResults = value;
+          break;
+        }
+      }
+    }
+    final results =
+        rawResults
+            .whereType<Map>()
+            .map(
+              (entry) =>
+                  WifiScanResult.fromJson(Map<String, dynamic>.from(entry)),
+            )
+            .toList()
+          ..sort((a, b) => b.signal.compareTo(a.signal));
+    return results;
+  }
+
+  Future<void> connectWirelessWwan({
+    required String radioDevice,
+    required WifiScanResult network,
+    required String ssid,
+    required String password,
+    BuildContext? context,
+  }) async {
+    if (_reviewerModeEnabled) {
+      await Future.delayed(const Duration(seconds: 1));
+      await fetchDashboardData();
+      return;
+    }
+
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) {
+      throw StateError('No selected router connection is available');
+    }
+    final cleanSsid = ssid.trim();
+    if (cleanSsid.isEmpty) {
+      throw ArgumentError('SSID is required');
+    }
+    final encryption = network.encryption.openwrtEncryption;
+    if (encryption == 'wpa-eap') {
+      throw UnsupportedError('Enterprise Wi-Fi is not supported yet.');
+    }
+    if (encryption != 'none' && encryption != 'owe' && password.length < 8) {
+      throw ArgumentError('Wi-Fi password must be at least 8 characters.');
+    }
+
+    final radioIndex = int.tryParse(radioDevice.replaceAll('radio', '')) ?? 0;
+    final wwanName = radioIndex == 0 ? 'wwan' : 'wwan$radioIndex';
+    final staSection =
+        'owrt_sta_${radioDevice.replaceAll(RegExp(r'[^A-Za-z0-9_]'), '_')}';
+    final bssid = network.bssid.trim();
+    final command =
+        'RADIO=${_shellQuote(radioDevice)}; '
+        'NET=${_shellQuote(wwanName)}; '
+        'STA=${_shellQuote(staSection)}; '
+        'SSID=${_shellQuote(cleanSsid)}; '
+        'ENC=${_shellQuote(encryption)}; '
+        'KEY=${_shellQuote(password)}; '
+        'BSSID=${_shellQuote(bssid)}; '
+        '[ "\$(uci -q get wireless.\$RADIO.type)" = "wifi-device" ] || { echo "Wireless radio not found: $radioDevice"; exit 1; }; '
+        '[ "\$(uci -q get wireless.\$RADIO.disabled)" = "1" ] && { echo "Enable $radioDevice before joining another Wi-Fi network"; exit 1; }; '
+        'uci set network.\$NET="interface"; '
+        'uci set network.\$NET.proto="dhcp"; '
+        'uci commit network; '
+        'WAN_ZONE=""; '
+        'for z in \$(uci -q show firewall | sed -n "s/^firewall\\.\\([^.=]*\\)=zone\$/\\1/p"); do '
+        '[ "\$(uci -q get firewall.\$z.name)" = "wan" ] && WAN_ZONE="\$z" && break; '
+        'done; '
+        'if [ -n "\$WAN_ZONE" ]; then '
+        'uci -q del_list firewall.\$WAN_ZONE.network="\$NET" 2>/dev/null || true; '
+        'uci add_list firewall.\$WAN_ZONE.network="\$NET"; '
+        'uci commit firewall; '
+        'fi; '
+        'uci -q delete wireless.\$STA 2>/dev/null || true; '
+        'uci set wireless.\$STA="wifi-iface"; '
+        'uci set wireless.\$STA.device="\$RADIO"; '
+        'uci set wireless.\$STA.mode="sta"; '
+        'uci set wireless.\$STA.network="\$NET"; '
+        'uci set wireless.\$STA.ssid="\$SSID"; '
+        'uci set wireless.\$STA.encryption="\$ENC"; '
+        'if [ "\$ENC" != "none" ] && [ "\$ENC" != "owe" ]; then uci set wireless.\$STA.key="\$KEY"; fi; '
+        'if [ -n "\$BSSID" ]; then uci set wireless.\$STA.bssid="\$BSSID"; fi; '
+        'uci commit wireless; '
+        'wifi reload >/dev/null 2>&1 || /sbin/wifi reload >/dev/null 2>&1 || true; '
+        '/etc/init.d/network reload >/dev/null 2>&1 || true; '
+        '/etc/init.d/firewall reload >/dev/null 2>&1 || true; '
+        'echo "Connected \$SSID as \$NET"';
+
+    final result = await _apiService!.call(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      object: 'file',
+      method: 'exec',
+      params: {
+        'command': '/bin/sh',
+        'params': ['-c', command],
+      },
+      context: context,
+      receiveTimeout: const Duration(seconds: 60),
+    );
+    final data = _extractRpcData(result);
+    if (data is Map && data['code'] != null && data['code'].toString() != '0') {
+      throw StateError(_commandOutput(data));
+    }
+    await fetchDashboardData();
   }
 
   Future<void> saveWirelessNetworkConfig(

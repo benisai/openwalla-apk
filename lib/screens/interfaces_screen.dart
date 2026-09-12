@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:luci_mobile/main.dart';
 import 'package:flutter/services.dart';
 import 'package:luci_mobile/models/interface.dart';
+import 'package:luci_mobile/models/wifi_scan_result.dart';
 import 'package:luci_mobile/state/app_state.dart';
 import 'dart:math';
 import 'package:luci_mobile/widgets/luci_app_bar.dart';
@@ -480,6 +481,18 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
     }
   }
 
+  Future<void> _showJoinWifiSheet() async {
+    final updated = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => const _WirelessJoinSheet(),
+    );
+    if (updated == true && mounted) {
+      await ref.read(appStateProvider).fetchDashboardData();
+    }
+  }
+
   Future<void> _showWirelessDisplaySettings() async {
     final appState = ref.read(appStateProvider);
     final current = appState.dashboardPreferences.showInactiveWirelessNetworks;
@@ -750,6 +763,11 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
         showBack: true,
         actions: widget.wirelessOnly
             ? [
+                IconButton(
+                  tooltip: 'Join Wi-Fi as WAN',
+                  icon: const Icon(Icons.wifi_find_rounded),
+                  onPressed: _showJoinWifiSheet,
+                ),
                 IconButton(
                   tooltip: 'Wi-Fi display settings',
                   icon: const Icon(Icons.settings_rounded),
@@ -3334,6 +3352,430 @@ class _NetworkInterfaceEditSheetState
                   ],
                 ),
               ),
+      ),
+    );
+  }
+}
+
+class _WirelessJoinSheet extends ConsumerStatefulWidget {
+  const _WirelessJoinSheet();
+
+  @override
+  ConsumerState<_WirelessJoinSheet> createState() => _WirelessJoinSheetState();
+}
+
+class _WirelessJoinSheetState extends ConsumerState<_WirelessJoinSheet> {
+  final _passwordController = TextEditingController();
+  final _hiddenSsidController = TextEditingController();
+  List<Map<String, String>> _radios = const [];
+  List<WifiScanResult> _results = const [];
+  WifiScanResult? _selected;
+  String? _selectedRadio;
+  bool _isScanning = false;
+  bool _isJoining = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final radios = ref.read(appStateProvider).availableWirelessScanDevices();
+      if (!mounted) return;
+      setState(() {
+        _radios = radios;
+        _selectedRadio = radios.firstOrNull?['radio'];
+      });
+      _scan();
+    });
+  }
+
+  @override
+  void dispose() {
+    _passwordController.dispose();
+    _hiddenSsidController.dispose();
+    super.dispose();
+  }
+
+  String get _scanDevice {
+    final selected = _radios.firstWhere(
+      (entry) => entry['radio'] == _selectedRadio,
+      orElse: () => _radios.isNotEmpty
+          ? _radios.first
+          : {'radio': 'radio0', 'device': 'radio0', 'label': 'radio0'},
+    );
+    return selected['device'] ?? selected['radio'] ?? 'radio0';
+  }
+
+  Future<void> _scan() async {
+    if (_selectedRadio == null || _isScanning || _isJoining) return;
+    setState(() {
+      _isScanning = true;
+      _error = null;
+      _selected = null;
+    });
+    try {
+      final results = await ref
+          .read(appStateProvider)
+          .scanWirelessNetworks(device: _scanDevice, context: context);
+      if (!mounted) return;
+      setState(() {
+        _results = results;
+        _isScanning = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Scan failed: $e';
+        _results = const [];
+        _isScanning = false;
+      });
+    }
+  }
+
+  Future<void> _join() async {
+    final radio = _selectedRadio;
+    final selected = _selected;
+    if (radio == null || selected == null) return;
+    final ssid = selected.ssid.trim().isEmpty
+        ? _hiddenSsidController.text.trim()
+        : selected.ssid.trim();
+    if (ssid.isEmpty) {
+      setState(() => _error = 'SSID is required.');
+      return;
+    }
+    if (selected.encryption.openwrtEncryption == 'wpa-eap') {
+      setState(() => _error = 'Enterprise Wi-Fi is not supported yet.');
+      return;
+    }
+    if (selected.encryption.enabled &&
+        selected.encryption.openwrtEncryption != 'owe' &&
+        _passwordController.text.length < 8) {
+      setState(() => _error = 'Wi-Fi password must be at least 8 characters.');
+      return;
+    }
+    setState(() {
+      _isJoining = true;
+      _error = null;
+    });
+    try {
+      await ref
+          .read(appStateProvider)
+          .connectWirelessWwan(
+            radioDevice: radio,
+            network: selected,
+            ssid: ssid,
+            password: _passwordController.text,
+            context: context,
+          );
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isJoining = false;
+        _error = 'Join failed: $e';
+      });
+    }
+  }
+
+  IconData _signalIcon(WifiScanResult result) {
+    if (result.signal >= -55) return Icons.wifi_rounded;
+    if (result.signal >= -70) return Icons.wifi_2_bar_rounded;
+    return Icons.wifi_1_bar_rounded;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final selected = _selected;
+    final needsPassword =
+        selected?.encryption.enabled == true &&
+        selected?.encryption.openwrtEncryption != 'owe';
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          18,
+          0,
+          18,
+          MediaQuery.of(context).viewInsets.bottom + 18,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: colorScheme.primary.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      Icons.wifi_find_rounded,
+                      color: colorScheme.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Join Wi-Fi as WAN',
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(fontWeight: FontWeight.w900),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          'Connect this router to another Wi-Fi network.',
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: colorScheme.onSurfaceVariant,
+                                fontWeight: FontWeight.w700,
+                              ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Close',
+                    onPressed: _isJoining
+                        ? null
+                        : () => Navigator.of(context).pop(false),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: colorScheme.surface,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: colorScheme.outlineVariant.withValues(alpha: 0.35),
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    DropdownButtonFormField<String>(
+                      key: ValueKey(_selectedRadio),
+                      initialValue: _selectedRadio,
+                      decoration: const InputDecoration(
+                        labelText: 'Radio',
+                        prefixIcon: Icon(Icons.router_rounded),
+                      ),
+                      items: _radios
+                          .map(
+                            (radio) => DropdownMenuItem(
+                              value: radio['radio'],
+                              child: Text(radio['label'] ?? radio['radio']!),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: _isScanning || _isJoining
+                          ? null
+                          : (value) {
+                              setState(() => _selectedRadio = value);
+                              _scan();
+                            },
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: _isScanning || _isJoining ? null : _scan,
+                        icon: _isScanning
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.refresh_rounded),
+                        label: Text(_isScanning ? 'Scanning...' : 'Scan'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: colorScheme.errorContainer.withValues(alpha: 0.6),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    _error!,
+                    style: TextStyle(
+                      color: colorScheme.onErrorContainer,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 14),
+              Text(
+                _results.isEmpty && !_isScanning
+                    ? 'No networks found'
+                    : 'Nearby networks',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 10),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 280),
+                child: _isScanning && _results.isEmpty
+                    ? const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(28),
+                          child: CircularProgressIndicator(),
+                        ),
+                      )
+                    : ListView.separated(
+                        shrinkWrap: true,
+                        itemCount: _results.length,
+                        separatorBuilder: (_, _) => const SizedBox(height: 8),
+                        itemBuilder: (context, index) {
+                          final result = _results[index];
+                          final isSelected = identical(result, selected);
+                          final title = result.ssid.trim().isEmpty
+                              ? 'Hidden network'
+                              : result.ssid;
+                          return InkWell(
+                            borderRadius: BorderRadius.circular(8),
+                            onTap: _isJoining
+                                ? null
+                                : () {
+                                    setState(() {
+                                      _selected = result;
+                                      _passwordController.clear();
+                                      _hiddenSsidController.clear();
+                                    });
+                                  },
+                            child: Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: isSelected
+                                    ? colorScheme.primary.withValues(
+                                        alpha: 0.14,
+                                      )
+                                    : colorScheme.surface,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: isSelected
+                                      ? colorScheme.primary.withValues(
+                                          alpha: 0.55,
+                                        )
+                                      : colorScheme.outlineVariant.withValues(
+                                          alpha: 0.35,
+                                        ),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    _signalIcon(result),
+                                    color: isSelected
+                                        ? colorScheme.primary
+                                        : colorScheme.onSurfaceVariant,
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          title,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .titleMedium
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.w900,
+                                              ),
+                                        ),
+                                        const SizedBox(height: 3),
+                                        Text(
+                                          '${result.band} • ${result.encryption.shortLabel} • ${result.signal} dBm',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall
+                                              ?.copyWith(
+                                                color: colorScheme
+                                                    .onSurfaceVariant,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  if (isSelected)
+                                    Icon(
+                                      Icons.check_circle_rounded,
+                                      color: colorScheme.primary,
+                                    ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+              if (selected != null) ...[
+                const SizedBox(height: 16),
+                if (selected.ssid.trim().isEmpty) ...[
+                  TextField(
+                    controller: _hiddenSsidController,
+                    enabled: !_isJoining,
+                    decoration: const InputDecoration(
+                      labelText: 'Hidden SSID',
+                      prefixIcon: Icon(Icons.wifi_rounded),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                if (needsPassword) ...[
+                  TextField(
+                    controller: _passwordController,
+                    enabled: !_isJoining,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Wi-Fi Password',
+                      prefixIcon: Icon(Icons.lock_rounded),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: _isJoining ? null : _join,
+                    icon: _isJoining
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.link_rounded),
+                    label: Text(_isJoining ? 'Joining...' : 'Join Network'),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
