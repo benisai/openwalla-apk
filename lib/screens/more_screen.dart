@@ -121,7 +121,7 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
             TextButton(
               child: const Text('Logout'),
               onPressed: () async {
-                appState.logout();
+                await appState.logout();
                 // Clear all accepted certificates on logout
                 await HttpClientManager().clearAcceptedCertificates();
                 if (context.mounted) {

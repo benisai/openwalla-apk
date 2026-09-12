@@ -164,6 +164,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     await appState.initialized;
     if (!mounted) return;
 
+    if (appState.consumeSkipNextAutoLogin()) {
+      final savedRouter =
+          appState.selectedRouter ??
+          (appState.routers.isNotEmpty ? appState.routers.first : null);
+      if (savedRouter != null) _prefillRouter(savedRouter);
+      if (mounted) setState(() => _isCheckingAutoLogin = false);
+      return;
+    }
+
     final savedRouter =
         appState.selectedRouter ??
         (appState.routers.isNotEmpty ? appState.routers.first : null);

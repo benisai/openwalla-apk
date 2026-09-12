@@ -1435,6 +1435,7 @@ class AppState extends ChangeNotifier {
   Future<StatisticsPreloadData>? _statisticsPreloadFuture;
   String? _statisticsPreloadRouterId;
   String? _statisticsPreloadFutureRouterId;
+  bool _skipNextAutoLogin = false;
   StatisticsPreloadData? get statisticsPreloadData {
     final routerId = _routerService?.selectedRouter?.id;
     if (routerId == null || _statisticsPreloadData?.routerId != routerId) {
@@ -2136,6 +2137,13 @@ class AppState extends ChangeNotifier {
   }
 
   String? get sysauth => _authService?.sysauth;
+
+  bool consumeSkipNextAutoLogin() {
+    if (!_skipNextAutoLogin) return false;
+    _skipNextAutoLogin = false;
+    return true;
+  }
+
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
 
@@ -2355,8 +2363,9 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  void logout() {
-    _authService?.logout().then((_) {});
+  Future<void> logout({bool skipNextAutoLogin = true}) async {
+    _skipNextAutoLogin = skipNextAutoLogin;
+    await _authService?.logout();
     _dashboardData = null;
     _dashboardError = null;
     _cancelThroughputTimer();

@@ -116,7 +116,8 @@ class _RebootCountdownDialogState extends ConsumerState<RebootCountdownDialog>
     }
 
     appState.finishRebootRecovery();
-    appState.logout();
+    await appState.logout();
+    if (!mounted) return;
     final navigator = Navigator.of(context, rootNavigator: true);
     navigator.pop();
     unawaited(
