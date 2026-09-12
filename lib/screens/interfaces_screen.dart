@@ -31,10 +31,12 @@ class InterfacesScreen extends ConsumerStatefulWidget {
 class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
   final ScrollController _scrollController = ScrollController();
   final PageController _networkPageController = PageController();
+  final PageController _wirelessPageController = PageController();
   String? _targetInterface;
   String? _expandedInterface;
   final Map<String, GlobalKey> _interfaceKeys = {};
   int _networkPanelIndex = 0;
+  int _wirelessPanelIndex = 0;
   bool _isLoadingNetworkPanels = false;
   List<OpenwrtPortForward> _portForwards = const [];
   List<OpenwrtFirewallZone> _firewallZones = const [];
@@ -147,6 +149,7 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
     _targetInterface = null;
     _scrollController.dispose();
     _networkPageController.dispose();
+    _wirelessPageController.dispose();
     super.dispose();
   }
 
@@ -477,6 +480,220 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
     }
   }
 
+  Future<void> _showWirelessDisplaySettings() async {
+    final appState = ref.read(appStateProvider);
+    final current = appState.dashboardPreferences.showInactiveWirelessNetworks;
+    final next = await showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        final colorScheme = Theme.of(context).colorScheme;
+        var showInactive = current;
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Wi-Fi Display',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: colorScheme.onSurface,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Choose whether disabled Wi-Fi networks are shown on this page.',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Show inactive Wi-Fi networks'),
+                      subtitle: const Text('Disabled radios and SSIDs'),
+                      value: showInactive,
+                      onChanged: (value) =>
+                          setSheetState(() => showInactive = value),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: () =>
+                            Navigator.of(context).pop(showInactive),
+                        child: const Text('Save'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (next == null || next == current) return;
+    await appState.saveDashboardPreferences(
+      appState.dashboardPreferences.copyWith(
+        showInactiveWirelessNetworks: next,
+      ),
+    );
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _showWirelessInfoSheet(Map<String, dynamic> iface) async {
+    final details = iface['details'];
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) {
+        final colorScheme = Theme.of(context).colorScheme;
+        return SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: colorScheme.primary.withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(
+                        Icons.wifi_rounded,
+                        color: colorScheme.primary,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            iface['ssid']?.toString().isNotEmpty == true
+                                ? iface['ssid'].toString()
+                                : 'Wi-Fi Info',
+                            style: Theme.of(context).textTheme.titleLarge
+                                ?.copyWith(fontWeight: FontWeight.w900),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            iface['subtitle']?.toString() ?? '',
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  color: colorScheme.onSurfaceVariant,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: colorScheme.surfaceContainerHighest.withValues(
+                      alpha: 0.34,
+                    ),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: colorScheme.outlineVariant.withValues(alpha: 0.32),
+                    ),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildInfoSheetRow(
+                        context,
+                        'Status',
+                        iface['isEnabled'] == true ? 'Active' : 'Inactive',
+                      ),
+                      _buildInfoSheetRow(
+                        context,
+                        'Radio',
+                        iface['radioName']?.toString() ?? 'N/A',
+                      ),
+                      _buildInfoSheetRow(
+                        context,
+                        'Interface',
+                        iface['interfaceName']?.toString() ?? 'N/A',
+                      ),
+                      if (details is Map)
+                        ...details.entries.map(
+                          (entry) => _buildInfoSheetRow(
+                            context,
+                            entry.key.toString(),
+                            entry.value?.toString() ?? 'N/A',
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildInfoSheetRow(BuildContext context, String label, String value) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 110,
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: SelectableText(
+              value.isEmpty ? 'N/A' : value,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onSurface,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _showShareWifiDialog(Map<String, dynamic> iface) async {
     final ssid = iface['ssid']?.toString() ?? '';
     if (ssid.trim().isEmpty) return;
@@ -489,10 +706,12 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
       encryption: encryption,
       hidden: hidden,
     );
-    await showDialog<void>(
+    await showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
       builder: (context) =>
-          _ShareWifiDialog(ssid: ssid, password: password, qrData: qrData),
+          _ShareWifiSheet(ssid: ssid, password: password, qrData: qrData),
     );
   }
 
@@ -530,7 +749,13 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
         title: widget.wirelessOnly ? 'Wi-Fi' : 'Network',
         showBack: true,
         actions: widget.wirelessOnly
-            ? null
+            ? [
+                IconButton(
+                  tooltip: 'Wi-Fi display settings',
+                  icon: const Icon(Icons.settings_rounded),
+                  onPressed: _showWirelessDisplaySettings,
+                ),
+              ]
             : [
                 IconButton(
                   tooltip: 'Network interface settings',
@@ -668,6 +893,15 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
   void _selectNetworkPanel(int index) {
     setState(() => _networkPanelIndex = index);
     _networkPageController.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  void _selectWirelessPanel(int index) {
+    setState(() => _wirelessPanelIndex = index);
+    _wirelessPageController.animateToPage(
       index,
       duration: const Duration(milliseconds: 220),
       curve: Curves.easeOutCubic,
@@ -816,6 +1050,11 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
                 _uciString(ifaceConfig['mode']).toUpperCase().isNotEmpty
                 ? _uciString(ifaceConfig['mode']).toUpperCase()
                 : (iwinfo['mode']?.toString().toUpperCase() ?? 'N/A');
+            final isSta =
+                mode == 'STA' ||
+                mode.contains('CLIENT') ||
+                _uciString(ifaceConfig['ssid']).toUpperCase() == 'STA' ||
+                _uciString(iwinfo['ssid']).toUpperCase() == 'STA';
             interfacesList.add({
               'section': uciName ?? '',
               'name': _uciString(ifaceConfig['ssid']).isNotEmpty
@@ -830,6 +1069,8 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
               'password': password,
               'encryption': encryption,
               'hidden': hidden,
+              'mode': mode,
+              'isSta': isSta,
               'interfaceName': name,
               'details': {
                 'Device': _uciString(ifaceConfig['device'], radioName),
@@ -863,12 +1104,16 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
         final name = _uciString(config['ssid'], 'Unnamed');
         final hidden = _uciString(config['hidden'], '0') == '1';
         final encryption = _uciString(config['encryption'], 'N/A');
+        final mode = _uciString(config['mode'], 'N/A').toUpperCase();
+        final isSta =
+            mode == 'STA' ||
+            mode.contains('CLIENT') ||
+            _uciString(config['ssid']).toUpperCase() == 'STA';
         final txPower = _uciString(uciRadios[radioName]?['txpower']);
         interfacesList.add({
           'section': uciName,
           'name': name,
-          'subtitle':
-              '${_uciString(config['mode'], 'N/A').toUpperCase()} • Disabled',
+          'subtitle': '$mode • Disabled',
           'isEnabled': isEnabled,
           'deviceName': radioName,
           'radioName': radioName,
@@ -876,6 +1121,8 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
           'password': _uciString(config['key']),
           'encryption': encryption,
           'hidden': hidden,
+          'mode': mode,
+          'isSta': isSta,
           'interfaceName': name,
           'details': {
             'Device': radioName,
@@ -898,6 +1145,63 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
     final disabledInterfaces = interfacesList
         .where((iface) => iface['isEnabled'] != true)
         .toList();
+    if (activeInterfaces.isEmpty && disabledInterfaces.isEmpty) {
+      return const SliverToBoxAdapter(child: SizedBox.shrink());
+    }
+    final showInactive =
+        appState.dashboardPreferences.showInactiveWirelessNetworks;
+    final mainActive = activeInterfaces
+        .where((iface) => iface['isSta'] != true)
+        .toList();
+    final staActive = activeInterfaces
+        .where((iface) => iface['isSta'] == true)
+        .toList();
+    final mainDisabled = showInactive
+        ? disabledInterfaces.where((iface) => iface['isSta'] != true).toList()
+        : <Map<String, dynamic>>[];
+    final staDisabled = showInactive
+        ? disabledInterfaces.where((iface) => iface['isSta'] == true).toList()
+        : <Map<String, dynamic>>[];
+    final hasSta = staActive.isNotEmpty || staDisabled.isNotEmpty;
+
+    if (!hasSta) {
+      return _buildWirelessSliver(mainActive, mainDisabled);
+    }
+
+    if (_wirelessPanelIndex > 1) _wirelessPanelIndex = 0;
+    return SliverFillRemaining(
+      child: Column(
+        children: [
+          _WirelessPanelSwitcher(
+            selectedIndex: _wirelessPanelIndex,
+            onSelected: _selectWirelessPanel,
+          ),
+          Expanded(
+            child: PageView(
+              controller: _wirelessPageController,
+              onPageChanged: (index) =>
+                  setState(() => _wirelessPanelIndex = index),
+              children: [
+                CustomScrollView(
+                  slivers: [_buildWirelessSliver(mainActive, mainDisabled)],
+                ),
+                CustomScrollView(
+                  slivers: [_buildWirelessSliver(staActive, staDisabled)],
+                ),
+              ],
+            ),
+          ),
+          _NetworkPanelDots(count: 2, currentIndex: _wirelessPanelIndex),
+          const SizedBox(height: 12),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWirelessSliver(
+    List<Map<String, dynamic>> activeInterfaces,
+    List<Map<String, dynamic>> disabledInterfaces,
+  ) {
     if (activeInterfaces.isEmpty && disabledInterfaces.isEmpty) {
       return const SliverToBoxAdapter(child: SizedBox.shrink());
     }
@@ -1012,57 +1316,78 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
     Map<String, dynamic> iface,
   ) {
     final section = iface['section']?.toString() ?? '';
+    final password = iface['password']?.toString() ?? '';
     final canShare =
         iface['isEnabled'] == true &&
         (iface['ssid']?.toString().trim().isNotEmpty ?? false);
     return Column(
       children: [
-        _buildGenericDetails(context, iface['details']),
-        if (section.isNotEmpty || canShare) ...[
-          const Divider(height: 1, indent: 16, endIndent: 16),
-          const SizedBox(height: 12),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Wrap(
-              alignment: WrapAlignment.center,
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                if (section.isNotEmpty)
-                  FilledButton.tonalIcon(
-                    onPressed: () => _showEditWirelessSheet(section),
-                    icon: const Icon(Icons.tune_rounded, size: 18),
-                    label: const Text('Edit Wi-Fi'),
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 18,
-                        vertical: 12,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(999),
-                      ),
+        _buildDetailRow(context, 'SSID', iface['ssid']?.toString() ?? 'N/A'),
+        _buildDetailRow(
+          context,
+          'Password',
+          password.isEmpty ? 'No password set' : password,
+          onTap: password.isEmpty
+              ? null
+              : () => _copyToClipboard(context, password, 'Wi-Fi password'),
+        ),
+        const Divider(height: 1, indent: 16, endIndent: 16),
+        const SizedBox(height: 12),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              if (section.isNotEmpty)
+                FilledButton.tonalIcon(
+                  onPressed: () => _showEditWirelessSheet(section),
+                  icon: const Icon(Icons.tune_rounded, size: 18),
+                  label: const Text('Edit Wi-Fi'),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(999),
                     ),
                   ),
-                if (canShare)
-                  FilledButton.icon(
-                    onPressed: () => _showShareWifiDialog(iface),
-                    icon: const Icon(Icons.qr_code_rounded, size: 18),
-                    label: const Text('Share Wi-Fi'),
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 18,
-                        vertical: 12,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(999),
-                      ),
+                ),
+              FilledButton.tonalIcon(
+                onPressed: () => _showWirelessInfoSheet(iface),
+                icon: const Icon(Icons.info_outline_rounded, size: 18),
+                label: const Text('Info'),
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 12,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ),
+              if (canShare)
+                FilledButton.icon(
+                  onPressed: () => _showShareWifiDialog(iface),
+                  icon: const Icon(Icons.qr_code_rounded, size: 18),
+                  label: const Text('Share Wi-Fi'),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(999),
                     ),
                   ),
-              ],
-            ),
+                ),
+            ],
           ),
-          const SizedBox(height: 14),
-        ],
+        ),
+        const SizedBox(height: 14),
       ],
     );
   }
@@ -1324,17 +1649,6 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
     );
   }
 
-  Widget _buildGenericDetails(
-    BuildContext context,
-    Map<String, dynamic> details,
-  ) {
-    return Column(
-      children: details.entries.map((entry) {
-        return _buildDetailRow(context, entry.key, entry.value.toString());
-      }).toList(),
-    );
-  }
-
   Widget _buildDetailRow(
     BuildContext context,
     String title,
@@ -1533,6 +1847,66 @@ class _NetworkPanelSwitcher extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     const tabs = ['Interfaces', 'Port Forwarding', 'Zones'];
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.36),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.28),
+        ),
+      ),
+      child: Row(
+        children: List.generate(tabs.length, (index) {
+          final selected = selectedIndex == index;
+          return Expanded(
+            child: InkWell(
+              borderRadius: BorderRadius.circular(7),
+              onTap: () => onSelected(index),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                alignment: Alignment.center,
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: selected ? colorScheme.primary : Colors.transparent,
+                  borderRadius: BorderRadius.circular(7),
+                ),
+                child: Text(
+                  tabs[index],
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: selected
+                        ? colorScheme.onPrimary
+                        : colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+}
+
+class _WirelessPanelSwitcher extends StatelessWidget {
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+
+  const _WirelessPanelSwitcher({
+    required this.selectedIndex,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    const tabs = ['Wi-Fi', 'STA'];
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 10),
       padding: const EdgeInsets.all(4),
@@ -2359,12 +2733,12 @@ class _AddPortForwardSheetState extends ConsumerState<_AddPortForwardSheet> {
   }
 }
 
-class _ShareWifiDialog extends StatelessWidget {
+class _ShareWifiSheet extends StatelessWidget {
   final String ssid;
   final String password;
   final String qrData;
 
-  const _ShareWifiDialog({
+  const _ShareWifiSheet({
     required this.ssid,
     required this.password,
     required this.qrData,
@@ -2373,82 +2747,102 @@ class _ShareWifiDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return AlertDialog(
-      title: const Text('Share Wi-Fi'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            ssid,
-            textAlign: TextAlign.center,
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
-          ),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Share Wi-Fi',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                color: colorScheme.onSurface,
+                fontWeight: FontWeight.w900,
+              ),
             ),
-            child: QrImageView(
-              data: qrData,
-              version: QrVersions.auto,
-              size: 220,
-              backgroundColor: Colors.white,
+            const SizedBox(height: 8),
+            Text(
+              ssid,
+              textAlign: TextAlign.left,
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
             ),
-          ),
-          const SizedBox(height: 16),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: QrImageView(
+                data: qrData,
+                version: QrVersions.auto,
+                size: 220,
+                backgroundColor: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
               'Password',
               style: Theme.of(context).textTheme.labelLarge?.copyWith(
                 color: colorScheme.onSurfaceVariant,
                 fontWeight: FontWeight.w800,
               ),
             ),
-          ),
-          const SizedBox(height: 6),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: colorScheme.surfaceContainerHighest.withValues(
-                alpha: 0.45,
+            const SizedBox(height: 6),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: colorScheme.surfaceContainerHighest.withValues(
+                  alpha: 0.45,
+                ),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: colorScheme.outlineVariant.withValues(alpha: 0.42),
+                ),
               ),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: colorScheme.outlineVariant.withValues(alpha: 0.42),
+              child: SelectableText(
+                password.isEmpty ? 'No password set' : password,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w900),
               ),
             ),
-            child: SelectableText(
-              password.isEmpty ? 'No password set' : password,
-              style: Theme.of(
-                context,
-              ).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w900),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: password.isEmpty
+                        ? null
+                        : () {
+                            Clipboard.setData(ClipboardData(text: password));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Wi-Fi password copied.'),
+                              ),
+                            );
+                          },
+                    icon: const Icon(Icons.copy_rounded),
+                    label: const Text('Copy'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Done'),
+                  ),
+                ),
+              ],
             ),
-          ),
-        ],
+          ],
+        ),
       ),
-      actions: [
-        TextButton(
-          onPressed: password.isEmpty
-              ? null
-              : () {
-                  Clipboard.setData(ClipboardData(text: password));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Wi-Fi password copied.')),
-                  );
-                },
-          child: const Text('Copy Password'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Done'),
-        ),
-      ],
     );
   }
 }
