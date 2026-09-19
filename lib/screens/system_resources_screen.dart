@@ -68,12 +68,6 @@ class _SystemResourcesScreenState extends ConsumerState<SystemResourcesScreen> {
     });
   }
 
-  int _asInt(dynamic value) {
-    if (value is int) return value;
-    if (value is num) return value.round();
-    return int.tryParse(value?.toString() ?? '') ?? 0;
-  }
-
   void _appendCurrentSample() {
     final dashboardData = ref.read(appStateProvider).dashboardData;
     final sysInfo = dashboardData?['sysInfo'] as Map<String, dynamic>?;
@@ -134,19 +128,14 @@ class _SystemResourcesScreenState extends ConsumerState<SystemResourcesScreen> {
     final dashboardData = appState.dashboardData;
     final sysInfo = dashboardData?['sysInfo'] as Map<String, dynamic>?;
     final boardInfo = dashboardData?['boardInfo'] as Map<String, dynamic>?;
-    final conntrack = dashboardData?['conntrack'] as Map?;
     final metrics = SystemResourceMetrics.fromRouterData(
       sysInfo,
       boardInfo: boardInfo,
     );
     final totalMem = metrics.totalMemoryBytes;
     final usedMem = metrics.usedMemoryBytes;
-    final cacheBytes = metrics.cachedMemoryBytes + metrics.bufferedMemoryBytes;
     final memoryPercent = metrics.memoryUsagePercent;
     final cpuPercent = metrics.cpuUsagePercent;
-    final connCount = _asInt(conntrack?['count']);
-    final connMax = _asInt(conntrack?['max']);
-    final connProgress = connMax > 0 ? connCount / connMax : 0.0;
 
     return Scaffold(
       appBar: const LuciAppBar(title: 'System Resources', showBack: true),
@@ -189,41 +178,49 @@ class _SystemResourcesScreenState extends ConsumerState<SystemResourcesScreen> {
                 ),
               ),
               const SizedBox(height: 14),
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final twoColumns = constraints.maxWidth >= 520;
-                  final itemWidth = twoColumns
-                      ? (constraints.maxWidth - 12) / 2
-                      : constraints.maxWidth;
-                  return Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: [
-                      _ResourceStatCard(
-                        width: itemWidth,
-                        icon: Icons.sync_rounded,
-                        color: const Color(0xFFF59E0B),
-                        title: 'RAM Cache',
-                        value: _formatBytes(cacheBytes),
-                        detail: 'Buffered and cached memory',
-                        progress: totalMem > 0 ? cacheBytes / totalMem : 0,
-                      ),
-                      _ResourceStatCard(
-                        width: itemWidth,
-                        icon: Icons.account_tree_rounded,
-                        color: const Color(0xFF8B5CF6),
-                        title: 'Connections',
-                        value: connMax > 0
-                            ? '$connCount / $connMax'
-                            : connCount.toString(),
-                        detail: connProgress < 0.75
-                            ? 'Table capacity healthy'
-                            : 'Approaching table limit',
-                        progress: connProgress,
-                      ),
-                    ],
-                  );
-                },
+              _MetricDetailCard(
+                icon: Icons.memory_outlined,
+                color: const Color(0xFFF59E0B),
+                title: 'CPU Status',
+                rows: [
+                  ('Estimated Usage', '${cpuPercent.toStringAsFixed(1)}%'),
+                  ('1 Min Load', metrics.load1m.toStringAsFixed(2)),
+                ],
+              ),
+              const SizedBox(height: 12),
+              _MetricDetailCard(
+                icon: Icons.pie_chart_outline_rounded,
+                color: const Color(0xFF18AEEA),
+                title: 'RAM Memory',
+                rows: [
+                  ('Usage Percent', '${memoryPercent.toStringAsFixed(1)}%'),
+                  ('Used Memory', _formatBytes(usedMem)),
+                  ('Free Memory', _formatBytes(metrics.freeMemoryBytes)),
+                  ('Buffered', _formatBytes(metrics.bufferedMemoryBytes)),
+                  ('Cached', _formatBytes(metrics.cachedMemoryBytes)),
+                  ('Total Memory', _formatBytes(totalMem)),
+                ],
+              ),
+              const SizedBox(height: 12),
+              _MetricDetailCard(
+                icon: Icons.speed_outlined,
+                color: const Color(0xFF8B5CF6),
+                title: 'Load Average',
+                rows: [
+                  ('1 Minute', metrics.load1m.toStringAsFixed(2)),
+                  ('5 Minutes', metrics.load5m.toStringAsFixed(2)),
+                  ('15 Minutes', metrics.load15m.toStringAsFixed(2)),
+                ],
+              ),
+              const SizedBox(height: 12),
+              _MetricDetailCard(
+                icon: Icons.timer_outlined,
+                color: const Color(0xFF22C55E),
+                title: 'System Uptime',
+                rows: [
+                  ('Uptime', metrics.formattedUptime),
+                  ('Total Seconds', '${metrics.uptimeSeconds} s'),
+                ],
               ),
               const SizedBox(height: 14),
               _StorageOverviewCard(
@@ -470,103 +467,71 @@ class _ResourceLinePainter extends CustomPainter {
   }
 }
 
-class _ResourceStatCard extends StatelessWidget {
-  final double width;
+class _MetricDetailCard extends StatelessWidget {
   final IconData icon;
   final Color color;
   final String title;
-  final String value;
-  final String detail;
-  final double progress;
+  final List<(String, String)> rows;
 
-  const _ResourceStatCard({
-    required this.width,
+  const _MetricDetailCard({
     required this.icon,
     required this.color,
     required this.title,
-    required this.value,
-    required this.detail,
-    required this.progress,
+    required this.rows,
   });
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final safeProgress = progress.clamp(0, 1).toDouble();
-
-    return SizedBox(
-      width: width,
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: color, size: 23),
+                const SizedBox(width: 10),
+                Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: colorScheme.onSurface,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Divider(height: 1, color: colorScheme.outlineVariant),
+            const SizedBox(height: 12),
+            for (var index = 0; index < rows.length; index++) ...[
+              if (index > 0) const SizedBox(height: 10),
               Row(
                 children: [
-                  Container(
-                    width: 36,
-                    height: 36,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: color.withValues(alpha: 0.14),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(icon, color: color, size: 19),
-                  ),
-                  const Spacer(),
-                  Container(
-                    width: 42,
-                    height: 6,
-                    decoration: BoxDecoration(
-                      color: colorScheme.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(99),
-                    ),
-                    alignment: Alignment.centerLeft,
-                    child: FractionallySizedBox(
-                      widthFactor: safeProgress,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: color,
-                          borderRadius: BorderRadius.circular(99),
-                        ),
+                  Expanded(
+                    child: Text(
+                      rows[index].$1,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w700,
                       ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    rows[index].$2,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.onSurface,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0,
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
-              Text(
-                title,
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 0,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                value,
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  color: colorScheme.onSurface,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 0,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 3),
-              Text(
-                detail,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w700,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
             ],
-          ),
+          ],
         ),
       ),
     );
@@ -588,7 +553,11 @@ class _StorageOverviewCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final mounts = storage.primaryMounts;
+    final totalBytes = storage.totalBytes;
+    final usedBytes = storage.usedBytes;
+    final freeBytes = storage.freeBytes;
+    final usedFraction = storage.usedFraction;
+    final usedPercent = usedFraction * 100;
 
     return Card(
       child: Padding(
@@ -598,24 +567,15 @@ class _StorageOverviewCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Container(
-                  width: 42,
-                  height: 42,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: colorScheme.primary.withValues(alpha: 0.14),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(
-                    Icons.sd_storage_rounded,
-                    color: colorScheme.primary,
-                    size: 22,
-                  ),
+                Icon(
+                  Icons.pie_chart_outline_rounded,
+                  color: colorScheme.primary,
+                  size: 23,
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'Storage & Overlay',
+                    'Filesystem Usage Overview',
                     style: theme.textTheme.titleMedium?.copyWith(
                       color: colorScheme.onSurface,
                       fontWeight: FontWeight.w900,
@@ -623,16 +583,10 @@ class _StorageOverviewCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (!isLoading)
-                  Text(
-                    '${storage.mounts.length} ${storage.mounts.length == 1 ? 'mount' : 'mounts'}',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
               ],
             ),
+            const SizedBox(height: 12),
+            Divider(height: 1, color: colorScheme.outlineVariant),
             const SizedBox(height: 16),
             if (isLoading)
               const Center(
@@ -641,7 +595,7 @@ class _StorageOverviewCard extends StatelessWidget {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 ),
               )
-            else if (mounts.isEmpty)
+            else if (totalBytes <= 0)
               Text(
                 'No storage information available.',
                 style: theme.textTheme.bodyMedium?.copyWith(
@@ -649,17 +603,70 @@ class _StorageOverviewCard extends StatelessWidget {
                   fontWeight: FontWeight.w700,
                 ),
               )
-            else
-              for (var index = 0; index < mounts.length; index++) ...[
-                if (index > 0) const SizedBox(height: 18),
-                _StorageUsageRow(
-                  mount: mounts[index],
-                  color: index == 0
-                      ? colorScheme.primary
-                      : const Color(0xFF18AEEA),
-                  formatBytes: formatBytes,
+            else ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Total System Storage',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: colorScheme.onSurface,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    '${usedPercent.toStringAsFixed(1)}% Used',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: colorScheme.primary,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: usedFraction,
+                  minHeight: 10,
+                  backgroundColor: colorScheme.surfaceContainerHighest,
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    usedPercent > 85
+                        ? colorScheme.error
+                        : usedPercent > 65
+                        ? const Color(0xFFF59E0B)
+                        : const Color(0xFF14B8A6),
+                  ),
                 ),
-              ],
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: _StorageStat(
+                      label: 'Total Space',
+                      value: formatBytes(totalBytes),
+                    ),
+                  ),
+                  Expanded(
+                    child: _StorageStat(
+                      label: 'Used Space',
+                      value: formatBytes(usedBytes),
+                    ),
+                  ),
+                  Expanded(
+                    child: _StorageStat(
+                      label: 'Free Space',
+                      value: formatBytes(freeBytes),
+                      alignEnd: true,
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
@@ -667,63 +674,42 @@ class _StorageOverviewCard extends StatelessWidget {
   }
 }
 
-class _StorageUsageRow extends StatelessWidget {
-  const _StorageUsageRow({
-    required this.mount,
-    required this.color,
-    required this.formatBytes,
+class _StorageStat extends StatelessWidget {
+  const _StorageStat({
+    required this.label,
+    required this.value,
+    this.alignEnd = false,
   });
 
-  final SystemStorageMount mount;
-  final Color color;
-  final String Function(int bytes) formatBytes;
+  final String label;
+  final String value;
+  final bool alignEnd;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final percent = mount.usedFraction * 100;
-    final device = mount.device.trim();
-    final label = device.isEmpty || device == mount.mountPath
-        ? mount.mountPath
-        : '${mount.mountPath} ($device)';
-
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+      crossAxisAlignment: alignEnd
+          ? CrossAxisAlignment.end
+          : CrossAxisAlignment.start,
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Expanded(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Text(
-              '${formatBytes(mount.usedBytes)} / ${formatBytes(mount.totalBytes)} (${percent.round()}%)',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: colorScheme.onSurface,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 0,
-              ),
-            ),
-          ],
+        Text(
+          label,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            fontWeight: FontWeight.w700,
+          ),
         ),
-        const SizedBox(height: 8),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(
-            value: mount.usedFraction,
-            minHeight: 8,
-            backgroundColor: colorScheme.surfaceContainerHighest,
-            valueColor: AlwaysStoppedAnimation<Color>(color),
+        const SizedBox(height: 4),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: alignEnd ? Alignment.centerRight : Alignment.centerLeft,
+          child: Text(
+            value,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              color: Theme.of(context).colorScheme.onSurface,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0,
+            ),
           ),
         ),
       ],

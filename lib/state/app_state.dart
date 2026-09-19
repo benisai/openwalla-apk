@@ -1129,6 +1129,36 @@ class SystemStorageDetails {
     if (userMount case final mount?) mount,
     if (tempMount case final mount?) mount,
   ];
+
+  SystemStorageMount? get systemMount => userMount;
+
+  List<SystemStorageMount> get persistentMounts {
+    final primary = systemMount;
+    return [
+      if (primary != null) primary,
+      ...mounts.where(
+        (mount) =>
+            mount != primary &&
+            mount.device != 'tmpfs' &&
+            mount.mountPath != '/tmp' &&
+            mount.mountPath != '/dev' &&
+            mount.mountPath != '/' &&
+            mount.mountPath != '/rom' &&
+            mount.mountPath != '/overlay',
+      ),
+    ];
+  }
+
+  int get totalBytes =>
+      persistentMounts.fold(0, (total, mount) => total + mount.totalBytes);
+
+  int get usedBytes =>
+      persistentMounts.fold(0, (total, mount) => total + mount.usedBytes);
+
+  int get freeBytes => (totalBytes - usedBytes).clamp(0, totalBytes).toInt();
+
+  double get usedFraction =>
+      totalBytes > 0 ? (usedBytes / totalBytes).clamp(0, 1) : 0;
 }
 
 class ProcessMemoryUsage {

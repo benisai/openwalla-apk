@@ -1,5 +1,6 @@
 class SystemResourceMetrics {
   const SystemResourceMetrics({
+    required this.uptimeSeconds,
     required this.cpuUsagePercent,
     required this.load1m,
     required this.load5m,
@@ -22,6 +23,7 @@ class SystemResourceMetrics {
     final memory = sysInfo?['memory'];
 
     return SystemResourceMetrics(
+      uptimeSeconds: _asInt(sysInfo?['uptime']),
       cpuUsagePercent: cpuUsage.clamp(0, 100).toDouble(),
       load1m: load.$1,
       load5m: load.$2,
@@ -34,6 +36,7 @@ class SystemResourceMetrics {
   }
 
   final double cpuUsagePercent;
+  final int uptimeSeconds;
   final double load1m;
   final double load5m;
   final double load15m;
@@ -50,6 +53,18 @@ class SystemResourceMetrics {
   double get memoryUsagePercent => totalMemoryBytes > 0
       ? (usedMemoryBytes / totalMemoryBytes * 100).clamp(0, 100).toDouble()
       : 0;
+
+  String get formattedUptime {
+    if (uptimeSeconds <= 0) return 'N/A';
+    final days = uptimeSeconds ~/ 86400;
+    final hours = (uptimeSeconds % 86400) ~/ 3600;
+    final minutes = (uptimeSeconds % 3600) ~/ 60;
+    return [
+      if (days > 0) '${days}d',
+      if (hours > 0 || days > 0) '${hours}h',
+      '${minutes}m',
+    ].join(' ');
+  }
 
   static int _asInt(dynamic value) {
     if (value is num) return value.round();

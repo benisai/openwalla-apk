@@ -2,6 +2,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:luci_mobile/models/system_resource_metrics.dart';
 
 void main() {
+  test('parses and formats system uptime', () {
+    final metrics = SystemResourceMetrics.fromRouterData({
+      'uptime': 93784,
+      'load': [0, 0, 0],
+    });
+
+    expect(metrics.uptimeSeconds, 93784);
+    expect(metrics.formattedUptime, '1d 2h 3m');
+  });
+
   test('normalizes OpenWrt fixed-point load and memory values', () {
     final metrics = SystemResourceMetrics.fromRouterData(
       {
