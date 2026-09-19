@@ -41,7 +41,7 @@ enum OpenwallaThemeAccent {
   static OpenwallaThemeAccent fromName(String? name) {
     return OpenwallaThemeAccent.values.firstWhere(
       (accent) => accent.name == name,
-      orElse: () => OpenwallaThemeAccent.red,
+      orElse: () => OpenwallaThemeAccent.blue,
     );
   }
 }
@@ -1529,7 +1529,7 @@ class AppState extends ChangeNotifier {
   // Theme mode state
   ThemeMode _themeMode = ThemeMode.system;
   static const String _themeModeKey = 'themeMode';
-  OpenwallaThemeAccent _themeAccent = OpenwallaThemeAccent.red;
+  OpenwallaThemeAccent _themeAccent = OpenwallaThemeAccent.blue;
   static const String _themeAccentKey = 'themeAccent';
 
   // Clients view mode (selected router only by default for fast page loads)
