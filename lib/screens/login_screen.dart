@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher_string.dart';
 import 'package:luci_mobile/config/app_config.dart';
 import 'package:luci_mobile/models/router.dart' as model;
 import 'package:luci_mobile/services/secure_storage_service.dart';
+import 'package:luci_mobile/utils/gateway_utils.dart';
 import 'package:luci_mobile/utils/url_parser.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -29,6 +30,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   bool _passwordVisible = false;
   bool _advancedLogin = false;
   bool _saveCredentials = true;
+  bool _isDetectingRouter = false;
   late AnimationController _logoAnimController;
   late AnimationController _progressAnimController;
   bool _isActivatingReviewerMode = false;
@@ -208,8 +210,33 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
         setState(() {
           _isCheckingAutoLogin = false;
         });
+        unawaited(_detectRouterAddress(showResult: false));
       }
     }
+  }
+
+  Future<void> _detectRouterAddress({bool showResult = true}) async {
+    if (_isDetectingRouter) return;
+    if (!showResult && _ipController.text.trim().isNotEmpty) return;
+    setState(() => _isDetectingRouter = true);
+    final detectedAddress = await GatewayUtils.detectGatewayIp();
+    if (!mounted) return;
+
+    setState(() {
+      _isDetectingRouter = false;
+      if (detectedAddress != null &&
+          (showResult || _ipController.text.trim().isEmpty)) {
+        _ipController.text = detectedAddress;
+      }
+    });
+
+    if (!showResult) return;
+    final message = detectedAddress == null
+        ? 'No router address found. Check your Wi-Fi connection.'
+        : 'Router address found: $detectedAddress';
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   void _prefillRouter(model.Router router) {
@@ -713,10 +740,37 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                                                   icon: Icons.shield_outlined,
                                                   helperText:
                                                       '192.168.1.1, router.local:8080, or https://192.168.1.1',
-                                                  suffixIcon:
-                                                      appState.routers.isEmpty
-                                                      ? null
-                                                      : IconButton(
+                                                  suffixIcon: Row(
+                                                    mainAxisSize:
+                                                        MainAxisSize.min,
+                                                    children: [
+                                                      IconButton(
+                                                        tooltip:
+                                                            'Locate router',
+                                                        onPressed:
+                                                            _isDetectingRouter
+                                                            ? null
+                                                            : () =>
+                                                                  _detectRouterAddress(),
+                                                        icon: _isDetectingRouter
+                                                            ? const SizedBox(
+                                                                width: 18,
+                                                                height: 18,
+                                                                child:
+                                                                    CircularProgressIndicator(
+                                                                      strokeWidth:
+                                                                          2,
+                                                                    ),
+                                                              )
+                                                            : const Icon(
+                                                                Icons
+                                                                    .my_location_rounded,
+                                                              ),
+                                                      ),
+                                                      if (appState
+                                                          .routers
+                                                          .isNotEmpty)
+                                                        IconButton(
                                                           tooltip:
                                                               'Saved routers',
                                                           onPressed:
@@ -726,6 +780,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                                                                 .arrow_drop_down_rounded,
                                                           ),
                                                         ),
+                                                    ],
+                                                  ),
                                                 ),
                                                 textInputAction:
                                                     TextInputAction.next,
