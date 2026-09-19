@@ -957,7 +957,11 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
     final saved = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
-      showDragHandle: true,
+      useSafeArea: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
       builder: (context) => _AddPortForwardSheet(forward: forward),
     );
     if (saved == true) await _loadNetworkPanels();
@@ -2647,7 +2651,10 @@ class _AddPortForwardSheetState extends ConsumerState<_AddPortForwardSheet> {
         : forward.destinationPort;
     _sourceZone = forward.source;
     _destinationZone = forward.destinationZone;
-    _protocol = _normalizeProtocol(forward.protocol);
+    final protocol = _normalizeProtocol(forward.protocol);
+    _protocol = const {'tcp', 'udp', 'tcp udp'}.contains(protocol)
+        ? protocol
+        : 'tcp';
   }
 
   @override
@@ -2735,19 +2742,6 @@ class _AddPortForwardSheetState extends ConsumerState<_AddPortForwardSheet> {
         .toList();
   }
 
-  List<DropdownMenuItem<String>> _protocolItems(String selected) {
-    final protocols = <String>{'tcp', 'udp', 'tcp udp', selected};
-    return protocols
-        .where((protocol) => protocol.trim().isNotEmpty)
-        .map(
-          (protocol) => DropdownMenuItem(
-            value: protocol,
-            child: Text(protocol.toUpperCase().replaceAll(' ', '/')),
-          ),
-        )
-        .toList();
-  }
-
   String _normalizeProtocol(String value) {
     return value
         .toLowerCase()
@@ -2760,105 +2754,217 @@ class _AddPortForwardSheetState extends ConsumerState<_AddPortForwardSheet> {
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-    return Padding(
-      padding: EdgeInsets.fromLTRB(16, 0, 16, bottomInset + 16),
+    final colors = Theme.of(context).colorScheme;
+    return FractionallySizedBox(
+      heightFactor: 0.9,
       child: Form(
         key: _formKey,
-        child: ListView(
-          shrinkWrap: true,
+        child: Column(
           children: [
-            Text(
-              _isEditing ? 'Edit Port Forward' : 'Add Port Forward',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w900,
-                letterSpacing: 0,
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 10, 12),
+              child: Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: colors.primary.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(Icons.alt_route_rounded, color: colors.primary),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _isEditing ? 'Edit Port Forward' : 'New Port Forward',
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(fontWeight: FontWeight.w900),
+                        ),
+                        Text(
+                          'Route incoming traffic to a device on your network.',
+                          style: LuciTextStyles.cardSubtitle(context),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Close',
+                    onPressed: _isSaving
+                        ? null
+                        : () => Navigator.of(context).pop(false),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 14),
-            TextFormField(
-              controller: _nameController,
-              decoration: const InputDecoration(labelText: 'Name'),
-              validator: _required,
-              textInputAction: TextInputAction.next,
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    initialValue: _sourceZone,
-                    decoration: const InputDecoration(labelText: 'From Zone'),
-                    items: _zoneItems(_sourceZone),
-                    onChanged: (value) =>
-                        setState(() => _sourceZone = value ?? 'wan'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    initialValue: _destinationZone,
-                    decoration: const InputDecoration(labelText: 'To Zone'),
-                    items: _zoneItems(_destinationZone),
-                    onChanged: (value) =>
-                        setState(() => _destinationZone = value ?? 'lan'),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    controller: _externalPortController,
-                    decoration: const InputDecoration(labelText: 'WAN Port'),
-                    keyboardType: TextInputType.number,
-                    validator: _portValidator,
+            const Divider(height: 1),
+            Expanded(
+              child: ListView(
+                padding: EdgeInsets.fromLTRB(20, 18, 20, bottomInset + 20),
+                children: [
+                  TextFormField(
+                    controller: _nameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Rule Name',
+                      prefixIcon: Icon(Icons.label_outline_rounded),
+                    ),
+                    validator: _required,
                     textInputAction: TextInputAction.next,
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    initialValue: _protocol,
-                    decoration: const InputDecoration(labelText: 'Protocol'),
-                    items: _protocolItems(_protocol),
-                    onChanged: (value) =>
-                        setState(() => _protocol = value ?? 'tcp'),
+                  const SizedBox(height: 20),
+                  _PortForwardSectionLabel(
+                    icon: Icons.public_rounded,
+                    title: 'Incoming Traffic',
+                    subtitle: 'Choose where the connection enters the router.',
                   ),
-                ),
-              ],
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: colors.surfaceContainerHighest.withValues(
+                        alpha: 0.32,
+                      ),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: DropdownButtonFormField<String>(
+                                initialValue: _sourceZone,
+                                decoration: const InputDecoration(
+                                  labelText: 'Source Zone',
+                                  prefixIcon: Icon(Icons.shield_outlined),
+                                ),
+                                items: _zoneItems(_sourceZone),
+                                onChanged: (value) => setState(
+                                  () => _sourceZone = value ?? 'wan',
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: TextFormField(
+                                controller: _externalPortController,
+                                decoration: const InputDecoration(
+                                  labelText: 'External Port',
+                                  prefixIcon: Icon(Icons.input_rounded),
+                                ),
+                                keyboardType: TextInputType.number,
+                                validator: _portValidator,
+                                textInputAction: TextInputAction.next,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            'Protocol',
+                            style: LuciTextStyles.detailLabel(context),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: SegmentedButton<String>(
+                            segments: const [
+                              ButtonSegment(value: 'tcp', label: Text('TCP')),
+                              ButtonSegment(value: 'udp', label: Text('UDP')),
+                              ButtonSegment(
+                                value: 'tcp udp',
+                                label: Text('Both'),
+                              ),
+                            ],
+                            selected: {_protocol},
+                            onSelectionChanged: (selection) =>
+                                setState(() => _protocol = selection.first),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: Icon(
+                      Icons.arrow_downward_rounded,
+                      color: colors.primary,
+                    ),
+                  ),
+                  _PortForwardSectionLabel(
+                    icon: Icons.devices_rounded,
+                    title: 'Forward To',
+                    subtitle: 'Select the internal destination for traffic.',
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: colors.surfaceContainerHighest.withValues(
+                        alpha: 0.32,
+                      ),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      children: [
+                        DropdownButtonFormField<String>(
+                          initialValue: _destinationZone,
+                          decoration: const InputDecoration(
+                            labelText: 'Destination Zone',
+                            prefixIcon: Icon(Icons.lan_outlined),
+                          ),
+                          items: _zoneItems(_destinationZone),
+                          onChanged: (value) =>
+                              setState(() => _destinationZone = value ?? 'lan'),
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: _destinationIpController,
+                          decoration: const InputDecoration(
+                            labelText: 'Destination IP Address',
+                            prefixIcon: Icon(Icons.computer_rounded),
+                          ),
+                          validator: _required,
+                          keyboardType: TextInputType.number,
+                          textInputAction: TextInputAction.next,
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: _internalPortController,
+                          decoration: const InputDecoration(
+                            labelText: 'Destination Port',
+                            prefixIcon: Icon(Icons.output_rounded),
+                          ),
+                          keyboardType: TextInputType.number,
+                          validator: _portValidator,
+                          textInputAction: TextInputAction.done,
+                          onFieldSubmitted: (_) => _save(),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _destinationIpController,
-              decoration: const InputDecoration(labelText: 'Destination IP'),
-              validator: _required,
-              keyboardType: TextInputType.number,
-              textInputAction: TextInputAction.next,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _internalPortController,
-              decoration: const InputDecoration(labelText: 'Destination Port'),
-              keyboardType: TextInputType.number,
-              validator: _portValidator,
-              textInputAction: TextInputAction.done,
-            ),
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+              child: Row(
+                children: [
+                  TextButton(
                     onPressed: _isSaving
                         ? null
                         : () => Navigator.of(context).pop(false),
                     child: const Text('Cancel'),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton.icon(
+                  const Spacer(),
+                  FilledButton.icon(
                     onPressed: _isSaving ? null : _save,
                     icon: _isSaving
                         ? const SizedBox(
@@ -2871,20 +2977,55 @@ class _AddPortForwardSheetState extends ConsumerState<_AddPortForwardSheet> {
                           ),
                     label: Text(
                       _isSaving
-                          ? _isEditing
-                                ? 'Saving'
-                                : 'Adding'
+                          ? 'Saving'
                           : _isEditing
-                          ? 'Save'
-                          : 'Add',
+                          ? 'Save Rule'
+                          : 'Create Rule',
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _PortForwardSectionLabel extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  const _PortForwardSectionLabel({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, color: Theme.of(context).colorScheme.primary, size: 22),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              Text(subtitle, style: LuciTextStyles.cardSubtitle(context)),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
