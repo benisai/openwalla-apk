@@ -2,7 +2,6 @@
 // Copyright (C) 2025-2026 cogwheel0
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:luci_mobile/state/app_state.dart';
 import 'package:luci_mobile/utils/self_device_guard.dart';
@@ -46,24 +45,14 @@ class ParentalControlsController {
   ParentalControlsController._();
 
   final ParentalControlsStore _store = ParentalControlsStore.instance;
-  Timer? _expiryTimer;
   bool _isInitializing = false;
 
   ParentalControlsStore get store => _store;
 
   // ── Storage Persistence ──────────────────────────────────────────────────
 
-  String _storageKeyFor(AppState appState) {
-    final routerId = appState.selectedRouter?.id;
-    return routerId != null
-        ? 'parental_controls_store_v1:$routerId'
-        : 'parental_controls_store_v1';
-  }
-
   /// Reset in-memory store so another router's profiles don't linger.
   void reset() {
-    _expiryTimer?.cancel();
-    _expiryTimer = null;
     _store.loadFromString(null);
   }
 
@@ -73,20 +62,25 @@ class ParentalControlsController {
     _isInitializing = true;
 
     try {
-      final key = _storageKeyFor(appState);
-      var raw = await appState.secureRead(key);
-      if ((raw == null || raw.isEmpty) && appState.selectedRouter?.id != null) {
-        final legacy = await appState.secureRead('parental_controls_store_v1');
-        if (legacy != null && legacy.isNotEmpty) {
-          raw = legacy;
-        }
-      }
-      _store.loadFromString(raw);
-
       final routerProfiles = await appState.fetchParentalProfiles();
-      if (routerProfiles != null && routerProfiles.isNotEmpty) {
-        _store.setProfiles(routerProfiles);
-        await persistStore(appState);
+      if (routerProfiles != null) {
+        if (routerProfiles.isEmpty) {
+          final routerId = appState.selectedRouter?.id;
+          final key = routerId == null
+              ? 'parental_controls_store_v1'
+              : 'parental_controls_store_v1:$routerId';
+          final legacy = await appState.secureRead(key);
+          _store.loadFromString(legacy);
+          for (final profile in _store.profiles) {
+            await appState.saveParentalProfile(profile: profile);
+          }
+        } else {
+          _store.setProfiles(routerProfiles);
+        }
+        final activity = await appState.fetchParentalActivity();
+        if (activity != null) _store.setActivityLog(activity);
+      } else {
+        _store.loadFromString(null);
       }
       return const ParentalActionResult(
         success: true,
@@ -114,8 +108,6 @@ class ParentalControlsController {
       );
     }
     try {
-      final key = _storageKeyFor(appState);
-      await appState.secureWrite(key, _store.toJsonString());
       return ParentalActionResult.ok;
     } catch (e) {
       debugPrint('ParentalControlsController: persist error — $e');
@@ -128,77 +120,38 @@ class ParentalControlsController {
   }
 
   Future<ParentalActionResult> clearActivityLog(AppState appState) async {
-    _store.clearActivityLog();
-    final res = await persistStore(appState);
-    if (res.success) {
+    final cleared = await appState.clearParentalActivity();
+    if (cleared) {
+      _store.clearActivityLog();
       return const ParentalActionResult(
         success: true,
         message: 'Activity log cleared.',
       );
-    } else {
-      return res;
     }
+    return const ParentalActionResult(
+      success: false,
+      failureType: ParentalFailureType.routerUnreachable,
+      message: 'Unable to clear the router activity log.',
+    );
   }
 
   // ── Timer & Lifecycle Orchestration ──────────────────────────────────────
 
   void startExpiryTimer(AppState appState) {
-    if (_expiryTimer != null && _expiryTimer!.isActive) return;
-    _expiryTimer = Timer.periodic(const Duration(seconds: 15), (_) {
-      checkPausesAndSchedules(appState);
-    });
+    // Router cron owns schedule, pause-expiry, and daily-limit enforcement.
   }
 
-  void stopExpiryTimer() {
-    _expiryTimer?.cancel();
-    _expiryTimer = null;
-  }
+  void stopExpiryTimer() {}
 
   void handleLifecycleState(AppLifecycleState state, AppState appState) {
     if (state == AppLifecycleState.resumed) {
-      startExpiryTimer(appState);
-      checkPausesAndSchedules(appState);
-    } else if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.hidden) {
-      stopExpiryTimer();
+      loadStore(appState);
     }
   }
 
   /// Auto-resume expired manual pauses and sync active scheduled time blocks.
   Future<void> checkPausesAndSchedules(AppState appState) async {
-    if (!_store.isLoaded) return;
-    final now = DateTime.now().toUtc();
-
-    for (final profile in _store.profiles) {
-      // 1. Auto-resume any timed manual pauses that have expired
-      if (profile.isPaused &&
-          profile.pauseExpiresAt != null &&
-          profile.pauseExpiresAt!.isBefore(now)) {
-        await resumeProfile(profile, appState: appState, auto: true);
-      }
-
-      // 2. Sync scheduled access windows for active (non-bypassed) profiles
-      if (profile.isEnabled && profile.hasSchedule) {
-        final inScheduleWindow = profile.schedule!.isTimeInBlockWindow();
-        for (final mac in profile.macAddresses) {
-          final currentlyPaused = appState.isInternetPaused(mac);
-          if (inScheduleWindow && !currentlyPaused) {
-            // Schedule block window active: enforce firewall block
-            await appState.pauseClientInternet(mac, pause: true, context: null);
-          } else if (!inScheduleWindow &&
-              !profile.isPaused &&
-              currentlyPaused) {
-            // Schedule block window ended: restore internet access
-            await appState.pauseClientInternet(
-              mac,
-              pause: false,
-              context: null,
-            );
-          }
-        }
-      }
-    }
+    await loadStore(appState);
   }
 
   // ── Profile Actions & Router Sync ─────────────────────────────────────────
@@ -236,39 +189,21 @@ class ParentalControlsController {
       expiresAt = DateTime.now().toUtc().add(duration.duration!);
     }
 
-    final List<String> failedMacs = [];
-    for (final mac in profile.macAddresses) {
-      final ok = await appState.pauseClientInternet(
-        mac,
-        pause: true,
-        context: null,
-      );
-      if (!ok) failedMacs.add(mac);
-    }
-
-    if (failedMacs.isEmpty || profile.macAddresses.isEmpty) {
+    final paused = await appState.setParentalProfilePause(
+      profile.id,
+      paused: true,
+      expiresAt: expiresAt,
+    );
+    if (paused) {
       _store.markProfilePaused(profile.id, expiresAt: expiresAt);
-      await persistStore(appState);
       final msg = expiresAt != null
           ? 'Internet paused for ${profile.name} (${duration.label}).'
           : 'Internet paused for ${profile.name}.';
       return ParentalActionResult(success: true, message: msg);
-    } else if (failedMacs.length < profile.macAddresses.length) {
-      // Partial success
-      _store.markProfilePaused(profile.id, expiresAt: expiresAt);
-      await persistStore(appState);
-      return ParentalActionResult(
-        success: false,
-        failureType: ParentalFailureType.partialSuccess,
-        failedMacs: failedMacs,
-        message:
-            'Paused internet for some devices, but failed for: ${failedMacs.join(", ")}.',
-      );
     } else {
       return ParentalActionResult(
         success: false,
         failureType: ParentalFailureType.routerUnreachable,
-        failedMacs: failedMacs,
         message: 'Failed to pause internet. Check router connection.',
       );
     }
@@ -279,38 +214,20 @@ class ParentalControlsController {
     required AppState appState,
     bool auto = false,
   }) async {
-    final List<String> failedMacs = [];
-    for (final mac in profile.macAddresses) {
-      final ok = await appState.pauseClientInternet(
-        mac,
-        pause: false,
-        context: null,
-      );
-      if (!ok) failedMacs.add(mac);
-    }
-
-    if (failedMacs.isEmpty || profile.macAddresses.isEmpty) {
+    final resumed = await appState.setParentalProfilePause(
+      profile.id,
+      paused: false,
+    );
+    if (resumed) {
       _store.markProfileResumed(profile.id);
-      await persistStore(appState);
       return ParentalActionResult(
         success: true,
         message: 'Internet resumed for ${profile.name}.',
-      );
-    } else if (failedMacs.length < profile.macAddresses.length) {
-      _store.markProfileResumed(profile.id);
-      await persistStore(appState);
-      return ParentalActionResult(
-        success: false,
-        failureType: ParentalFailureType.partialSuccess,
-        failedMacs: failedMacs,
-        message:
-            'Resumed internet for some devices, but failed for: ${failedMacs.join(", ")}.',
       );
     } else {
       return ParentalActionResult(
         success: false,
         failureType: ParentalFailureType.routerUnreachable,
-        failedMacs: failedMacs,
         message: 'Failed to resume internet for devices.',
       );
     }
@@ -323,11 +240,6 @@ class ParentalControlsController {
     _store.addProfile(profile);
     final profileSaved = await appState.saveParentalProfile(profile: profile);
 
-    if (profile.isCurrentlyBlocked) {
-      for (final mac in profile.macAddresses) {
-        await appState.pauseClientInternet(mac, pause: true, context: null);
-      }
-    }
     var dnsApplied = true;
     if (profile.hasContentFilter) {
       dnsApplied = await appState.applyParentalProfileDns(
@@ -360,28 +272,11 @@ class ParentalControlsController {
     ParentalProfile oldProfile,
     AppState appState,
   ) async {
-    final oldMacs = Set<String>.from(oldProfile.macAddresses);
-    final newMacs = Set<String>.from(updated.macAddresses);
     _store.updateProfile(updated);
 
     final profileSaved = await appState.saveParentalProfile(profile: updated);
 
-    // 1. Unblock MACs removed from profile (if no other profile blocks them)
-    final removedMacs = oldMacs.difference(newMacs);
-    for (final mac in removedMacs) {
-      if (!_store.isMacPaused(mac)) {
-        await appState.pauseClientInternet(mac, pause: false, context: null);
-      }
-    }
-    // 2. Block MACs newly added to profile (if profile is currently blocked)
-    final addedMacs = newMacs.difference(oldMacs);
-    if (updated.isCurrentlyBlocked) {
-      for (final mac in addedMacs) {
-        await appState.pauseClientInternet(mac, pause: true, context: null);
-      }
-    }
-
-    // 3. Apply DNS changes
+    // Apply DNS changes after the router-side profile is updated.
     final dnsApplied = await appState.applyParentalProfileDns(
       profileId: updated.id,
       macAddresses: updated.macAddresses,
@@ -457,16 +352,6 @@ class ParentalControlsController {
 
     final isNowEnabled = updated.isEnabled;
     final profileSaved = await appState.saveParentalProfile(profile: updated);
-
-    if (!isNowEnabled) {
-      for (final mac in updated.macAddresses) {
-        await appState.pauseClientInternet(mac, pause: false, context: null);
-      }
-    } else if (updated.isCurrentlyBlocked) {
-      for (final mac in updated.macAddresses) {
-        await appState.pauseClientInternet(mac, pause: true, context: null);
-      }
-    }
 
     final dnsApplied = await appState.applyParentalProfileDns(
       profileId: updated.id,

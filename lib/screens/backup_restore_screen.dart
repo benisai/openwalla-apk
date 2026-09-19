@@ -301,7 +301,7 @@ class _IncludedDataCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const items = [
-      'Devices, notifications, Netify, simple flows, and bandwidth databases',
+      'Devices, parental controls, notifications, Netify, simple flows, and bandwidth databases',
       'Ping, DNS, speedtest, quarantine state, and Openwalla config',
       'vnStat usage history and recent Openwalla service logs',
     ];

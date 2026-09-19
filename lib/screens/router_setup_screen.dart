@@ -949,8 +949,9 @@ class _UninstallComponentsCard extends StatelessWidget {
     ),
     (
       feature: 'scheduler',
-      title: 'Scheduler',
-      subtitle: 'Scheduled device blocking helper.',
+      title: 'Parental Controls',
+      subtitle:
+          'Router-side profiles, schedules, limits, and activity database.',
       icon: Icons.schedule_rounded,
     ),
     (

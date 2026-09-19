@@ -9666,31 +9666,66 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     BuildContext? context,
   }) async {
     if (_reviewerModeEnabled) return const [];
-    final router = _routerService?.selectedRouter;
-    final sysauth = _authService?.sysauth;
-    if (router == null || sysauth == null || _apiService == null) return null;
     try {
-      final result = await _apiService!.call(
-        router.ipAddress,
-        sysauth,
-        router.useHttps,
-        object: 'uci',
-        method: 'get',
-        params: {'config': 'parental'},
-        context: context,
-      );
-      final values = _extractUciValues(result);
-      return values.entries
-          .where((entry) => entry.value['.type'] == 'profile')
-          .map(
-            (entry) => ParentalProfile.fromJson(
-              Map<String, dynamic>.from(entry.value as Map),
-              entry.key,
-            ),
-          )
+      final output = await _runOpenwallaParental([
+        'profile-list',
+      ], context: context);
+      return output
+          .split('\n')
+          .where((line) => line.trim().isNotEmpty)
+          .map((line) {
+            final parts = line.split('|');
+            if (parts.length < 14) return null;
+            final days = parts[10]
+                .split(',')
+                .map(int.tryParse)
+                .whereType<int>()
+                .where((day) => day >= 0 && day < ScheduleDay.values.length)
+                .map((day) => ScheduleDay.values[day])
+                .toSet();
+            final block = parts[11].split(':');
+            final resume = parts[12].split(':');
+            final hasSchedule =
+                days.isNotEmpty && block.length == 2 && resume.length == 2;
+            return ParentalProfile(
+              id: parts[0],
+              name: _decodeSqliteHex(parts[1]),
+              icon: _decodeSqliteHex(parts[2]),
+              color: parts[3],
+              isEnabled: parts[4] == '1',
+              isPaused: parts[5] == '1',
+              pauseExpiresAt: (int.tryParse(parts[6]) ?? 0) > 0
+                  ? DateTime.fromMillisecondsSinceEpoch(
+                      (int.tryParse(parts[6]) ?? 0) * 1000,
+                      isUtc: true,
+                    )
+                  : null,
+              contentFilter: contentFilterDnsFromString(parts[7]),
+              customDnsServers: _decodeSqliteHex(
+                parts[8],
+              ).split(',').where((value) => value.isNotEmpty).toList(),
+              dailyTimeLimitMinutes: (int.tryParse(parts[9]) ?? 0) > 0
+                  ? int.parse(parts[9])
+                  : null,
+              schedule: hasSchedule
+                  ? TimeSchedule(
+                      activeDays: days,
+                      blockHour: int.tryParse(block[0]) ?? 22,
+                      blockMinute: int.tryParse(block[1]) ?? 0,
+                      resumeHour: int.tryParse(resume[0]) ?? 7,
+                      resumeMinute: int.tryParse(resume[1]) ?? 0,
+                    )
+                  : null,
+              macAddresses: parts[13]
+                  .split(',')
+                  .where((value) => value.isNotEmpty)
+                  .toList(),
+            );
+          })
+          .whereType<ParentalProfile>()
           .toList();
     } catch (_) {
-      return const [];
+      return null;
     }
   }
 
@@ -9699,38 +9734,25 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     BuildContext? context,
   }) async {
     if (_reviewerModeEnabled) return true;
-    final router = _routerService?.selectedRouter;
-    final sysauth = _authService?.sysauth;
-    if (router == null || sysauth == null || _apiService == null) return false;
-    final section = profile.id.replaceAll(RegExp(r'[^a-zA-Z0-9_]'), '_');
-    final macs = profile.macAddresses
-        .map(_normalizeMacAddress)
-        .map(_shellQuote)
-        .join(' ');
-    final dns = profile.customDnsServers.map(_shellQuote).join(' ');
-    final script =
-        '''
-touch /etc/config/parental
-uci set parental.$section=profile
-uci set parental.$section.name=${_shellQuote(profile.name)}
-uci set parental.$section.icon=${_shellQuote(profile.icon)}
-uci set parental.$section.color=${_shellQuote(profile.color)}
-uci set parental.$section.is_paused=${profile.isPaused ? '1' : '0'}
-uci set parental.$section.is_enabled=${profile.isEnabled ? '1' : '0'}
-uci set parental.$section.content_filter=${_shellQuote(profile.contentFilter.toStorageString())}
-uci delete parental.$section.mac 2>/dev/null || true
-for m in $macs; do uci add_list parental.$section.mac="\$m"; done
-uci delete parental.$section.custom_dns 2>/dev/null || true
-for d in $dns; do uci add_list parental.$section.custom_dns="\$d"; done
-uci commit parental
-''';
-    final result = await _apiService!.systemExec(
-      router.ipAddress,
-      sysauth,
-      router.useHttps,
-      command: script,
-      context: context,
-    );
+    final schedule = profile.schedule;
+    final result = await _callOpenwallaParental([
+      'profile-save',
+      profile.id,
+      profile.name,
+      profile.icon,
+      profile.color,
+      profile.isEnabled ? '1' : '0',
+      profile.isPaused ? '1' : '0',
+      ((profile.pauseExpiresAt?.millisecondsSinceEpoch ?? 0) ~/ 1000)
+          .toString(),
+      profile.contentFilter.toStorageString(),
+      profile.customDnsServers.join(','),
+      (profile.dailyTimeLimitMinutes ?? 0).toString(),
+      schedule?.activeDays.map((day) => day.index).join(',') ?? '',
+      schedule?.blockTimeFormatted ?? '',
+      schedule?.resumeTimeFormatted ?? '',
+      ...profile.macAddresses.map(_normalizeMacAddress),
+    ], context: context);
     return _rpcCallSucceeded(result);
   }
 
@@ -9739,19 +9761,89 @@ uci commit parental
     BuildContext? context,
   }) async {
     if (_reviewerModeEnabled) return true;
-    final router = _routerService?.selectedRouter;
-    final sysauth = _authService?.sysauth;
-    if (router == null || sysauth == null || _apiService == null) return false;
-    final section = profileId.replaceAll(RegExp(r'[^a-zA-Z0-9_]'), '_');
-    final result = await _apiService!.systemExec(
-      router.ipAddress,
-      sysauth,
-      router.useHttps,
-      command:
-          'uci delete parental.$section 2>/dev/null || true; uci commit parental',
-      context: context,
-    );
+    final result = await _callOpenwallaParental([
+      'profile-delete',
+      profileId,
+    ], context: context);
     return _rpcCallSucceeded(result);
+  }
+
+  Future<bool> setParentalProfilePause(
+    String profileId, {
+    required bool paused,
+    DateTime? expiresAt,
+    BuildContext? context,
+  }) async {
+    if (_reviewerModeEnabled) return true;
+    final result = await _callOpenwallaParental([
+      paused ? 'profile-pause' : 'profile-resume',
+      profileId,
+      if (paused) ((expiresAt?.millisecondsSinceEpoch ?? 0) ~/ 1000).toString(),
+    ], context: context);
+    return _rpcCallSucceeded(result);
+  }
+
+  String _decodeSqliteHex(String value) {
+    try {
+      final bytes = <int>[
+        for (var i = 0; i + 1 < value.length; i += 2)
+          int.parse(value.substring(i, i + 2), radix: 16),
+      ];
+      return utf8.decode(bytes);
+    } catch (_) {
+      return '';
+    }
+  }
+
+  Future<List<ParentalActivityLog>?> fetchParentalActivity({
+    BuildContext? context,
+  }) async {
+    if (_reviewerModeEnabled) return const [];
+    try {
+      final output = await _runOpenwallaParental([
+        'activity-list',
+      ], context: context);
+      return output
+          .split('\n')
+          .where((line) => line.trim().isNotEmpty)
+          .map((line) {
+            final parts = line.split('|');
+            if (parts.length < 5) return null;
+            final action = parts[2].toLowerCase();
+            final type = action.contains('deleted')
+                ? ParentalEventType.profileDeleted
+                : action.contains('updated')
+                ? ParentalEventType.profileUpdated
+                : action.contains('created')
+                ? ParentalEventType.profileCreated
+                : action.contains('resumed')
+                ? ParentalEventType.resumed
+                : action.contains('limit')
+                ? ParentalEventType.limitReached
+                : ParentalEventType.paused;
+            return ParentalActivityLog(
+              profileId: parts[0],
+              profileName: _decodeSqliteHex(parts[1]),
+              eventType: type,
+              detail: _decodeSqliteHex(parts[3]),
+              timestamp: DateTime.fromMillisecondsSinceEpoch(
+                (int.tryParse(parts[4]) ?? 0) * 1000,
+                isUtc: true,
+              ),
+            );
+          })
+          .whereType<ParentalActivityLog>()
+          .toList();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<bool> clearParentalActivity({BuildContext? context}) async {
+    if (_reviewerModeEnabled) return true;
+    return _rpcCallSucceeded(
+      await _callOpenwallaParental(['activity-clear'], context: context),
+    );
   }
 
   Future<bool> applyParentalProfileDns({
@@ -9964,6 +10056,33 @@ uci commit dhcp
       context: context,
     );
     return _commandOutput(result);
+  }
+
+  Future<dynamic> _callOpenwallaParental(
+    List<String> args, {
+    BuildContext? context,
+  }) async {
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) {
+      throw StateError('No selected router connection is available');
+    }
+    return _apiService!.call(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      object: 'file',
+      method: 'exec',
+      params: {'command': '/usr/bin/openwalla-parental', 'params': args},
+      context: context,
+    );
+  }
+
+  Future<String> _runOpenwallaParental(
+    List<String> args, {
+    BuildContext? context,
+  }) async {
+    return _commandOutput(await _callOpenwallaParental(args, context: context));
   }
 
   Future<void> setClientInternetBlocked(Client client, bool blocked) async {

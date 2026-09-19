@@ -24,6 +24,7 @@
 				"/tmp/openwalla-devices.sqlite": ["read"],
 				"/tmp/openwalla-device-bandwidth.sqlite": ["read"],
 				"/tmp/openwalla-notifications.sqlite": ["read"],
+				"/tmp/openwalla-parental.sqlite": ["read"],
 				"/tmp/firmware.bin": ["read"],
 				"/tmp/backup.tar.gz": ["read"]
 			},
@@ -78,6 +79,7 @@
 				"/usr/bin/openwalla-state-sync": ["exec"],
 				"/usr/bin/openwalla-device-quarantine": ["exec"],
 				"/usr/bin/openwalla-scheduler": ["exec"],
+				"/usr/bin/openwalla-parental": ["exec"],
 				"/usr/bin/openwalla-device-traffic-summary": ["exec"],
 				"/usr/bin/df": ["exec"],
 				"/usr/bin/vnstat": ["exec"],
@@ -90,6 +92,7 @@
 				"/tmp/openwalla-devices.sqlite": ["write"],
 				"/tmp/openwalla-device-bandwidth.sqlite": ["write"],
 				"/tmp/openwalla-notifications.sqlite": ["write"],
+				"/tmp/openwalla-parental.sqlite": ["write"],
 				"/tmp/openwalla-ping-monitor.txt": ["write"],
 				"/tmp/openwalla-dns-monitor.txt": ["write"],
 				"/tmp/openwalla-speedtest-monitor.txt": ["write"]

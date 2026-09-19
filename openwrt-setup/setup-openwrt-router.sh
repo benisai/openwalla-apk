@@ -466,8 +466,9 @@ uninstall_feature() {
 		;;
 	scheduler)
 		remove_cron_marker "OPENWALLA_SCHEDULER"
-		rm -f /usr/bin/openwalla-scheduler
+		rm -f /usr/bin/openwalla-scheduler /usr/bin/openwalla-parental
 		clear_openwalla_section scheduler
+		clear_openwalla_section parental
 		uci -q delete openwalla.features.scheduler >/dev/null 2>&1 || true
 		;;
 	conntrack)

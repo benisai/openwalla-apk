@@ -122,6 +122,12 @@ class ParentalControlsStore extends ChangeNotifier {
 
   void setProfiles(List<ParentalProfile> profiles) {
     _profiles = List.from(profiles);
+    _isLoaded = true;
+    notifyListeners();
+  }
+
+  void setActivityLog(List<ParentalActivityLog> entries) {
+    _activityLog = List.from(entries);
     notifyListeners();
   }
 

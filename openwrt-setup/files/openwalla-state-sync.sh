@@ -89,6 +89,13 @@ read_notifications_db() {
 	echo "$path"
 }
 
+read_parental_db() {
+	local path
+	path="$(uci_get openwalla.parental.db_path)"
+	[ -n "$path" ] || path="/tmp/openwalla-parental.sqlite"
+	echo "$path"
+}
+
 read_ping_file() {
 	local path
 	path="$(uci_get openwalla.ping_monitor.output_file)"
@@ -213,7 +220,8 @@ read_last_backup_epoch() {
 		"$state_dir/openwalla-connection-flows.sqlite" \
 		"$state_dir/openwalla-devices.sqlite" \
 		"$state_dir/openwalla-device-bandwidth.sqlite" \
-		"$state_dir/openwalla-notifications.sqlite" \
+			"$state_dir/openwalla-notifications.sqlite" \
+			"$state_dir/openwalla-parental.sqlite" \
 		"$state_dir/openwalla-ping-monitor.txt" \
 		"$state_dir/openwalla-dns-monitor.txt" \
 		"$state_dir/openwalla-speedtest-monitor.txt" \
@@ -270,13 +278,14 @@ restore_vnstat_dir() {
 }
 
 save_state() {
-	local state_dir netify_db flows_db devices_db device_bandwidth_db notifications_db ping_file dns_file speedtest_file quarantine_state_file
+	local state_dir netify_db flows_db devices_db device_bandwidth_db notifications_db parental_db ping_file dns_file speedtest_file quarantine_state_file
 	state_dir="$(read_state_dir)"
 	netify_db="$(read_netify_db)"
 	flows_db="$(read_connection_flows_db)"
 	devices_db="$(read_devices_db)"
 	device_bandwidth_db="$(read_device_bandwidth_db)"
 	notifications_db="$(read_notifications_db)"
+	parental_db="$(read_parental_db)"
 	ping_file="$(read_ping_file)"
 	dns_file="$(read_dns_file)"
 	speedtest_file="$(read_speedtest_file)"
@@ -288,6 +297,7 @@ save_state() {
 	save_sqlite "$devices_db" "$state_dir/openwalla-devices.sqlite"
 	save_sqlite "$device_bandwidth_db" "$state_dir/openwalla-device-bandwidth.sqlite"
 	save_sqlite "$notifications_db" "$state_dir/openwalla-notifications.sqlite"
+	save_sqlite "$parental_db" "$state_dir/openwalla-parental.sqlite"
 	save_netify_archives "$netify_db" "$state_dir"
 	save_copy "$ping_file" "$state_dir/openwalla-ping-monitor.txt"
 	save_copy "$dns_file" "$state_dir/openwalla-dns-monitor.txt"
@@ -301,13 +311,14 @@ save_state() {
 }
 
 restore_state() {
-	local state_dir netify_db flows_db devices_db device_bandwidth_db notifications_db ping_file dns_file speedtest_file quarantine_state_file
+	local state_dir netify_db flows_db devices_db device_bandwidth_db notifications_db parental_db ping_file dns_file speedtest_file quarantine_state_file
 	state_dir="$(read_state_dir)"
 	netify_db="$(read_netify_db)"
 	flows_db="$(read_connection_flows_db)"
 	devices_db="$(read_devices_db)"
 	device_bandwidth_db="$(read_device_bandwidth_db)"
 	notifications_db="$(read_notifications_db)"
+	parental_db="$(read_parental_db)"
 	ping_file="$(read_ping_file)"
 	dns_file="$(read_dns_file)"
 	speedtest_file="$(read_speedtest_file)"
@@ -319,6 +330,7 @@ restore_state() {
 	restore_copy "$state_dir/openwalla-devices.sqlite" "$devices_db"
 	restore_copy "$state_dir/openwalla-device-bandwidth.sqlite" "$device_bandwidth_db"
 	restore_copy "$state_dir/openwalla-notifications.sqlite" "$notifications_db"
+	restore_copy "$state_dir/openwalla-parental.sqlite" "$parental_db"
 	restore_netify_archives "$netify_db" "$state_dir"
 	restore_copy "$state_dir/openwalla-ping-monitor.txt" "$ping_file"
 	restore_copy "$state_dir/openwalla-dns-monitor.txt" "$dns_file"
