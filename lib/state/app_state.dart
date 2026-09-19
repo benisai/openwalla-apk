@@ -331,6 +331,42 @@ class OpenwrtFirewallZone {
   }
 }
 
+class OpenwrtFirewallDefaults {
+  final String input;
+  final String output;
+  final String forward;
+  final bool synFloodProtection;
+
+  const OpenwrtFirewallDefaults({
+    required this.input,
+    required this.output,
+    required this.forward,
+    required this.synFloodProtection,
+  });
+
+  factory OpenwrtFirewallDefaults.fromUciSection(Map<dynamic, dynamic> values) {
+    String policy(String key, String fallback) =>
+        (values[key]?.toString().trim().isNotEmpty ?? false)
+        ? values[key].toString().trim().toUpperCase()
+        : fallback;
+    final synFlood = values['syn_flood']?.toString().toLowerCase();
+    return OpenwrtFirewallDefaults(
+      input: policy('input', 'ACCEPT'),
+      output: policy('output', 'ACCEPT'),
+      forward: policy('forward', 'REJECT'),
+      synFloodProtection:
+          synFlood == '1' || synFlood == 'true' || synFlood == 'yes',
+    );
+  }
+}
+
+class OpenwrtFirewallOverview {
+  final OpenwrtFirewallDefaults defaults;
+  final List<OpenwrtFirewallZone> zones;
+
+  const OpenwrtFirewallOverview({required this.defaults, required this.zones});
+}
+
 class OpenwrtFirewallForwarding {
   final String source;
   final String destination;
@@ -4673,6 +4709,73 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       Logger.warning('Optional firewall zones fetch failed: $e');
       Logger.debug('Optional firewall zones stack: $stack');
       return const [];
+    }
+  }
+
+  Future<OpenwrtFirewallOverview> fetchFirewallOverview({
+    BuildContext? context,
+  }) async {
+    const fallbackDefaults = OpenwrtFirewallDefaults(
+      input: 'ACCEPT',
+      output: 'ACCEPT',
+      forward: 'REJECT',
+      synFloodProtection: false,
+    );
+    if (_reviewerModeEnabled) {
+      return OpenwrtFirewallOverview(
+        defaults: fallbackDefaults,
+        zones: _mockFirewallZones(),
+      );
+    }
+
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) {
+      return const OpenwrtFirewallOverview(
+        defaults: fallbackDefaults,
+        zones: [],
+      );
+    }
+
+    try {
+      final result = await _apiService!.call(
+        router.ipAddress,
+        sysauth,
+        router.useHttps,
+        object: 'uci',
+        method: 'get',
+        params: {'config': 'firewall'},
+        context: context,
+      );
+      final values = _firewallValuesFromResult(result);
+      var defaults = fallbackDefaults;
+      final zones = <OpenwrtFirewallZone>[];
+      for (final entry in values.entries) {
+        final value = entry.value;
+        if (value is! Map) continue;
+        if (value['.type'] == 'defaults') {
+          defaults = OpenwrtFirewallDefaults.fromUciSection(value);
+        } else if (value['.type'] == 'zone') {
+          zones.add(
+            OpenwrtFirewallZone.fromUciSection(entry.key.toString(), value),
+          );
+        }
+      }
+      zones.sort((a, b) {
+        if (a.name == 'lan' && b.name != 'lan') return -1;
+        if (b.name == 'lan' && a.name != 'lan') return 1;
+        if (a.name == 'wan' && b.name != 'wan') return -1;
+        if (b.name == 'wan' && a.name != 'wan') return 1;
+        return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      });
+      return OpenwrtFirewallOverview(defaults: defaults, zones: zones);
+    } catch (e, stack) {
+      Logger.warning('Optional firewall overview fetch failed: $e');
+      Logger.debug('Optional firewall overview stack: $stack');
+      return const OpenwrtFirewallOverview(
+        defaults: fallbackDefaults,
+        zones: [],
+      );
     }
   }
 

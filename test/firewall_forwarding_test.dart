@@ -2,6 +2,20 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:luci_mobile/state/app_state.dart';
 
 void main() {
+  test('parses global firewall defaults', () {
+    final defaults = OpenwrtFirewallDefaults.fromUciSection({
+      'input': 'accept',
+      'output': 'ACCEPT',
+      'forward': 'reject',
+      'syn_flood': '1',
+    });
+
+    expect(defaults.input, 'ACCEPT');
+    expect(defaults.output, 'ACCEPT');
+    expect(defaults.forward, 'REJECT');
+    expect(defaults.synFloodProtection, isTrue);
+  });
+
   test('parses enabled inter-zone forwarding', () {
     final forwarding = OpenwrtFirewallForwarding.fromUciSection({
       'src': 'lan',

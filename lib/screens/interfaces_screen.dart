@@ -59,6 +59,12 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
   bool _isLoadingNetworkPanels = false;
   List<OpenwrtPortForward> _portForwards = const [];
   List<OpenwrtFirewallZone> _firewallZones = const [];
+  OpenwrtFirewallDefaults _firewallDefaults = const OpenwrtFirewallDefaults(
+    input: 'ACCEPT',
+    output: 'ACCEPT',
+    forward: 'REJECT',
+    synFloodProtection: false,
+  );
 
   /// Safely extract a String from a UCI config value that may be a List or String.
   static String _uciString(dynamic value, [String fallback = '']) {
@@ -184,12 +190,14 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
       final appState = ref.read(appStateProvider);
       final results = await Future.wait([
         appState.fetchPortForwards(context: context),
-        appState.fetchFirewallZones(context: context),
+        appState.fetchFirewallOverview(context: context),
       ]);
       if (!mounted) return;
       setState(() {
         _portForwards = results[0] as List<OpenwrtPortForward>;
-        _firewallZones = results[1] as List<OpenwrtFirewallZone>;
+        final firewall = results[1] as OpenwrtFirewallOverview;
+        _firewallZones = firewall.zones;
+        _firewallDefaults = firewall.defaults;
         _isLoadingNetworkPanels = false;
       });
     } catch (_) {
@@ -893,6 +901,7 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
                                     ),
                                     _FirewallZonesPanel(
                                       isLoading: _isLoadingNetworkPanels,
+                                      defaults: _firewallDefaults,
                                       zones: _firewallZones,
                                       onRefresh: _loadNetworkPanels,
                                     ),
@@ -2175,11 +2184,13 @@ class _PortForwardCard extends StatelessWidget {
 
 class _FirewallZonesPanel extends StatelessWidget {
   final bool isLoading;
+  final OpenwrtFirewallDefaults defaults;
   final List<OpenwrtFirewallZone> zones;
   final Future<void> Function() onRefresh;
 
   const _FirewallZonesPanel({
     required this.isLoading,
+    required this.defaults,
     required this.zones,
     required this.onRefresh,
   });
@@ -2201,10 +2212,127 @@ class _FirewallZonesPanel extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       children: [
-        _NetworkPanelHeader('Firewall Zones', zones.length),
+        const SizedBox(height: 12),
+        const _FirewallSectionHeader(
+          icon: Icons.shield_outlined,
+          title: 'Global Default Policies',
+        ),
+        const SizedBox(height: 10),
+        _FirewallDefaultsCard(defaults: defaults),
+        const SizedBox(height: 18),
+        const _FirewallSectionHeader(
+          icon: Icons.layers_outlined,
+          title: 'Firewall Zones Overview',
+        ),
+        const SizedBox(height: 10),
         ...zones.map((zone) => _FirewallZoneCard(zone: zone)),
       ],
     );
+  }
+}
+
+class _FirewallSectionHeader extends StatelessWidget {
+  final IconData icon;
+  final String title;
+
+  const _FirewallSectionHeader({required this.icon, required this.title});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 21, color: Theme.of(context).colorScheme.primary),
+        const SizedBox(width: 10),
+        Text(
+          title,
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+        ),
+      ],
+    );
+  }
+}
+
+class _FirewallDefaultsCard extends StatelessWidget {
+  final OpenwrtFirewallDefaults defaults;
+
+  const _FirewallDefaultsCard({required this.defaults});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Column(
+          children: [
+            _FirewallPolicyRow(label: 'Default Input', value: defaults.input),
+            const Divider(height: 1),
+            _FirewallPolicyRow(label: 'Default Output', value: defaults.output),
+            const Divider(height: 1),
+            _FirewallPolicyRow(
+              label: 'Default Forward',
+              value: defaults.forward,
+            ),
+            const Divider(height: 1),
+            _FirewallPolicyRow(
+              label: 'SYN Flood Protection',
+              value: defaults.synFloodProtection ? 'ENABLED' : 'DISABLED',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FirewallPolicyRow extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _FirewallPolicyRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _firewallPolicyColor(context, value);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 13),
+      child: Row(
+        children: [
+          Expanded(child: Text(label)),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              value,
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.w800,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+Color _firewallPolicyColor(BuildContext context, String policy) {
+  switch (policy.toUpperCase()) {
+    case 'ACCEPT':
+    case 'ENABLED':
+      return const Color(0xFF20CF70);
+    case 'REJECT':
+      return const Color(0xFFF0A020);
+    case 'DROP':
+      return Theme.of(context).colorScheme.error;
+    default:
+      return const Color(0xFF1688D4);
   }
 }
 
@@ -2214,118 +2342,107 @@ class _FirewallZoneCard extends StatelessWidget {
   const _FirewallZoneCard({required this.zone});
 
   Color _policyColor(BuildContext context, String policy) {
-    final action = policy.toUpperCase();
-    if (action == 'ACCEPT') return const Color(0xFF20CF70);
-    if (action == 'REJECT' || action == 'DROP') {
-      return Theme.of(context).colorScheme.error;
-    }
-    return Theme.of(context).colorScheme.primary;
+    return _firewallPolicyColor(context, policy);
   }
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-      decoration: BoxDecoration(
-        color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: colorScheme.outlineVariant.withValues(alpha: 0.42),
+    final isWan = zone.name.toLowerCase().contains('wan');
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  isWan ? Icons.public_rounded : Icons.router_rounded,
+                  color: isWan ? colorScheme.error : colorScheme.primary,
+                  size: 22,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Zone: ${zone.name.toUpperCase()}',
+                    style: LuciTextStyles.cardTitle(context),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (zone.masquerading)
+                  const _NetworkBadge(
+                    label: 'MASQUERADE (NAT)',
+                    color: Color(0xFF1688D4),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Covered Networks: ${zone.networks}',
+              style: LuciTextStyles.cardSubtitle(
+                context,
+              ).copyWith(fontWeight: FontWeight.w800),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const Divider(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: _FirewallCompactPolicy(
+                    label: 'Input',
+                    value: zone.input,
+                    color: _policyColor(context, zone.input),
+                  ),
+                ),
+                Expanded(
+                  child: _FirewallCompactPolicy(
+                    label: 'Output',
+                    value: zone.output,
+                    color: _policyColor(context, zone.output),
+                  ),
+                ),
+                Expanded(
+                  child: _FirewallCompactPolicy(
+                    label: 'Forward',
+                    value: zone.forward,
+                    color: _policyColor(context, zone.forward),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 34,
-                height: 34,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: colorScheme.primary.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(
-                  zone.name.toLowerCase() == 'wan'
-                      ? Icons.public_rounded
-                      : Icons.device_hub_rounded,
-                  color: colorScheme.primary,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  zone.name.toUpperCase(),
-                  style: LuciTextStyles.cardTitle(context),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              if (zone.masquerading)
-                const _NetworkBadge(label: 'NAT', color: Color(0xFFF27C24)),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(
-            'Networks: ${zone.networks}',
-            style: LuciTextStyles.cardSubtitle(
-              context,
-            ).copyWith(fontWeight: FontWeight.w800),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _NetworkBadge(
-                label: 'Input ${zone.input}',
-                color: _policyColor(context, zone.input),
-              ),
-              _NetworkBadge(
-                label: 'Output ${zone.output}',
-                color: _policyColor(context, zone.output),
-              ),
-              _NetworkBadge(
-                label: 'Forward ${zone.forward}',
-                color: _policyColor(context, zone.forward),
-              ),
-              if (zone.mtuFix)
-                _NetworkBadge(
-                  label: 'MTU Fix',
-                  color: colorScheme.onSurfaceVariant,
-                ),
-            ],
-          ),
-        ],
       ),
     );
   }
 }
 
-class _NetworkPanelHeader extends StatelessWidget {
-  final String title;
-  final int count;
+class _FirewallCompactPolicy extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
 
-  const _NetworkPanelHeader(this.title, this.count);
+  const _FirewallCompactPolicy({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(2, 12, 2, 8),
-      child: Text(
-        '$title ($count)',
-        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-          fontWeight: FontWeight.w900,
-          letterSpacing: 0,
+    return Column(
+      children: [
+        Text(label, style: LuciTextStyles.cardSubtitle(context)),
+        const SizedBox(height: 3),
+        Text(
+          value,
+          style: TextStyle(color: color, fontWeight: FontWeight.w800),
         ),
-      ),
+      ],
     );
   }
 }
