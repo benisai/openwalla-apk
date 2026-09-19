@@ -128,16 +128,12 @@ class _DnsScreenState extends ConsumerState<DnsScreen> {
                     panel: _DnsPanel.dns,
                     entries: dnsEntries,
                     title: 'DNS Entries',
-                    description:
-                        'Map hostnames to local IP addresses through OpenWrt dnsmasq.',
                     emptyMessage: 'No custom DNS entries found.',
                   ),
                   _buildPanel(
                     panel: _DnsPanel.blocked,
                     entries: blockedEntries,
                     title: 'Blocked Domains',
-                    description:
-                        'Domains sinkholed to 127.0.0.1 are listed here.',
                     emptyMessage: 'No blocked DNS entries found.',
                   ),
                 ],
@@ -164,7 +160,6 @@ class _DnsScreenState extends ConsumerState<DnsScreen> {
     required _DnsPanel panel,
     required List<OpenwrtDnsHostEntry> entries,
     required String title,
-    required String description,
     required String emptyMessage,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
@@ -204,16 +199,7 @@ class _DnsScreenState extends ConsumerState<DnsScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 6),
-          Text(
-            description,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: colorScheme.onSurfaceVariant,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0,
-            ),
-          ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           if (_isLoading)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 48),
