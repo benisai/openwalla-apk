@@ -52,6 +52,18 @@ class _ParentalControlsScreenState extends ConsumerState<ParentalControlsScreen>
     }
   }
 
+  Future<void> _checkAgain() async {
+    if (_isInstalling) return;
+    setState(() {
+      _isLoading = true;
+      _installError = null;
+    });
+    final appState = ref.read(appStateProvider);
+    await appState.refreshRouterAuthenticationAfterSetup(context: context);
+    if (!mounted) return;
+    await _initController();
+  }
+
   Future<void> _installComponent() async {
     if (_isInstalling) return;
     setState(() {
@@ -63,9 +75,20 @@ class _ParentalControlsScreenState extends ConsumerState<ParentalControlsScreen>
       await appState.installOpenwallaSetupFeatures(
         const ['scheduler'],
         postInstallCheck:
-            '[ -x /usr/bin/openwalla-parental ] && /usr/bin/openwalla-parental profile-list >/dev/null',
+            '[ -x /usr/bin/openwalla-parental ] && '
+            '/usr/bin/openwalla-parental profile-list >/dev/null 2>&1 && '
+            'grep -q "openwalla-parental apply" /etc/crontabs/root 2>/dev/null && '
+            'echo OK',
       );
       if (!mounted) return;
+      final authenticated = await appState
+          .refreshRouterAuthenticationAfterSetup(context: context);
+      if (!mounted) return;
+      if (!authenticated) {
+        throw StateError(
+          'The component was installed, but the app could not reconnect to the router.',
+        );
+      }
       final available = await appState.hasParentalControlsSupport(
         context: context,
       );
@@ -74,7 +97,11 @@ class _ParentalControlsScreenState extends ConsumerState<ParentalControlsScreen>
       }
       await _controller.loadStore(appState);
       if (!mounted) return;
-      setState(() => _componentAvailable = true);
+      _controller.startExpiryTimer(appState);
+      setState(() {
+        _componentAvailable = true;
+        _installError = null;
+      });
       context.showToastSuccess('Parental Controls setup complete.');
     } catch (error) {
       if (!mounted) return;
@@ -265,7 +292,7 @@ class _ParentalControlsScreenState extends ConsumerState<ParentalControlsScreen>
                     installing: _isInstalling,
                     error: _installError,
                     onInstall: _installComponent,
-                    onRetry: _initController,
+                    onRetry: _checkAgain,
                   )
                 : profiles.isEmpty
                 ? _EmptyState(onAdd: _openAddProfile)

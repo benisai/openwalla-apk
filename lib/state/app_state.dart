@@ -2047,9 +2047,34 @@ class AppState extends ChangeNotifier {
     return _routerCommandSucceeds(
       '[ -x /usr/bin/openwalla-parental ] && '
       '/usr/bin/openwalla-parental profile-list >/dev/null 2>&1 && '
-      'grep -q "openwalla-parental apply" /etc/crontabs/root 2>/dev/null',
+      'grep -q "openwalla-parental apply" /etc/crontabs/root 2>/dev/null && '
+      'echo OK',
       context: context,
     );
+  }
+
+  Future<bool> refreshRouterAuthenticationAfterSetup({
+    BuildContext? context,
+  }) async {
+    if (_reviewerModeEnabled) return true;
+    final router = _routerService?.selectedRouter;
+    final authService = _authService;
+    if (router == null || authService == null) return false;
+
+    for (var attempt = 0; attempt < 4; attempt++) {
+      if (attempt > 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 750));
+      }
+      final authenticated = await authService.tryAutoLogin(
+        router.ipAddress,
+        router.username,
+        router.password,
+        router.useHttps,
+        context: context?.mounted == true ? context : null,
+      );
+      if (authenticated && authService.sysauth != null) return true;
+    }
+    return false;
   }
 
   Future<bool> hasNetworkPerformanceSupport({BuildContext? context}) async {
