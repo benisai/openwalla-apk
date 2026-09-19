@@ -331,6 +331,35 @@ class OpenwrtFirewallZone {
   }
 }
 
+class OpenwrtFirewallForwarding {
+  final String source;
+  final String destination;
+  final bool enabled;
+
+  const OpenwrtFirewallForwarding({
+    required this.source,
+    required this.destination,
+    required this.enabled,
+  });
+
+  factory OpenwrtFirewallForwarding.fromUciSection(
+    Map<dynamic, dynamic> values,
+  ) {
+    String read(String key, String fallback) {
+      final value = values[key]?.toString().trim();
+      return value == null || value.isEmpty ? fallback : value;
+    }
+
+    final disabled = read('disabled', '0') == '1';
+    final explicitlyDisabled = read('enabled', '1') == '0';
+    return OpenwrtFirewallForwarding(
+      source: read('src', 'lan'),
+      destination: read('dest', 'wan'),
+      enabled: !disabled && !explicitlyDisabled,
+    );
+  }
+}
+
 class OpenwrtWirelessNetworkConfig {
   final String section;
   final String radioSection;
@@ -4629,6 +4658,48 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     } catch (e, stack) {
       Logger.warning('Optional firewall zones fetch failed: $e');
       Logger.debug('Optional firewall zones stack: $stack');
+      return const [];
+    }
+  }
+
+  Future<List<OpenwrtFirewallForwarding>> fetchFirewallForwardings({
+    BuildContext? context,
+  }) async {
+    if (_reviewerModeEnabled) {
+      return const [
+        OpenwrtFirewallForwarding(
+          source: 'lan',
+          destination: 'wan',
+          enabled: true,
+        ),
+      ];
+    }
+
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) {
+      return const [];
+    }
+
+    try {
+      final result = await _apiService!.call(
+        router.ipAddress,
+        sysauth,
+        router.useHttps,
+        object: 'uci',
+        method: 'get',
+        params: {'config': 'firewall'},
+        context: context,
+      );
+      final values = _firewallValuesFromResult(result);
+      return values.values
+          .whereType<Map>()
+          .where((value) => value['.type'] == 'forwarding')
+          .map(OpenwrtFirewallForwarding.fromUciSection)
+          .toList();
+    } catch (e, stack) {
+      Logger.warning('Optional firewall forwardings fetch failed: $e');
+      Logger.debug('Optional firewall forwardings stack: $stack');
       return const [];
     }
   }

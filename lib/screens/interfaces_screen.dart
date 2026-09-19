@@ -59,6 +59,7 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
   bool _isLoadingNetworkPanels = false;
   List<OpenwrtPortForward> _portForwards = const [];
   List<OpenwrtFirewallZone> _firewallZones = const [];
+  List<OpenwrtFirewallForwarding> _firewallForwardings = const [];
 
   /// Safely extract a String from a UCI config value that may be a List or String.
   static String _uciString(dynamic value, [String fallback = '']) {
@@ -185,11 +186,13 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
       final results = await Future.wait([
         appState.fetchPortForwards(context: context),
         appState.fetchFirewallZones(context: context),
+        appState.fetchFirewallForwardings(context: context),
       ]);
       if (!mounted) return;
       setState(() {
         _portForwards = results[0] as List<OpenwrtPortForward>;
         _firewallZones = results[1] as List<OpenwrtFirewallZone>;
+        _firewallForwardings = results[2] as List<OpenwrtFirewallForwarding>;
         _isLoadingNetworkPanels = false;
       });
     } catch (_) {
@@ -894,6 +897,8 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
                                     _FirewallZonesPanel(
                                       isLoading: _isLoadingNetworkPanels,
                                       zones: _firewallZones,
+                                      forwardings: _firewallForwardings,
+                                      portForwards: _portForwards,
                                       onRefresh: _loadNetworkPanels,
                                     ),
                                   ],
@@ -1885,7 +1890,7 @@ class _NetworkPanelSwitcher extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    const tabs = ['Interfaces', 'Port Forwarding', 'Zones'];
+    const tabs = ['Interfaces', 'Port Forwarding', 'Firewall'];
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 10),
       padding: const EdgeInsets.all(4),
@@ -2176,11 +2181,15 @@ class _PortForwardCard extends StatelessWidget {
 class _FirewallZonesPanel extends StatelessWidget {
   final bool isLoading;
   final List<OpenwrtFirewallZone> zones;
+  final List<OpenwrtFirewallForwarding> forwardings;
+  final List<OpenwrtPortForward> portForwards;
   final Future<void> Function() onRefresh;
 
   const _FirewallZonesPanel({
     required this.isLoading,
     required this.zones,
+    required this.forwardings,
+    required this.portForwards,
     required this.onRefresh,
   });
 
@@ -2201,9 +2210,146 @@ class _FirewallZonesPanel extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       children: [
-        _NetworkPanelHeader('Firewall Zones', zones.length),
+        _NetworkPanelHeader('Firewall Zones Overview', zones.length),
         ...zones.map((zone) => _FirewallZoneCard(zone: zone)),
+        const SizedBox(height: 4),
+        _FirewallOverviewSection(
+          title: 'Inter-Zone Forwarding Rules',
+          subtitle: '${forwardings.length} inter-zone policies',
+          icon: Icons.alt_route_rounded,
+          children: forwardings
+              .map((forwarding) => _FirewallForwardingRow(forwarding))
+              .toList(),
+        ),
+        const SizedBox(height: 10),
+        _FirewallOverviewSection(
+          title: 'Port Forwarding / Redirects',
+          subtitle: '${portForwards.length} port forward rules',
+          icon: Icons.import_export_rounded,
+          children: portForwards
+              .map((forward) => _FirewallRedirectRow(forward))
+              .toList(),
+        ),
       ],
+    );
+  }
+}
+
+class _FirewallOverviewSection extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final List<Widget> children;
+
+  const _FirewallOverviewSection({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.children,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: colors.outlineVariant.withValues(alpha: 0.42),
+        ),
+      ),
+      child: ExpansionTile(
+        shape: const Border(),
+        collapsedShape: const Border(),
+        leading: Icon(icon, color: colors.primary),
+        title: Text(title, style: LuciTextStyles.cardTitle(context)),
+        subtitle: Text(subtitle, style: LuciTextStyles.cardSubtitle(context)),
+        childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+        children: children.isEmpty
+            ? [
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    'No rules configured.',
+                    style: LuciTextStyles.cardSubtitle(context),
+                  ),
+                ),
+              ]
+            : children,
+      ),
+    );
+  }
+}
+
+class _FirewallForwardingRow extends StatelessWidget {
+  final OpenwrtFirewallForwarding forwarding;
+
+  const _FirewallForwardingRow(this.forwarding);
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          _NetworkBadge(
+            label: forwarding.source.toUpperCase(),
+            color: colors.primary,
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Icon(
+              Icons.arrow_forward_rounded,
+              size: 18,
+              color: colors.onSurfaceVariant,
+            ),
+          ),
+          _NetworkBadge(
+            label: forwarding.destination.toUpperCase(),
+            color: forwarding.enabled
+                ? const Color(0xFF20CF70)
+                : colors.onSurfaceVariant,
+          ),
+          const Spacer(),
+          Text(
+            forwarding.enabled ? 'Enabled' : 'Disabled',
+            style: LuciTextStyles.cardSubtitle(context),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FirewallRedirectRow extends StatelessWidget {
+  final OpenwrtPortForward forward;
+
+  const _FirewallRedirectRow(this.forward);
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      dense: true,
+      leading: Icon(
+        Icons.compare_arrows_rounded,
+        color: Theme.of(context).colorScheme.primary,
+      ),
+      title: Text(forward.name, style: LuciTextStyles.detailValue(context)),
+      subtitle: Text(
+        '${forward.source.toUpperCase()}:${forward.wanPort} to '
+        '${forward.destinationIp}:${forward.destinationPort} '
+        '(${forward.protocol.toUpperCase()})',
+        style: LuciTextStyles.cardSubtitle(context),
+      ),
+      trailing: _NetworkBadge(
+        label: forward.enabled ? 'On' : 'Off',
+        color: forward.enabled
+            ? const Color(0xFF20CF70)
+            : Theme.of(context).colorScheme.onSurfaceVariant,
+      ),
     );
   }
 }
@@ -2259,19 +2405,22 @@ class _FirewallZoneCard extends StatelessWidget {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  zone.name.toUpperCase(),
+                  'Zone: ${zone.name.toUpperCase()}',
                   style: LuciTextStyles.cardTitle(context),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
               if (zone.masquerading)
-                const _NetworkBadge(label: 'NAT', color: Color(0xFFF27C24)),
+                const _NetworkBadge(
+                  label: 'MASQUERADE (NAT)',
+                  color: Color(0xFF1688D4),
+                ),
             ],
           ),
           const SizedBox(height: 10),
           Text(
-            'Networks: ${zone.networks}',
+            'Covered Networks: ${zone.networks}',
             style: LuciTextStyles.cardSubtitle(
               context,
             ).copyWith(fontWeight: FontWeight.w800),
@@ -2279,31 +2428,68 @@ class _FirewallZoneCard extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
           ),
           const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+          Row(
             children: [
-              _NetworkBadge(
-                label: 'Input ${zone.input}',
-                color: _policyColor(context, zone.input),
-              ),
-              _NetworkBadge(
-                label: 'Output ${zone.output}',
-                color: _policyColor(context, zone.output),
-              ),
-              _NetworkBadge(
-                label: 'Forward ${zone.forward}',
-                color: _policyColor(context, zone.forward),
-              ),
-              if (zone.mtuFix)
-                _NetworkBadge(
-                  label: 'MTU Fix',
-                  color: colorScheme.onSurfaceVariant,
+              Expanded(
+                child: _FirewallPolicyValue(
+                  label: 'Input',
+                  value: zone.input,
+                  color: _policyColor(context, zone.input),
                 ),
+              ),
+              Expanded(
+                child: _FirewallPolicyValue(
+                  label: 'Output',
+                  value: zone.output,
+                  color: _policyColor(context, zone.output),
+                ),
+              ),
+              Expanded(
+                child: _FirewallPolicyValue(
+                  label: 'Forward',
+                  value: zone.forward,
+                  color: _policyColor(context, zone.forward),
+                ),
+              ),
             ],
           ),
+          if (zone.mtuFix) ...[
+            const SizedBox(height: 10),
+            _NetworkBadge(
+              label: 'MTU Fix',
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ],
         ],
       ),
+    );
+  }
+}
+
+class _FirewallPolicyValue extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+
+  const _FirewallPolicyValue({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Text(label, style: LuciTextStyles.cardSubtitle(context)),
+        const SizedBox(height: 3),
+        Text(
+          value,
+          style: LuciTextStyles.detailValue(
+            context,
+          ).copyWith(color: color, fontWeight: FontWeight.w900),
+        ),
+      ],
     );
   }
 }
