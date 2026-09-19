@@ -23,6 +23,9 @@ class _ParentalControlsScreenState extends ConsumerState<ParentalControlsScreen>
     with WidgetsBindingObserver {
   final _controller = ParentalControlsController.instance;
   bool _isLoading = true;
+  bool? _componentAvailable;
+  bool _isInstalling = false;
+  String? _installError;
 
   @override
   void initState() {
@@ -34,12 +37,53 @@ class _ParentalControlsScreenState extends ConsumerState<ParentalControlsScreen>
 
   Future<void> _initController() async {
     final appState = ref.read(appStateProvider);
-    await _controller.loadStore(appState);
-    _controller.startExpiryTimer(appState);
+    final available = await appState.hasParentalControlsSupport(
+      context: context,
+    );
+    if (available) {
+      await _controller.loadStore(appState);
+      _controller.startExpiryTimer(appState);
+    }
     if (mounted) {
       setState(() {
+        _componentAvailable = available;
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _installComponent() async {
+    if (_isInstalling) return;
+    setState(() {
+      _isInstalling = true;
+      _installError = null;
+    });
+    try {
+      final appState = ref.read(appStateProvider);
+      await appState.installOpenwallaSetupFeatures(
+        const ['scheduler'],
+        postInstallCheck:
+            '[ -x /usr/bin/openwalla-parental ] && /usr/bin/openwalla-parental profile-list >/dev/null',
+      );
+      if (!mounted) return;
+      final available = await appState.hasParentalControlsSupport(
+        context: context,
+      );
+      if (!available) {
+        throw StateError('The router did not report the component as ready.');
+      }
+      await _controller.loadStore(appState);
+      if (!mounted) return;
+      setState(() => _componentAvailable = true);
+      context.showToastSuccess('Parental Controls setup complete.');
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _installError = error.toString().replaceFirst('Bad state: ', '');
+      });
+      context.showToastError('Parental Controls setup failed.');
+    } finally {
+      if (mounted) setState(() => _isInstalling = false);
     }
   }
 
@@ -195,7 +239,9 @@ class _ParentalControlsScreenState extends ConsumerState<ParentalControlsScreen>
           IconButton(
             icon: const Icon(Icons.history_rounded),
             tooltip: 'Activity Log',
-            onPressed: () => _showActivityLog(context),
+            onPressed: _componentAvailable == true
+                ? () => _showActivityLog(context)
+                : null,
           ),
         ],
       ),
@@ -214,6 +260,13 @@ class _ParentalControlsScreenState extends ConsumerState<ParentalControlsScreen>
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
+                : _componentAvailable != true
+                ? _ParentalSetupPanel(
+                    installing: _isInstalling,
+                    error: _installError,
+                    onInstall: _installComponent,
+                    onRetry: _initController,
+                  )
                 : profiles.isEmpty
                 ? _EmptyState(onAdd: _openAddProfile)
                 : ListView.separated(
@@ -244,11 +297,13 @@ class _ParentalControlsScreenState extends ConsumerState<ParentalControlsScreen>
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _openAddProfile,
-        icon: const Icon(Icons.add_rounded),
-        label: const Text('Add Profile'),
-      ),
+      floatingActionButton: _componentAvailable == true
+          ? FloatingActionButton.extended(
+              onPressed: _openAddProfile,
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Add Profile'),
+            )
+          : null,
     );
   }
 
@@ -397,6 +452,107 @@ class _ParentalControlsScreenState extends ConsumerState<ParentalControlsScreen>
     final h = l.hour.toString().padLeft(2, '0');
     final m = l.minute.toString().padLeft(2, '0');
     return '${l.day}/${l.month} $h:$m';
+  }
+}
+
+class _ParentalSetupPanel extends StatelessWidget {
+  const _ParentalSetupPanel({
+    required this.installing,
+    required this.error,
+    required this.onInstall,
+    required this.onRetry,
+  });
+
+  final bool installing;
+  final String? error;
+  final VoidCallback onInstall;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 28, 20, 24),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: colors.surfaceContainer,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: colors.outlineVariant),
+          ),
+          child: Column(
+            children: [
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  color: colors.primary.withValues(alpha: 0.14),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.family_restroom_rounded,
+                  color: colors.primary,
+                  size: 32,
+                ),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                'Router Setup Required',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Install the router-side database and scheduler so profiles remain active when the app is closed or removed.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: colors.onSurfaceVariant, height: 1.4),
+              ),
+              if (error != null) ...[
+                const SizedBox(height: 16),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: colors.errorContainer,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    error!,
+                    style: TextStyle(color: colors.onErrorContainer),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 22),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: installing ? null : onInstall,
+                  icon: installing
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.download_rounded),
+                  label: Text(
+                    installing
+                        ? 'Installing on Router...'
+                        : 'Install Component',
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextButton.icon(
+                onPressed: installing ? null : onRetry,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Check Again'),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 }
 

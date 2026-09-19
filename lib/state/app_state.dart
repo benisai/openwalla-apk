@@ -2012,6 +2012,16 @@ class AppState extends ChangeNotifier {
     return vnstatInterfaces.isNotEmpty;
   }
 
+  Future<bool> hasParentalControlsSupport({BuildContext? context}) async {
+    if (_reviewerModeEnabled) return true;
+    return _routerCommandSucceeds(
+      '[ -x /usr/bin/openwalla-parental ] && '
+      '/usr/bin/openwalla-parental profile-list >/dev/null 2>&1 && '
+      'grep -q "openwalla-parental apply" /etc/crontabs/root 2>/dev/null',
+      context: context,
+    );
+  }
+
   Future<bool> hasNetworkPerformanceSupport({BuildContext? context}) async {
     if (_reviewerModeEnabled) return true;
     final hasInstalledScripts = await _routerCommandSucceeds(
