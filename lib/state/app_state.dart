@@ -1003,25 +1003,52 @@ class WireGuardClientSettings {
   );
 }
 
-class SystemStorageDetails {
-  final int userTotalBytes;
-  final int userFreeBytes;
-  final int tempTotalBytes;
-  final int tempFreeBytes;
+class SystemStorageMount {
+  final String device;
+  final String mountPath;
+  final int totalBytes;
+  final int freeBytes;
 
-  const SystemStorageDetails({
-    required this.userTotalBytes,
-    required this.userFreeBytes,
-    required this.tempTotalBytes,
-    required this.tempFreeBytes,
+  const SystemStorageMount({
+    required this.device,
+    required this.mountPath,
+    required this.totalBytes,
+    required this.freeBytes,
   });
 
-  static const empty = SystemStorageDetails(
-    userTotalBytes: 0,
-    userFreeBytes: 0,
-    tempTotalBytes: 0,
-    tempFreeBytes: 0,
-  );
+  int get usedBytes => (totalBytes - freeBytes).clamp(0, totalBytes).toInt();
+  double get usedFraction =>
+      totalBytes > 0 ? (usedBytes / totalBytes).clamp(0, 1) : 0;
+}
+
+class SystemStorageDetails {
+  final List<SystemStorageMount> mounts;
+
+  const SystemStorageDetails({required this.mounts});
+
+  static const empty = SystemStorageDetails(mounts: []);
+
+  SystemStorageMount? get userMount {
+    for (final mount in mounts) {
+      if (mount.mountPath == '/overlay') return mount;
+    }
+    for (final mount in mounts) {
+      if (mount.mountPath == '/') return mount;
+    }
+    return null;
+  }
+
+  SystemStorageMount? get tempMount {
+    for (final mount in mounts) {
+      if (mount.mountPath == '/tmp') return mount;
+    }
+    return null;
+  }
+
+  List<SystemStorageMount> get primaryMounts => [
+    if (userMount case final mount?) mount,
+    if (tempMount case final mount?) mount,
+  ];
 }
 
 class ProcessMemoryUsage {
@@ -3018,10 +3045,20 @@ class AppState extends ChangeNotifier {
   }) async {
     if (_reviewerModeEnabled) {
       return const SystemStorageDetails(
-        userTotalBytes: 56 * 1024 * 1024,
-        userFreeBytes: 56 * 1024 * 1024,
-        tempTotalBytes: 117 * 1024 * 1024,
-        tempFreeBytes: 116 * 1024 * 1024,
+        mounts: [
+          SystemStorageMount(
+            device: '/dev/ubi0_3',
+            mountPath: '/overlay',
+            totalBytes: 56 * 1024 * 1024,
+            freeBytes: 42 * 1024 * 1024,
+          ),
+          SystemStorageMount(
+            device: 'tmpfs',
+            mountPath: '/tmp',
+            totalBytes: 117 * 1024 * 1024,
+            freeBytes: 103 * 1024 * 1024,
+          ),
+        ],
       );
     }
 
@@ -3040,10 +3077,7 @@ class AppState extends ChangeNotifier {
         method: 'exec',
         params: {
           'command': '/bin/sh',
-          'params': [
-            '-c',
-            'df -kP /overlay /tmp / 2>/dev/null || df -kP 2>/dev/null',
-          ],
+          'params': ['-c', 'df -kP 2>/dev/null'],
         },
         context: context,
       );
@@ -3056,8 +3090,7 @@ class AppState extends ChangeNotifier {
   }
 
   SystemStorageDetails _parseSystemStorageDetails(String output) {
-    ({int total, int free})? user;
-    ({int total, int free})? temp;
+    final mounts = <SystemStorageMount>[];
 
     for (final line in output.split('\n')) {
       final trimmed = line.trim();
@@ -3069,21 +3102,17 @@ class AppState extends ChangeNotifier {
       final freeKb = int.tryParse(parts[3]);
       if (totalKb == null || freeKb == null) continue;
 
-      final mount = parts.last;
-      final values = (total: totalKb * 1024, free: freeKb * 1024);
-      if (mount == '/tmp') {
-        temp = values;
-      } else if (mount == '/overlay' || mount == '/') {
-        user ??= values;
-      }
+      mounts.add(
+        SystemStorageMount(
+          device: parts.first,
+          mountPath: parts.last,
+          totalBytes: totalKb * 1024,
+          freeBytes: freeKb * 1024,
+        ),
+      );
     }
 
-    return SystemStorageDetails(
-      userTotalBytes: user?.total ?? 0,
-      userFreeBytes: user?.free ?? 0,
-      tempTotalBytes: temp?.total ?? 0,
-      tempFreeBytes: temp?.free ?? 0,
-    );
+    return SystemStorageDetails(mounts: mounts);
   }
 
   Future<List<ProcessMemoryUsage>> fetchTopMemoryProcesses({

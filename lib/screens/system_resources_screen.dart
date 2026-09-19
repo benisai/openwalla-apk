@@ -221,39 +221,15 @@ class _SystemResourcesScreenState extends ConsumerState<SystemResourcesScreen> {
                             : 'Approaching table limit',
                         progress: connProgress,
                       ),
-                      _ResourceStatCard(
-                        width: itemWidth,
-                        icon: Icons.storage_rounded,
-                        color: const Color(0xFFFF424B),
-                        title: 'User Storage',
-                        value: _isLoadingStorage
-                            ? 'Loading'
-                            : _formatBytes(_storage.userFreeBytes),
-                        detail: _storage.userTotalBytes > 0
-                            ? 'Free of ${_formatBytes(_storage.userTotalBytes)}'
-                            : 'Free space',
-                        progress: _storage.userTotalBytes > 0
-                            ? _storage.userFreeBytes / _storage.userTotalBytes
-                            : 0,
-                      ),
-                      _ResourceStatCard(
-                        width: itemWidth,
-                        icon: Icons.developer_board_rounded,
-                        color: const Color(0xFF10B981),
-                        title: 'Temp Memory',
-                        value: _isLoadingStorage
-                            ? 'Loading'
-                            : _formatBytes(_storage.tempFreeBytes),
-                        detail: _storage.tempTotalBytes > 0
-                            ? 'Free of ${_formatBytes(_storage.tempTotalBytes)}'
-                            : 'Free space',
-                        progress: _storage.tempTotalBytes > 0
-                            ? _storage.tempFreeBytes / _storage.tempTotalBytes
-                            : 0,
-                      ),
                     ],
                   );
                 },
+              ),
+              const SizedBox(height: 14),
+              _StorageOverviewCard(
+                storage: _storage,
+                isLoading: _isLoadingStorage,
+                formatBytes: _formatBytes,
               ),
               const SizedBox(height: 14),
               _SystemInfoPanel(
@@ -593,6 +569,164 @@ class _ResourceStatCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _StorageOverviewCard extends StatelessWidget {
+  const _StorageOverviewCard({
+    required this.storage,
+    required this.isLoading,
+    required this.formatBytes,
+  });
+
+  final SystemStorageDetails storage;
+  final bool isLoading;
+  final String Function(int bytes) formatBytes;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final mounts = storage.primaryMounts;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: colorScheme.primary.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.sd_storage_rounded,
+                    color: colorScheme.primary,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Storage & Overlay',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: colorScheme.onSurface,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0,
+                    ),
+                  ),
+                ),
+                if (!isLoading)
+                  Text(
+                    '${storage.mounts.length} ${storage.mounts.length == 1 ? 'mount' : 'mounts'}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            if (isLoading)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(vertical: 18),
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              )
+            else if (mounts.isEmpty)
+              Text(
+                'No storage information available.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w700,
+                ),
+              )
+            else
+              for (var index = 0; index < mounts.length; index++) ...[
+                if (index > 0) const SizedBox(height: 18),
+                _StorageUsageRow(
+                  mount: mounts[index],
+                  color: index == 0
+                      ? colorScheme.primary
+                      : const Color(0xFF18AEEA),
+                  formatBytes: formatBytes,
+                ),
+              ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StorageUsageRow extends StatelessWidget {
+  const _StorageUsageRow({
+    required this.mount,
+    required this.color,
+    required this.formatBytes,
+  });
+
+  final SystemStorageMount mount;
+  final Color color;
+  final String Function(int bytes) formatBytes;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final percent = mount.usedFraction * 100;
+    final device = mount.device.trim();
+    final label = device.isEmpty || device == mount.mountPath
+        ? mount.mountPath
+        : '${mount.mountPath} ($device)';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              '${formatBytes(mount.usedBytes)} / ${formatBytes(mount.totalBytes)} (${percent.round()}%)',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onSurface,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: mount.usedFraction,
+            minHeight: 8,
+            backgroundColor: colorScheme.surfaceContainerHighest,
+            valueColor: AlwaysStoppedAnimation<Color>(color),
+          ),
+        ),
+      ],
     );
   }
 }
