@@ -584,8 +584,8 @@ class _RouterDashboardSettingsScreenState
 
   Widget _buildDashboardCardsSection() {
     return _buildStaticSection(
-      title: 'Dashboard Cards',
-      subtitle: 'Choose which cards appear on the main dashboard',
+      title: 'Dashboard Settings',
+      subtitle: 'Choose which cards and panels appear on the main dashboard',
       icon: Icons.dashboard_customize_rounded,
       children: [
         Container(

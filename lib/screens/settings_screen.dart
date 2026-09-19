@@ -125,12 +125,12 @@ class SettingsScreen extends ConsumerWidget {
                   _buildSettingsCard(
                     context: context,
                     icon: Icons.dashboard_customize,
-                    title: 'Dashboard Cards',
-                    subtitle: 'Choose which cards appear on the dashboard',
+                    title: 'Dashboard Settings',
+                    subtitle: 'Choose which cards and panels appear',
                     onTap: () => _openSettingsPage(
                       context,
                       const RouterDashboardSettingsScreen(
-                        title: 'Dashboard Cards',
+                        title: 'Dashboard Settings',
                         showThroughput: false,
                         showShortcutPanel: false,
                         showWirelessInterfaces: false,
