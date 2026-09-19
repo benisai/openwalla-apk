@@ -2,10 +2,13 @@
 // Copyright (C) 2025-2026 cogwheel0
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:luci_mobile/main.dart';
 import 'package:luci_mobile/widgets/luci_toast.dart';
+import 'package:luci_mobile/widgets/ssh_console_sheet.dart';
 import '../models/parental_profile.dart';
 import '../controllers/parental_controls_controller.dart';
 import '../widgets/add_edit_profile_dialog.dart';
@@ -70,6 +73,30 @@ class _ParentalControlsScreenState extends ConsumerState<ParentalControlsScreen>
       _isInstalling = true;
       _installError = null;
     });
+    final console = SshConsoleController(
+      initialOutput:
+          'Connecting to router over SSH...\nInstalling Parental Controls...\n\nConsole output will appear here as the install runs.',
+      running: true,
+    );
+    unawaited(
+      showSshConsoleSheet(
+        context: context,
+        controller: console,
+        title: 'Install Parental Controls',
+      ).whenComplete(console.dispose),
+    );
+    final outputBuffer = StringBuffer();
+
+    void showOutput([String? status]) {
+      final output = outputBuffer.toString().trimRight();
+      console.setOutput(
+        [
+          if (output.isNotEmpty) output,
+          if (status != null && status.isNotEmpty) status,
+        ].join('\n\n'),
+      );
+    }
+
     try {
       final appState = ref.read(appStateProvider);
       await appState.installOpenwallaSetupFeatures(
@@ -79,8 +106,13 @@ class _ParentalControlsScreenState extends ConsumerState<ParentalControlsScreen>
             '/usr/bin/openwalla-parental profile-list >/dev/null 2>&1 && '
             'grep -q "openwalla-parental apply" /etc/crontabs/root 2>/dev/null && '
             'echo OK',
+        onOutput: (chunk) {
+          outputBuffer.write(chunk);
+          showOutput();
+        },
       );
       if (!mounted) return;
+      showOutput('Reconnecting to the router...');
       final authenticated = await appState
           .refreshRouterAuthenticationAfterSetup(context: context);
       if (!mounted) return;
@@ -102,14 +134,17 @@ class _ParentalControlsScreenState extends ConsumerState<ParentalControlsScreen>
         _componentAvailable = true;
         _installError = null;
       });
+      showOutput('Parental Controls setup complete.');
       context.showToastSuccess('Parental Controls setup complete.');
     } catch (error) {
+      showOutput('Install failed.\n\n$error');
       if (!mounted) return;
       setState(() {
         _installError = error.toString().replaceFirst('Bad state: ', '');
       });
       context.showToastError('Parental Controls setup failed.');
     } finally {
+      console.complete();
       if (mounted) setState(() => _isInstalling = false);
     }
   }
@@ -532,7 +567,7 @@ class _ParentalSetupPanel extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                'Install the router-side database and scheduler so profiles remain active when the app is closed or removed.',
+                'Install the router-side database and scheduler.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: colors.onSurfaceVariant, height: 1.4),
               ),
