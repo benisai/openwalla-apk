@@ -1408,10 +1408,6 @@ class AppState extends ChangeNotifier {
 
   Timer? _throughputTimer;
   Timer? _systemInfoTimer;
-  int? _lastCpuTotalTicks;
-  int? _lastCpuIdleTicks;
-  double? _lastCpuUsagePercent;
-  int _lastCpuCoreCount = 1;
 
   // Add rebooting state
   bool _isRebooting = false;
@@ -2193,13 +2189,6 @@ class AppState extends ChangeNotifier {
         0.0;
   }
 
-  void _resetCpuStatSample() {
-    _lastCpuTotalTicks = null;
-    _lastCpuIdleTicks = null;
-    _lastCpuUsagePercent = null;
-    _lastCpuCoreCount = 1;
-  }
-
   Future<void> loadRouters() async {
     await _routerService?.loadRouters();
     notifyListeners();
@@ -2244,7 +2233,6 @@ class AppState extends ChangeNotifier {
 
     // Clear throughput data when switching routers to prevent mixing data from different routers
     _cancelThroughputTimer();
-    _resetCpuStatSample();
     clearStatisticsPreload();
 
     // Determine a safe context before any awaits
@@ -2292,7 +2280,6 @@ class AppState extends ChangeNotifier {
 
     // Clear throughput data when logging in to prevent mixing data from different sessions
     _cancelThroughputTimer();
-    _resetCpuStatSample();
 
     notifyListeners();
 
@@ -2582,7 +2569,6 @@ class AppState extends ChangeNotifier {
       );
 
       final conntrackFuture = _fetchConntrackData(ip, useHttps);
-      final cpuUsagePercentFuture = _fetchCpuUsagePercent(ip, useHttps);
       final pingSamplesFuture = fetchPingMonitorSamples();
       final selectedFlowProvider =
           _dashboardPreferences.flowMode == DashboardFlowMode.simple
@@ -2685,7 +2671,6 @@ class AppState extends ChangeNotifier {
         wirelessFuture,
         uciWirelessFuture,
         conntrackFuture,
-        cpuUsagePercentFuture,
         pingSamplesFuture,
         flowSummaryFuture,
         notificationCountFuture,
@@ -2695,12 +2680,11 @@ class AppState extends ChangeNotifier {
       final wirelessRaw = optionalResults[0];
       final uciWirelessRaw = optionalResults[1];
       final conntrackData = optionalResults[2] as Map<String, int>;
-      final cpuUsagePercent = optionalResults[3] as double?;
-      final pingSamples = optionalResults[4] as List<PingMonitorSample>;
-      final flowSummary = optionalResults[5] as OpenwallaFlowSummary;
-      final notificationCount = optionalResults[6] as int;
-      final rulesCount = optionalResults[7] as int;
-      final associatedMacs = optionalResults[8] as Map<String, Set<String>>;
+      final pingSamples = optionalResults[3] as List<PingMonitorSample>;
+      final flowSummary = optionalResults[4] as OpenwallaFlowSummary;
+      final notificationCount = optionalResults[5] as int;
+      final rulesCount = optionalResults[6] as int;
+      final associatedMacs = optionalResults[7] as Map<String, Set<String>>;
 
       Map<String, dynamic>? wirelessData;
       if (wirelessRaw != null) {
@@ -2801,25 +2785,13 @@ class AppState extends ChangeNotifier {
         specificInterface: specificInterface,
       );
 
-      final sysInfoWithCpu = sysInfoData is Map
+      final normalizedSysInfo = sysInfoData is Map
           ? Map<String, dynamic>.from(sysInfoData)
           : <String, dynamic>{};
-      sysInfoWithCpu['cpuCoreCount'] = _lastCpuCoreCount;
-      final previousSysInfo = _dashboardData?['sysInfo'];
-      final previousCpuUsage = previousSysInfo is Map
-          ? previousSysInfo['cpuUsagePercent']
-          : null;
-      final stableCpuUsage =
-          cpuUsagePercent ??
-          _lastCpuUsagePercent ??
-          (previousCpuUsage is num ? previousCpuUsage.toDouble() : null);
-      if (stableCpuUsage != null) {
-        sysInfoWithCpu['cpuUsagePercent'] = stableCpuUsage;
-      }
 
       _dashboardData = {
         'boardInfo': boardInfoData,
-        'sysInfo': sysInfoWithCpu,
+        'sysInfo': normalizedSysInfo,
         'networkDevices': networkData,
         'interfaceDump': interfaceDump,
         'wireless': wirelessData ?? <String, dynamic>{},
@@ -2961,174 +2933,6 @@ class AppState extends ChangeNotifier {
 
   int? _parseProcInt(String value) {
     return int.tryParse(value.trim().split(RegExp(r'\s+')).firstOrNull ?? '');
-  }
-
-  ({int total, int idle, int cores})? _parseCpuStat(String output) {
-    var cores = 0;
-    for (final candidate in output.split('\n')) {
-      if (RegExp(r'^cpu\d+\s+').hasMatch(candidate)) cores += 1;
-    }
-
-    final line = output
-        .split('\n')
-        .firstWhere((line) => line.startsWith('cpu '), orElse: () => '');
-    if (line.isEmpty) return null;
-
-    final values = line
-        .trim()
-        .split(RegExp(r'\s+'))
-        .skip(1)
-        .map((part) => int.tryParse(part) ?? 0)
-        .toList();
-    if (values.length < 4) return null;
-
-    final idle = values[3] + (values.length > 4 ? values[4] : 0);
-    final total = values.fold<int>(0, (sum, value) => sum + value);
-    if (total <= 0) return null;
-    return (total: total, idle: idle, cores: cores > 0 ? cores : 1);
-  }
-
-  double? _parseTopCpuUsage(String output) {
-    final line = output
-        .split('\n')
-        .firstWhere(
-          (line) => line.trimLeft().startsWith('CPU:'),
-          orElse: () => '',
-        );
-    if (line.isEmpty) return null;
-
-    final idleMatch = RegExp(r'(\d+(?:\.\d+)?)%\s+idle').firstMatch(line);
-    if (idleMatch != null) {
-      final idle = double.tryParse(idleMatch.group(1) ?? '');
-      if (idle != null) return (100 - idle).clamp(0, 100).toDouble();
-    }
-
-    var used = 0.0;
-    for (final label in const ['usr', 'sys', 'nic', 'io', 'irq', 'sirq']) {
-      final match = RegExp(r'(\d+(?:\.\d+)?)%\s+' + label).firstMatch(line);
-      used += double.tryParse(match?.group(1) ?? '') ?? 0;
-    }
-    return used > 0 ? used.clamp(0, 100).toDouble() : null;
-  }
-
-  Future<double?> _fetchTopCpuUsagePercent(String ip, bool useHttps) async {
-    if (_authService?.sysauth == null || _apiService == null) {
-      return _lastCpuUsagePercent;
-    }
-
-    try {
-      final result = await _apiService!.systemExec(
-        ip,
-        _authService!.sysauth!,
-        useHttps,
-        command: 'top -bn1 2>/dev/null | head -n 3',
-      );
-      final usage = _parseTopCpuUsage(_commandOutput(result));
-      if (usage != null) _lastCpuUsagePercent = usage;
-      return usage ?? _lastCpuUsagePercent;
-    } catch (e, stack) {
-      Logger.warning('Optional top CPU read failed: $e');
-      Logger.debug('Optional top CPU read stack: $stack');
-      return _lastCpuUsagePercent;
-    }
-  }
-
-  Future<String?> _readProcStatViaFileExec(String ip, bool useHttps) async {
-    if (_authService?.sysauth == null || _apiService == null) return null;
-    try {
-      final result = await _apiService!.call(
-        ip,
-        _authService!.sysauth!,
-        useHttps,
-        object: 'file',
-        method: 'exec',
-        params: {
-          'command': '/bin/cat',
-          'params': ['/proc/stat'],
-        },
-      );
-      final output = _commandOutput(result);
-      return output.trim().isEmpty ? null : output;
-    } catch (e, stack) {
-      Logger.debug('Optional /proc/stat file.exec read failed: $e');
-      Logger.debug('Optional /proc/stat file.exec stack: $stack');
-      return null;
-    }
-  }
-
-  Future<double?> _fetchCpuUsagePercent(String ip, bool useHttps) async {
-    if (_authService?.sysauth == null || _apiService == null) {
-      return _lastCpuUsagePercent;
-    }
-
-    final topUsage = await _fetchTopCpuUsagePercent(ip, useHttps);
-    if (topUsage != null) {
-      try {
-        final result = await _apiService!.call(
-          ip,
-          _authService!.sysauth!,
-          useHttps,
-          object: 'file',
-          method: 'read',
-          params: {'path': '/proc/stat'},
-        );
-        final stat =
-            _parseCpuStat(_commandOutput(result)) ??
-            _parseCpuStat(await _readProcStatViaFileExec(ip, useHttps) ?? '');
-        if (stat != null) {
-          _lastCpuTotalTicks = stat.total;
-          _lastCpuIdleTicks = stat.idle;
-          _lastCpuCoreCount = stat.cores;
-        }
-      } catch (e, stack) {
-        Logger.debug('Optional /proc/stat core count read failed: $e');
-        Logger.debug('Optional /proc/stat core count stack: $stack');
-      }
-      return topUsage;
-    }
-
-    try {
-      final result = await _apiService!.call(
-        ip,
-        _authService!.sysauth!,
-        useHttps,
-        object: 'file',
-        method: 'read',
-        params: {'path': '/proc/stat'},
-      );
-      final stat =
-          _parseCpuStat(_commandOutput(result)) ??
-          _parseCpuStat(await _readProcStatViaFileExec(ip, useHttps) ?? '');
-      if (stat == null) return _fetchTopCpuUsagePercent(ip, useHttps);
-
-      final previousTotal = _lastCpuTotalTicks;
-      final previousIdle = _lastCpuIdleTicks;
-      _lastCpuTotalTicks = stat.total;
-      _lastCpuIdleTicks = stat.idle;
-      _lastCpuCoreCount = stat.cores;
-
-      if (previousTotal == null || previousIdle == null) {
-        final sinceBootUsage = ((stat.total - stat.idle) / stat.total * 100)
-            .clamp(0, 100)
-            .toDouble();
-        _lastCpuUsagePercent = sinceBootUsage;
-        return sinceBootUsage;
-      }
-
-      final totalDelta = stat.total - previousTotal;
-      final idleDelta = stat.idle - previousIdle;
-      if (totalDelta <= 0) return _lastCpuUsagePercent;
-
-      final usage = ((totalDelta - idleDelta) / totalDelta * 100)
-          .clamp(0, 100)
-          .toDouble();
-      _lastCpuUsagePercent = usage;
-      return usage;
-    } catch (e, stack) {
-      Logger.warning('Optional /proc/stat CPU read failed: $e');
-      Logger.debug('Optional /proc/stat CPU read stack: $stack');
-      return _fetchTopCpuUsagePercent(ip, useHttps);
-    }
   }
 
   int _countRouterDevices(

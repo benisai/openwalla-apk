@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:luci_mobile/state/app_state.dart';
 import 'package:luci_mobile/main.dart';
+import 'package:luci_mobile/models/system_resource_metrics.dart';
 import 'package:luci_mobile/widgets/luci_app_bar.dart';
 import 'package:luci_mobile/widgets/luci_animation_system.dart';
 import 'package:luci_mobile/models/dashboard_preferences.dart';
@@ -120,35 +121,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
         ? coreCountValue.toDouble()
         : 1.0;
     return ((value / 65536) / coreCount * 100).clamp(0, 100).toDouble();
-  }
-
-  double _cpuUsagePercent(Map<String, dynamic>? sysInfo) {
-    final sampledCpu = sysInfo?['cpuUsagePercent'];
-    if (sampledCpu is num) return sampledCpu.clamp(0, 100).toDouble();
-    return 0;
-  }
-
-  int _systemStatInt(dynamic value) {
-    if (value is int) return value;
-    if (value is num) return value.round();
-    return int.tryParse(value?.toString() ?? '') ?? 0;
-  }
-
-  double _legacyMemoryPercent(Map<String, dynamic>? sysInfo) {
-    final memory = sysInfo?['memory'];
-    if (memory is! Map) return 0;
-
-    final totalMem = _systemStatInt(memory['total']);
-    final freeMem = _systemStatInt(memory['free']);
-    final bufferedMem = _systemStatInt(memory['buffered']);
-    final cachedMem = _systemStatInt(memory['cached']);
-    final usedMem = (totalMem - freeMem - bufferedMem - cachedMem)
-        .clamp(0, totalMem)
-        .toDouble();
-
-    return totalMem > 0
-        ? (usedMem / totalMem * 100).clamp(0, 100).toDouble()
-        : 0.0;
   }
 
   Widget _buildOpenwallaCard({
@@ -1142,9 +1114,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
 
   Widget _buildSystemVitalsCard(AppState appState) {
     final sysInfo = appState.dashboardData?['sysInfo'] as Map<String, dynamic>?;
+    final boardInfo =
+        appState.dashboardData?['boardInfo'] as Map<String, dynamic>?;
+    final metrics = SystemResourceMetrics.fromRouterData(
+      sysInfo,
+      boardInfo: boardInfo,
+    );
 
-    final cpuPercent = _cpuUsagePercent(sysInfo);
-    final memoryPercent = _legacyMemoryPercent(sysInfo);
+    final cpuPercent = metrics.cpuUsagePercent;
+    final memoryPercent = metrics.memoryUsagePercent;
     final loadPercent = _loadAveragePercent(sysInfo, 2);
 
     return _buildOpenwallaCard(
