@@ -109,6 +109,125 @@ class _SchedulerScreenState extends ConsumerState<SchedulerScreen> {
     }
   }
 
+  Future<void> _showActivityLog() async {
+    var activity = await ref
+        .read(appStateProvider)
+        .fetchScheduleActivity(context: context);
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          return FractionallySizedBox(
+            heightFactor: 0.72,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 12, 8, 10),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.history_rounded,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Activity Log',
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: activity.isEmpty
+                            ? null
+                            : () async {
+                                await ref
+                                    .read(appStateProvider)
+                                    .clearScheduleActivity(context: context);
+                                if (sheetContext.mounted) {
+                                  setSheetState(() => activity = const []);
+                                }
+                              },
+                        child: const Text('Clear'),
+                      ),
+                      IconButton(
+                        tooltip: 'Close',
+                        onPressed: () => Navigator.of(sheetContext).pop(),
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: activity.isEmpty
+                      ? Center(
+                          child: Text(
+                            'No profile activity yet.',
+                            style: TextStyle(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.all(16),
+                          itemCount: activity.length,
+                          separatorBuilder: (_, _) => const Divider(height: 20),
+                          itemBuilder: (context, index) {
+                            final entry = activity[index];
+                            final local = entry.timestamp.toLocal();
+                            final minute = local.minute.toString().padLeft(
+                              2,
+                              '0',
+                            );
+                            return ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: Icon(
+                                _activityIcon(entry.action),
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                              title: Text(
+                                '${entry.profileName}: ${entry.action}',
+                              ),
+                              subtitle: Text(
+                                '${local.month}/${local.day}/${local.year} '
+                                '${local.hour}:$minute'
+                                '${entry.detail.isEmpty ? '' : ' · ${entry.detail}'}',
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  IconData _activityIcon(String action) {
+    final normalized = action.toLowerCase();
+    if (normalized.contains('created')) return Icons.person_add_alt_1_rounded;
+    if (normalized.contains('deleted')) return Icons.delete_outline_rounded;
+    if (normalized.contains('paused')) {
+      return Icons.pause_circle_outline_rounded;
+    }
+    if (normalized.contains('resumed')) {
+      return Icons.play_circle_outline_rounded;
+    }
+    return Icons.edit_rounded;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -117,8 +236,8 @@ class _SchedulerScreenState extends ConsumerState<SchedulerScreen> {
         showBack: true,
         actions: [
           IconButton(
-            tooltip: 'Refresh profiles',
-            onPressed: _isLoading ? null : _load,
+            tooltip: 'Activity log',
+            onPressed: _isLoading ? null : _showActivityLog,
             icon: const Icon(Icons.history_rounded),
           ),
         ],
@@ -509,198 +628,240 @@ class _ScheduleEditorSheetState extends ConsumerState<_ScheduleEditorSheet> {
                 a.hostname.toLowerCase().compareTo(b.hostname.toLowerCase()),
           );
 
-    return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          18,
-          0,
-          18,
-          MediaQuery.of(context).viewInsets.bottom + 18,
-        ),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      widget.schedule == null ? 'New Profile' : 'Edit Profile',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w900,
+    return FractionallySizedBox(
+      heightFactor: 0.92,
+      child: SafeArea(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            18,
+            0,
+            18,
+            MediaQuery.of(context).viewInsets.bottom + 18,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      widget.schedule == null
+                          ? Icons.person_add_alt_1_rounded
+                          : Icons.manage_accounts_rounded,
+                      color: colorScheme.primary,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        widget.schedule == null
+                            ? 'New Profile'
+                            : 'Edit Profile',
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w900,
+                        ),
                       ),
                     ),
-                  ),
-                  IconButton(
-                    tooltip: 'Close',
-                    onPressed: _isSaving
-                        ? null
-                        : () => Navigator.of(context).pop(false),
-                    icon: const Icon(Icons.close_rounded),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              TextField(
-                controller: _nameController,
-                enabled: !_isSaving,
-                decoration: const InputDecoration(
-                  labelText: 'Profile Name',
-                  prefixIcon: Icon(Icons.badge_outlined),
+                    IconButton(
+                      tooltip: 'Close',
+                      onPressed: _isSaving
+                          ? null
+                          : () => Navigator.of(context).pop(false),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _startController,
-                      enabled: !_isSaving,
-                      decoration: const InputDecoration(
-                        labelText: 'Start',
-                        hintText: '21:00',
-                        prefixIcon: Icon(Icons.schedule_rounded),
-                      ),
+                const Divider(height: 20),
+                Container(
+                  padding: const EdgeInsets.fromLTRB(14, 8, 6, 8),
+                  decoration: BoxDecoration(
+                    color: colorScheme.primary.withValues(alpha: 0.07),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: colorScheme.primary.withValues(alpha: 0.45),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextField(
-                      controller: _endController,
-                      enabled: !_isSaving,
-                      decoration: const InputDecoration(
-                        labelText: 'End',
-                        hintText: '07:00',
-                        prefixIcon: Icon(Icons.alarm_rounded),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Profile Guardrails Active'),
-                subtitle: const Text(
-                  'The block schedule is enforced for assigned devices.',
-                ),
-                value: _enabled,
-                onChanged: _isSaving
-                    ? null
-                    : (value) => setState(() => _enabled = value),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'Assigned Devices',
-                style: theme.textTheme.titleSmall?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _manualMacController,
-                      enabled: !_isSaving,
-                      textCapitalization: TextCapitalization.characters,
-                      decoration: const InputDecoration(
-                        labelText: 'Manual MAC Address',
-                        prefixIcon: Icon(Icons.devices_other_rounded),
-                      ),
-                      onSubmitted: (_) => _addManualMac(),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  IconButton.filled(
-                    tooltip: 'Add MAC address',
-                    onPressed: _isSaving ? null : _addManualMac,
-                    icon: const Icon(Icons.add_rounded),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              if (clients.isEmpty)
-                Text(
-                  'No devices found yet.',
-                  style: TextStyle(color: colorScheme.onSurfaceVariant),
-                )
-              else
-                ...clients.map((client) {
-                  final mac = _normalizeMac(client.macAddress);
-                  final selected = _selectedMacs.contains(mac);
-                  return CheckboxListTile(
+                  child: SwitchListTile.adaptive(
                     contentPadding: EdgeInsets.zero,
-                    title: Text(client.hostname),
-                    subtitle: Text(mac),
-                    value: selected,
+                    secondary: Icon(
+                      Icons.shield_outlined,
+                      color: colorScheme.primary,
+                    ),
+                    title: const Text('Profile Guardrails Active'),
+                    subtitle: const Text(
+                      'The block schedule is enforced for assigned devices.',
+                    ),
+                    value: _enabled,
                     onChanged: _isSaving
                         ? null
-                        : (value) {
-                            setState(() {
-                              if (value ?? false) {
-                                _selectedMacs.add(mac);
-                              } else {
-                                _selectedMacs.remove(mac);
-                              }
-                            });
-                          },
-                  );
-                }),
-              ..._selectedMacs
-                  .where(
-                    (mac) => !clients.any(
-                      (client) => _normalizeMac(client.macAddress) == mac,
-                    ),
-                  )
-                  .map(
-                    (mac) => CheckboxListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Manually assigned device'),
-                      subtitle: Text(mac),
-                      value: true,
-                      onChanged: _isSaving
-                          ? null
-                          : (_) => setState(() => _selectedMacs.remove(mac)),
-                    ),
+                        : (value) => setState(() => _enabled = value),
                   ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  if (widget.schedule != null) ...[
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _nameController,
+                  enabled: !_isSaving,
+                  decoration: const InputDecoration(
+                    labelText: 'Profile Name',
+                    prefixIcon: Icon(Icons.badge_outlined),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  'Block Schedule',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Set the recurring time when assigned devices are blocked.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
                     Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _isSaving ? null : _delete,
-                        icon: const Icon(Icons.delete_outline_rounded),
-                        label: const Text('Delete'),
+                      child: TextField(
+                        controller: _startController,
+                        enabled: !_isSaving,
+                        decoration: const InputDecoration(
+                          labelText: 'Start',
+                          hintText: '21:00',
+                          prefixIcon: Icon(Icons.schedule_rounded),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextField(
+                        controller: _endController,
+                        enabled: !_isSaving,
+                        decoration: const InputDecoration(
+                          labelText: 'End',
+                          hintText: '07:00',
+                          prefixIcon: Icon(Icons.alarm_rounded),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  'Assigned Devices',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _manualMacController,
+                        enabled: !_isSaving,
+                        textCapitalization: TextCapitalization.characters,
+                        decoration: const InputDecoration(
+                          labelText: 'Manual MAC Address',
+                          prefixIcon: Icon(Icons.devices_other_rounded),
+                        ),
+                        onSubmitted: (_) => _addManualMac(),
                       ),
                     ),
                     const SizedBox(width: 10),
+                    IconButton.filled(
+                      tooltip: 'Add MAC address',
+                      onPressed: _isSaving ? null : _addManualMac,
+                      icon: const Icon(Icons.add_rounded),
+                    ),
                   ],
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: _isSaving ? null : _save,
-                      icon: _isSaving
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.save_rounded),
-                      label: Text(
-                        _isSaving
-                            ? 'Saving'
-                            : widget.schedule == null
-                            ? 'Create Profile'
-                            : 'Save Profile',
+                ),
+                const SizedBox(height: 8),
+                if (clients.isEmpty)
+                  Text(
+                    'No devices found yet.',
+                    style: TextStyle(color: colorScheme.onSurfaceVariant),
+                  )
+                else
+                  ...clients.map((client) {
+                    final mac = _normalizeMac(client.macAddress);
+                    final selected = _selectedMacs.contains(mac);
+                    return CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(client.hostname),
+                      subtitle: Text(mac),
+                      value: selected,
+                      onChanged: _isSaving
+                          ? null
+                          : (value) {
+                              setState(() {
+                                if (value ?? false) {
+                                  _selectedMacs.add(mac);
+                                } else {
+                                  _selectedMacs.remove(mac);
+                                }
+                              });
+                            },
+                    );
+                  }),
+                ..._selectedMacs
+                    .where(
+                      (mac) => !clients.any(
+                        (client) => _normalizeMac(client.macAddress) == mac,
+                      ),
+                    )
+                    .map(
+                      (mac) => CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Manually assigned device'),
+                        subtitle: Text(mac),
+                        value: true,
+                        onChanged: _isSaving
+                            ? null
+                            : (_) => setState(() => _selectedMacs.remove(mac)),
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ],
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    if (widget.schedule != null) ...[
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _isSaving ? null : _delete,
+                          icon: const Icon(Icons.delete_outline_rounded),
+                          label: const Text('Delete'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                    ],
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: _isSaving ? null : _save,
+                        icon: _isSaving
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.save_rounded),
+                        label: Text(
+                          _isSaving
+                              ? 'Saving'
+                              : widget.schedule == null
+                              ? 'Create Profile'
+                              : 'Save Profile',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),

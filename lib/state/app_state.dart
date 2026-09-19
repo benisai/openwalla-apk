@@ -941,6 +941,20 @@ class OpenwallaDeviceSchedule {
   }
 }
 
+class OpenwallaScheduleActivity {
+  final String profileName;
+  final String action;
+  final String detail;
+  final DateTime timestamp;
+
+  const OpenwallaScheduleActivity({
+    required this.profileName,
+    required this.action,
+    required this.detail,
+    required this.timestamp,
+  });
+}
+
 class OpenwallaActiveSchedule {
   final String name;
   final String endTime;
@@ -9485,6 +9499,44 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       );
     }
     return schedules;
+  }
+
+  Future<List<OpenwallaScheduleActivity>> fetchScheduleActivity({
+    BuildContext? context,
+  }) async {
+    if (_reviewerModeEnabled) {
+      return [
+        OpenwallaScheduleActivity(
+          profileName: 'Kids',
+          action: 'Profile Created',
+          detail: 'Block schedule 21:00-07:00',
+          timestamp: DateTime.now(),
+        ),
+      ];
+    }
+    final output = await _runOpenwallaScheduler([
+      'activity-list',
+    ], context: context);
+    return output
+        .split('\n')
+        .map((line) {
+          final parts = line.trim().split('|');
+          if (parts.length < 4) return null;
+          final seconds = int.tryParse(parts[3].trim()) ?? 0;
+          return OpenwallaScheduleActivity(
+            profileName: parts[0].trim(),
+            action: parts[1].trim(),
+            detail: parts[2].trim(),
+            timestamp: DateTime.fromMillisecondsSinceEpoch(seconds * 1000),
+          );
+        })
+        .whereType<OpenwallaScheduleActivity>()
+        .toList();
+  }
+
+  Future<void> clearScheduleActivity({BuildContext? context}) async {
+    if (_reviewerModeEnabled) return;
+    await _runOpenwallaScheduler(['activity-clear'], context: context);
   }
 
   Future<OpenwallaActiveSchedule?> fetchActiveScheduleForMac(

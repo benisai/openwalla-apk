@@ -111,9 +111,28 @@ init_db() {
 	sql_exec "CREATE TABLE IF NOT EXISTS schedule_members (group_id INTEGER NOT NULL, mac TEXT NOT NULL, PRIMARY KEY(group_id, mac));"
 	sql_exec "CREATE TABLE IF NOT EXISTS schedules (id INTEGER PRIMARY KEY AUTOINCREMENT, group_id INTEGER NOT NULL, start_time TEXT NOT NULL DEFAULT '21:00', end_time TEXT NOT NULL DEFAULT '07:00', enabled INTEGER NOT NULL DEFAULT 1);"
 	sql_exec "CREATE TABLE IF NOT EXISTS schedule_pauses (group_id INTEGER PRIMARY KEY, pause_until INTEGER NOT NULL DEFAULT 0);"
+	sql_exec "CREATE TABLE IF NOT EXISTS schedule_activity (id INTEGER PRIMARY KEY AUTOINCREMENT, group_name TEXT NOT NULL DEFAULT '', action TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL);"
 	sql_exec "CREATE INDEX IF NOT EXISTS idx_schedule_members_mac ON schedule_members(mac);"
 	sql_exec "CREATE INDEX IF NOT EXISTS idx_schedules_group ON schedules(group_id);"
 	sql_exec "CREATE INDEX IF NOT EXISTS idx_schedule_pauses_until ON schedule_pauses(pause_until);"
+	sql_exec "CREATE INDEX IF NOT EXISTS idx_schedule_activity_created ON schedule_activity(created_at DESC);"
+}
+
+log_activity() {
+	name="$(sql_escape "$1")"
+	action="$(sql_escape "$2")"
+	detail="$(sql_escape "$3")"
+	sql_exec "INSERT INTO schedule_activity (group_name, action, detail, created_at) VALUES ('$name', '$action', '$detail', $(date +%s)); DELETE FROM schedule_activity WHERE id NOT IN (SELECT id FROM schedule_activity ORDER BY created_at DESC, id DESC LIMIT 100);" >/dev/null 2>&1 || true
+}
+
+list_activity() {
+	init_db || return 1
+	sql_exec "SELECT group_name, action, detail, created_at FROM schedule_activity ORDER BY created_at DESC, id DESC LIMIT 100;"
+}
+
+clear_activity() {
+	init_db || return 1
+	sql_exec "DELETE FROM schedule_activity;"
 }
 
 list_schedules() {
@@ -144,6 +163,7 @@ active_for_mac() {
 save_schedule() {
 	init_db || return 1
 	id="$1"
+	is_new=0
 	name="$2"
 	start_time="$3"
 	end_time="$4"
@@ -160,6 +180,7 @@ save_schedule() {
 	esc_name="$(sql_escape "$name")"
 
 	if [ "$id" = "new" ] || [ -z "$id" ] || [ "$id" = "0" ]; then
+		is_new=1
 		id="$(sql_exec "INSERT INTO schedule_groups (name) VALUES ('$esc_name'); SELECT last_insert_rowid();")"
 	else
 		sql_exec "UPDATE schedule_groups SET name='$esc_name' WHERE id=$id;"
@@ -176,6 +197,11 @@ save_schedule() {
 		sql_exec "INSERT OR IGNORE INTO schedule_members (group_id, mac) VALUES ($id, '$esc_mac');"
 	done
 
+	if [ "$is_new" -eq 1 ]; then
+		log_activity "$name" "Profile Created" "Block schedule $start_time-$end_time"
+	else
+		log_activity "$name" "Profile Updated" "Block schedule $start_time-$end_time"
+	fi
 	apply_schedules >/dev/null 2>&1 || true
 	echo "$id"
 }
@@ -183,10 +209,12 @@ save_schedule() {
 delete_schedule() {
 	init_db || return 1
 	id="$1"
+	name="$(sql_exec "SELECT name FROM schedule_groups WHERE id=$id LIMIT 1;")"
 	sql_exec "DELETE FROM schedule_members WHERE group_id=$id;"
 	sql_exec "DELETE FROM schedules WHERE group_id=$id;"
 	sql_exec "DELETE FROM schedule_pauses WHERE group_id=$id;"
 	sql_exec "DELETE FROM schedule_groups WHERE id=$id;"
+	log_activity "$name" "Profile Deleted" ""
 	apply_schedules >/dev/null 2>&1 || true
 }
 
@@ -207,8 +235,10 @@ pause_schedule() {
 		return 1
 	}
 	pause_until=$(($(date +%s) + minutes * 60))
+	name="$(sql_exec "SELECT name FROM schedule_groups WHERE id=$id LIMIT 1;")"
 	sql_exec "INSERT INTO schedule_pauses (group_id, pause_until) VALUES ($id, $pause_until) ON CONFLICT(group_id) DO UPDATE SET pause_until=excluded.pause_until;"
 	apply_schedules >/dev/null 2>&1 || true
+	log_activity "$name" "Schedule Paused" "$minutes minutes"
 	echo "$pause_until"
 }
 
@@ -219,8 +249,10 @@ resume_schedule() {
 		echo "invalid schedule id" >&2
 		return 1
 	}
+	name="$(sql_exec "SELECT name FROM schedule_groups WHERE id=$id LIMIT 1;")"
 	sql_exec "DELETE FROM schedule_pauses WHERE group_id=$id;"
 	apply_schedules >/dev/null 2>&1 || true
+	log_activity "$name" "Schedule Resumed" ""
 }
 
 remove_schedule_firewall_rules() {
@@ -306,11 +338,17 @@ resume)
 	shift
 	resume_schedule "$@"
 	;;
+activity-list)
+	list_activity
+	;;
+activity-clear)
+	clear_activity
+	;;
 apply|--apply)
 	apply_schedules
 	;;
 *)
-	echo "usage: $0 {init-db|list|active-for-mac MAC|save ID NAME START END ENABLED MAC...|delete ID|pause ID MINUTES|resume ID|apply}" >&2
+	echo "usage: $0 {init-db|list|active-for-mac MAC|save ID NAME START END ENABLED MAC...|delete ID|pause ID MINUTES|resume ID|activity-list|activity-clear|apply}" >&2
 	exit 1
 	;;
 esac
