@@ -9781,6 +9781,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     Client client, {
     required bool staticIpEnabled,
     required String staticIpAddress,
+    String? hostname,
     BuildContext? context,
   }) async {
     if (_reviewerModeEnabled) {
@@ -9800,6 +9801,9 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     }
 
     final cleanStaticIp = staticIpEnabled ? staticIpAddress.trim() : '';
+    final cleanHostname = hostname?.trim().isNotEmpty == true
+        ? hostname!.trim()
+        : client.hostname;
     if (cleanStaticIp.isNotEmpty && !_isValidIpAddress(cleanStaticIp)) {
       throw ArgumentError('A valid static IP address is required');
     }
@@ -9814,64 +9818,113 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       context: context,
     );
     final dhcpValues = _extractUciValues(dhcp);
-    String? hostSection;
+    final matchingSections = <String>[];
     dhcpValues.forEach((section, values) {
-      if (hostSection != null) return;
       if (values['.type']?.toString() != 'host') return;
-      final mac = _normalizeMacAddress(values['mac']?.toString() ?? '');
-      if (mac == normalizedMac) hostSection = section;
+      final configuredMacs = values['mac'] is List
+          ? (values['mac'] as List)
+                .map((value) => _normalizeMacAddress(value.toString()))
+                .toList()
+          : [_normalizeMacAddress(values['mac']?.toString() ?? '')];
+      final configuredIp = values['ip']?.toString().trim() ?? '';
+      if (configuredMacs.contains(normalizedMac) ||
+          (cleanStaticIp.isNotEmpty && configuredIp == cleanStaticIp)) {
+        matchingSections.add(section);
+      }
     });
 
     var changed = false;
     if (cleanStaticIp.isNotEmpty) {
-      if (hostSection == null || hostSection!.isEmpty) {
-        final addResult = await _apiService!.call(
+      final values = {
+        'name': _sanitizeDhcpHostName(cleanHostname),
+        'mac': normalizedMac,
+        'ip': cleanStaticIp,
+      };
+      if (matchingSections.isEmpty) {
+        var addResult = await _apiService!.call(
           router.ipAddress,
           sysauth,
           router.useHttps,
           object: 'uci',
           method: 'add',
-          params: {'config': 'dhcp', 'type': 'host'},
+          params: {'config': 'dhcp', 'type': 'host', 'values': values},
         );
-        hostSection = _extractAddedSection(addResult);
-        changed = true;
+        if (!_rpcCallSucceeded(addResult)) {
+          addResult = await _apiService!.call(
+            router.ipAddress,
+            sysauth,
+            router.useHttps,
+            object: 'uci',
+            method: 'add',
+            params: {'config': 'dhcp', 'type': 'host'},
+          );
+          final addedSection = _extractAddedSection(addResult);
+          if (!_rpcCallSucceeded(addResult) ||
+              addedSection == null ||
+              addedSection.isEmpty) {
+            throw StateError('Unable to create DHCP host reservation');
+          }
+          final setResult = await _apiService!.uciSet(
+            router.ipAddress,
+            sysauth,
+            router.useHttps,
+            config: 'dhcp',
+            section: addedSection,
+            values: values,
+          );
+          if (!_rpcCallSucceeded(setResult)) {
+            throw StateError('Unable to configure DHCP host reservation');
+          }
+        }
+      } else {
+        final setResult = await _apiService!.uciSet(
+          router.ipAddress,
+          sysauth,
+          router.useHttps,
+          config: 'dhcp',
+          section: matchingSections.first,
+          values: values,
+        );
+        if (!_rpcCallSucceeded(setResult)) {
+          throw StateError('Unable to update DHCP host reservation');
+        }
       }
-      if (hostSection == null || hostSection!.isEmpty) {
-        throw StateError('Unable to create DHCP host reservation');
-      }
-      await _apiService!.uciSet(
-        router.ipAddress,
-        sysauth,
-        router.useHttps,
-        config: 'dhcp',
-        section: hostSection!,
-        values: {
-          'name': _sanitizeDhcpHostName(client.hostname),
-          'mac': normalizedMac,
-          'ip': cleanStaticIp,
-        },
-      );
       changed = true;
-    } else if (hostSection != null && hostSection!.isNotEmpty) {
-      await _apiService!.call(
+    }
+
+    final firstDuplicate = cleanStaticIp.isNotEmpty ? 1 : 0;
+    for (var index = firstDuplicate; index < matchingSections.length; index++) {
+      final deleteResult = await _apiService!.call(
         router.ipAddress,
         sysauth,
         router.useHttps,
         object: 'uci',
         method: 'delete',
-        params: {'config': 'dhcp', 'section': hostSection},
+        params: {'config': 'dhcp', 'section': matchingSections[index]},
       );
+      if (!_rpcCallSucceeded(deleteResult)) {
+        if (cleanStaticIp.isEmpty) {
+          throw StateError('Unable to remove DHCP host reservation');
+        }
+        Logger.debug(
+          'Optional duplicate DHCP host cleanup failed for ${matchingSections[index]}',
+        );
+        continue;
+      }
       changed = true;
     }
 
     if (!changed) return;
 
-    await _apiService!.uciCommit(
+    final commitResult = await _apiService!.uciCommit(
       router.ipAddress,
       sysauth,
       router.useHttps,
       config: 'dhcp',
     );
+    if (!_rpcCallSucceeded(commitResult)) {
+      throw StateError('Unable to commit DHCP host reservation');
+    }
     unawaited(
       _apiService!
           .systemExec(
@@ -9879,7 +9932,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
             sysauth,
             router.useHttps,
             command:
-                '/etc/init.d/odhcpd restart 2>/dev/null || service odhcpd restart 2>/dev/null || true; /etc/init.d/dnsmasq restart 2>/dev/null || service dnsmasq restart 2>/dev/null || true',
+                '/etc/init.d/dnsmasq restart 2>/dev/null || service dnsmasq restart 2>/dev/null || true',
           )
           .catchError((Object e, StackTrace stack) {
             Logger.debug('Background DHCP service restart failed: $e');

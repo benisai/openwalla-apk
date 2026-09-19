@@ -8,6 +8,7 @@ import 'package:luci_mobile/design/luci_design_system.dart';
 import 'package:luci_mobile/state/app_state.dart';
 import 'package:luci_mobile/widgets/luci_app_bar.dart';
 import 'package:luci_mobile/widgets/luci_loading_states.dart';
+import 'package:luci_mobile/widgets/openwalla_toast.dart';
 import 'package:luci_mobile/widgets/luci_refresh_components.dart';
 import 'package:luci_mobile/widgets/luci_animation_system.dart';
 
@@ -868,7 +869,10 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
     final previousStaticIpEnabled = _staticIpEnabled;
     final previousStaticIp = _currentStaticIp;
     final previousIpText = _ipController.text;
-    final messenger = ScaffoldMessenger.of(context);
+    final deviceName = _nameController.text.trim().isEmpty
+        ? widget.client.hostname
+        : _nameController.text.trim();
+    final toastKey = 'static-ip-${widget.client.macAddress}';
     setState(() {
       _staticIpEnabled = result.enabled;
       _currentStaticIp = nextStaticIp;
@@ -879,6 +883,13 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
           : widget.client.ipAddress;
       _isSaving = true;
     });
+    OpenwallaToast.showLoading(
+      context,
+      key: toastKey,
+      message: result.enabled
+          ? 'Creating static lease for $deviceName...'
+          : 'Removing static lease for $deviceName...',
+    );
     try {
       await ref
           .read(appStateProvider)
@@ -886,6 +897,7 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
             widget.client,
             staticIpEnabled: result.enabled,
             staticIpAddress: nextStaticIp,
+            hostname: deviceName,
             context: context,
           );
       if (!mounted) return;
@@ -893,24 +905,26 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
         _isSaving = false;
         _hasSavedChanges = true;
       });
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(
-            result.enabled
-                ? 'Static IP reservation saved.'
-                : 'Static IP reservation removed.',
-          ),
-        ),
+      OpenwallaToast.showSuccess(
+        context,
+        key: toastKey,
+        message: result.enabled
+            ? 'Static lease reserved: $deviceName ($nextStaticIp)'
+            : 'Static lease removed for $deviceName',
       );
     } catch (e) {
       if (!mounted) return;
-      _showError('Failed to update static IP: $e');
       setState(() {
         _staticIpEnabled = previousStaticIpEnabled;
         _currentStaticIp = previousStaticIp;
         _ipController.text = previousIpText;
         _isSaving = false;
       });
+      OpenwallaToast.showError(
+        context,
+        key: toastKey,
+        message: 'Failed to update static IP. Please try again.',
+      );
     }
   }
 
