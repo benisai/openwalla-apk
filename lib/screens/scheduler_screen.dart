@@ -117,9 +117,9 @@ class _SchedulerScreenState extends ConsumerState<SchedulerScreen> {
         showBack: true,
         actions: [
           IconButton(
-            tooltip: 'Add schedule',
-            onPressed: _isLoading ? null : () => _openEditor(),
-            icon: const Icon(Icons.add_rounded),
+            tooltip: 'Refresh profiles',
+            onPressed: _isLoading ? null : _load,
+            icon: const Icon(Icons.history_rounded),
           ),
         ],
       ),
@@ -128,27 +128,6 @@ class _SchedulerScreenState extends ConsumerState<SchedulerScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
           children: [
-            Text(
-              'Family Device Groups',
-              style: Theme.of(
-                context,
-              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Block internet access for grouped devices during daily windows.',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: _isLoading ? null : () => _openEditor(),
-              icon: const Icon(Icons.add_rounded),
-              label: const Text('Create Schedule'),
-            ),
-            const SizedBox(height: 18),
             if (_isLoading)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 48),
@@ -164,9 +143,9 @@ class _SchedulerScreenState extends ConsumerState<SchedulerScreen> {
             else if (_schedules.isEmpty)
               _ScheduleEmptyCard(
                 icon: Icons.schedule_rounded,
-                title: 'No schedules yet',
+                title: 'No profiles yet',
                 message:
-                    'Create a group, choose devices, and set a block window.',
+                    'Create a profile, assign devices, and set a block schedule.',
                 onRefresh: _load,
               )
             else
@@ -181,6 +160,13 @@ class _SchedulerScreenState extends ConsumerState<SchedulerScreen> {
           ],
         ),
       ),
+      floatingActionButton: _isLoading
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: () => _openEditor(),
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Add Profile'),
+            ),
     );
   }
 }
@@ -220,86 +206,121 @@ class _ScheduleCard extends StatelessWidget {
         : '${schedule.startTime} to ${schedule.endTime} • ${schedule.macAddresses.length} devices';
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: activeColor.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(Icons.family_restroom_rounded, color: activeColor),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      schedule.name,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w900,
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          InkWell(
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: activeColor.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Center(
+                      child: Text(
+                        _profileIcon(schedule.name),
+                        style: const TextStyle(fontSize: 24),
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: isPaused
-                            ? colorScheme.primary
-                            : colorScheme.onSurfaceVariant,
-                        fontWeight: FontWeight.w600,
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          schedule.name,
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w900),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          subtitle,
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                color: isPaused
+                                    ? colorScheme.primary
+                                    : colorScheme.onSurfaceVariant,
+                                fontWeight: FontWeight.w600,
+                              ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  PopupMenuButton<String>(
+                    tooltip: 'Schedule actions',
+                    icon: const Icon(Icons.more_horiz_rounded),
+                    onSelected: (value) {
+                      switch (value) {
+                        case 'pause30':
+                          onPause(const Duration(minutes: 30));
+                        case 'pause60':
+                          onPause(const Duration(hours: 1));
+                        case 'pause120':
+                          onPause(const Duration(hours: 2));
+                        case 'resume':
+                          onResume();
+                      }
+                    },
+                    itemBuilder: (context) => [
+                      if (isPaused)
+                        const PopupMenuItem(
+                          value: 'resume',
+                          child: Text('Resume now'),
+                        ),
+                      const PopupMenuItem(
+                        value: 'pause30',
+                        child: Text('Pause 30 minutes'),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-              PopupMenuButton<String>(
-                tooltip: 'Schedule actions',
-                icon: const Icon(Icons.more_horiz_rounded),
-                onSelected: (value) {
-                  switch (value) {
-                    case 'pause30':
-                      onPause(const Duration(minutes: 30));
-                    case 'pause60':
-                      onPause(const Duration(hours: 1));
-                    case 'pause120':
-                      onPause(const Duration(hours: 2));
-                    case 'resume':
-                      onResume();
-                  }
-                },
-                itemBuilder: (context) => [
-                  if (isPaused)
-                    const PopupMenuItem(
-                      value: 'resume',
-                      child: Text('Resume now'),
-                    ),
-                  const PopupMenuItem(
-                    value: 'pause30',
-                    child: Text('Pause 30 minutes'),
-                  ),
-                  const PopupMenuItem(
-                    value: 'pause60',
-                    child: Text('Pause 1 hour'),
-                  ),
-                  const PopupMenuItem(
-                    value: 'pause120',
-                    child: Text('Pause 2 hours'),
+                      const PopupMenuItem(
+                        value: 'pause60',
+                        child: Text('Pause 1 hour'),
+                      ),
+                      const PopupMenuItem(
+                        value: 'pause120',
+                        child: Text('Pause 2 hours'),
+                      ),
+                    ],
                   ),
                 ],
               ),
-            ],
+            ),
           ),
-        ),
+          Divider(height: 1, color: colorScheme.outlineVariant),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: isPaused
+                    ? onResume
+                    : () => onPause(const Duration(hours: 1)),
+                icon: Icon(
+                  isPaused
+                      ? Icons.play_circle_outline_rounded
+                      : Icons.pause_circle_outline_rounded,
+                ),
+                label: Text(
+                  isPaused ? 'Resume Schedule' : 'Pause Schedule for 1 Hour',
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
+  }
+
+  String _profileIcon(String name) {
+    const icons = ['🧒', '👧', '👦', '👩', '👨', '🎮', '⭐', '🏠'];
+    return icons[name.codeUnits.fold<int>(0, (sum, value) => sum + value) %
+        icons.length];
   }
 }
 
@@ -366,6 +387,7 @@ class _ScheduleEditorSheetState extends ConsumerState<_ScheduleEditorSheet> {
   final _nameController = TextEditingController();
   final _startController = TextEditingController();
   final _endController = TextEditingController();
+  final _manualMacController = TextEditingController();
   final Set<String> _selectedMacs = {};
   bool _enabled = true;
   bool _isSaving = false;
@@ -374,7 +396,7 @@ class _ScheduleEditorSheetState extends ConsumerState<_ScheduleEditorSheet> {
   void initState() {
     super.initState();
     final schedule = widget.schedule;
-    _nameController.text = schedule?.name ?? 'Kids';
+    _nameController.text = schedule?.name ?? '';
     _startController.text = schedule?.startTime ?? '21:00';
     _endController.text = schedule?.endTime ?? '07:00';
     _enabled = schedule?.enabled ?? true;
@@ -388,6 +410,7 @@ class _ScheduleEditorSheetState extends ConsumerState<_ScheduleEditorSheet> {
     _nameController.dispose();
     _startController.dispose();
     _endController.dispose();
+    _manualMacController.dispose();
     super.dispose();
   }
 
@@ -398,10 +421,22 @@ class _ScheduleEditorSheetState extends ConsumerState<_ScheduleEditorSheet> {
     return RegExp(r'^([01][0-9]|2[0-3]):[0-5][0-9]$').hasMatch(value.trim());
   }
 
+  void _addManualMac() {
+    final mac = _normalizeMac(_manualMacController.text);
+    if (!RegExp(r'^([0-9A-F]{2}:){5}[0-9A-F]{2}$').hasMatch(mac)) {
+      _showError('Enter a valid MAC address.');
+      return;
+    }
+    setState(() {
+      _selectedMacs.add(mac);
+      _manualMacController.clear();
+    });
+  }
+
   Future<void> _save() async {
     final name = _nameController.text.trim();
     if (name.isEmpty) {
-      _showError('Schedule name is required.');
+      _showError('Profile name is required.');
       return;
     }
     if (!_validTime(_startController.text) ||
@@ -491,9 +526,7 @@ class _ScheduleEditorSheetState extends ConsumerState<_ScheduleEditorSheet> {
                 children: [
                   Expanded(
                     child: Text(
-                      widget.schedule == null
-                          ? 'Create Schedule'
-                          : 'Edit Schedule',
+                      widget.schedule == null ? 'New Profile' : 'Edit Profile',
                       style: theme.textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w900,
                       ),
@@ -513,8 +546,8 @@ class _ScheduleEditorSheetState extends ConsumerState<_ScheduleEditorSheet> {
                 controller: _nameController,
                 enabled: !_isSaving,
                 decoration: const InputDecoration(
-                  labelText: 'Group Name',
-                  prefixIcon: Icon(Icons.group_rounded),
+                  labelText: 'Profile Name',
+                  prefixIcon: Icon(Icons.badge_outlined),
                 ),
               ),
               const SizedBox(height: 12),
@@ -548,7 +581,10 @@ class _ScheduleEditorSheetState extends ConsumerState<_ScheduleEditorSheet> {
               const SizedBox(height: 8),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
-                title: const Text('Schedule Enabled'),
+                title: const Text('Profile Guardrails Active'),
+                subtitle: const Text(
+                  'The block schedule is enforced for assigned devices.',
+                ),
                 value: _enabled,
                 onChanged: _isSaving
                     ? null
@@ -556,11 +592,34 @@ class _ScheduleEditorSheetState extends ConsumerState<_ScheduleEditorSheet> {
               ),
               const SizedBox(height: 12),
               Text(
-                'Devices',
+                'Assigned Devices',
                 style: theme.textTheme.titleSmall?.copyWith(
                   color: colorScheme.onSurfaceVariant,
                   fontWeight: FontWeight.w900,
                 ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _manualMacController,
+                      enabled: !_isSaving,
+                      textCapitalization: TextCapitalization.characters,
+                      decoration: const InputDecoration(
+                        labelText: 'Manual MAC Address',
+                        prefixIcon: Icon(Icons.devices_other_rounded),
+                      ),
+                      onSubmitted: (_) => _addManualMac(),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  IconButton.filled(
+                    tooltip: 'Add MAC address',
+                    onPressed: _isSaving ? null : _addManualMac,
+                    icon: const Icon(Icons.add_rounded),
+                  ),
+                ],
               ),
               const SizedBox(height: 8),
               if (clients.isEmpty)
@@ -590,6 +649,23 @@ class _ScheduleEditorSheetState extends ConsumerState<_ScheduleEditorSheet> {
                           },
                   );
                 }),
+              ..._selectedMacs
+                  .where(
+                    (mac) => !clients.any(
+                      (client) => _normalizeMac(client.macAddress) == mac,
+                    ),
+                  )
+                  .map(
+                    (mac) => CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Manually assigned device'),
+                      subtitle: Text(mac),
+                      value: true,
+                      onChanged: _isSaving
+                          ? null
+                          : (_) => setState(() => _selectedMacs.remove(mac)),
+                    ),
+                  ),
               const SizedBox(height: 16),
               Row(
                 children: [
@@ -613,7 +689,13 @@ class _ScheduleEditorSheetState extends ConsumerState<_ScheduleEditorSheet> {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           : const Icon(Icons.save_rounded),
-                      label: Text(_isSaving ? 'Saving' : 'Save'),
+                      label: Text(
+                        _isSaving
+                            ? 'Saving'
+                            : widget.schedule == null
+                            ? 'Create Profile'
+                            : 'Save Profile',
+                      ),
                     ),
                   ),
                 ],
