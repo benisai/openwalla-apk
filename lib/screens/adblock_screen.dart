@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:luci_mobile/main.dart';
@@ -50,6 +52,8 @@ class _AdblockScreenState extends ConsumerState<AdblockScreen> {
   bool _isSaving = false;
   bool _hasStartedLoad = false;
   String? _error;
+  String? _feedSaveStatus;
+  Timer? _feedSaveTimer;
 
   @override
   void initState() {
@@ -69,6 +73,7 @@ class _AdblockScreenState extends ConsumerState<AdblockScreen> {
       setState(() {
         _settings = settings;
         _isLoading = false;
+        _isSaving = false;
       });
     } catch (_) {
       if (!mounted) return;
@@ -83,13 +88,49 @@ class _AdblockScreenState extends ConsumerState<AdblockScreen> {
     setState(() => _settings = settings);
   }
 
+  void _updateFeeds(OpenwrtAdblockSettings settings) {
+    _feedSaveTimer?.cancel();
+    setState(() {
+      _settings = settings;
+      _feedSaveStatus = 'Saving...';
+    });
+    _feedSaveTimer = Timer(const Duration(milliseconds: 500), () async {
+      await _saveFeedSelection(settings);
+    });
+  }
+
+  Future<void> _saveFeedSelection(OpenwrtAdblockSettings settings) async {
+    if (!mounted) return;
+    setState(() => _isSaving = true);
+    try {
+      await ref.read(appStateProvider).saveAdblockSettings(settings);
+      if (!mounted) return;
+      setState(() {
+        _settings = settings;
+        _isSaving = false;
+        _feedSaveStatus = 'Saved automatically';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isSaving = false;
+        _feedSaveStatus = 'Save failed';
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to save feeds: $e')));
+    }
+  }
+
   Future<void> _save() async {
+    _feedSaveTimer?.cancel();
     final settings = _settings;
     if (settings == null) return;
     setState(() => _isSaving = true);
     try {
       await ref.read(appStateProvider).saveAdblockSettings(settings);
       if (!mounted) return;
+      setState(() => _feedSaveStatus = 'Changes saved');
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('AdBlock settings saved.')));
@@ -104,6 +145,7 @@ class _AdblockScreenState extends ConsumerState<AdblockScreen> {
   }
 
   Future<void> _runAction(String action) async {
+    _feedSaveTimer?.cancel();
     setState(() => _isSaving = true);
     try {
       await ref.read(appStateProvider).runAdblockServiceAction(action);
@@ -119,6 +161,12 @@ class _AdblockScreenState extends ConsumerState<AdblockScreen> {
       );
       setState(() => _isSaving = false);
     }
+  }
+
+  @override
+  void dispose() {
+    _feedSaveTimer?.cancel();
+    super.dispose();
   }
 
   @override
@@ -186,7 +234,9 @@ class _AdblockScreenState extends ConsumerState<AdblockScreen> {
     return _AdblockEditor(
       settings: settings,
       isSaving: _isSaving,
+      feedSaveStatus: _feedSaveStatus,
       onChanged: _update,
+      onFeedsChanged: _updateFeeds,
       onSave: _save,
       onAction: _runAction,
     );
@@ -196,14 +246,18 @@ class _AdblockScreenState extends ConsumerState<AdblockScreen> {
 class _AdblockEditor extends StatelessWidget {
   final OpenwrtAdblockSettings settings;
   final bool isSaving;
+  final String? feedSaveStatus;
   final ValueChanged<OpenwrtAdblockSettings> onChanged;
+  final ValueChanged<OpenwrtAdblockSettings> onFeedsChanged;
   final VoidCallback onSave;
   final ValueChanged<String> onAction;
 
   const _AdblockEditor({
     required this.settings,
     required this.isSaving,
+    required this.feedSaveStatus,
     required this.onChanged,
+    required this.onFeedsChanged,
     required this.onSave,
     required this.onAction,
   });
@@ -224,8 +278,62 @@ class _AdblockEditor extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${settings.selectedFeeds.length} selected',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: colorScheme.onSurface,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0,
+                      ),
+                    ),
+                  ),
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 180),
+                    child: feedSaveStatus == null
+                        ? const SizedBox.shrink()
+                        : Row(
+                            key: ValueKey(feedSaveStatus),
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (isSaving)
+                                const SizedBox.square(
+                                  dimension: 14,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              else
+                                Icon(
+                                  feedSaveStatus!.contains('failed')
+                                      ? Icons.error_outline_rounded
+                                      : Icons.cloud_done_outlined,
+                                  size: 17,
+                                  color: feedSaveStatus!.contains('failed')
+                                      ? colorScheme.error
+                                      : colorScheme.primary,
+                                ),
+                              const SizedBox(width: 6),
+                              Text(
+                                feedSaveStatus!,
+                                style: Theme.of(context).textTheme.labelMedium
+                                    ?.copyWith(
+                                      color: feedSaveStatus!.contains('failed')
+                                          ? colorScheme.error
+                                          : colorScheme.onSurfaceVariant,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                              ),
+                            ],
+                          ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
               Text(
-                'Select the blocklists AdBlock should use. Smaller default feeds are easier on low-memory routers.',
+                'Changes save automatically. Larger feeds use more router memory.',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: colorScheme.onSurfaceVariant,
                   fontWeight: FontWeight.w700,
@@ -233,44 +341,39 @@ class _AdblockEditor extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: _adblockFeedOptions.map((feed) {
-                  final selected = settings.selectedFeeds.contains(feed.id);
-                  return FilterChip(
-                    selected: selected,
-                    label: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(feed.label),
-                        Text(
-                          feed.detail,
-                          style: Theme.of(context).textTheme.labelSmall
-                              ?.copyWith(
-                                color: selected
-                                    ? colorScheme.onSecondaryContainer
-                                    : colorScheme.onSurfaceVariant,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 0,
-                              ),
-                        ),
-                      ],
-                    ),
-                    onSelected: isSaving
-                        ? null
-                        : (value) {
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final columns = constraints.maxWidth >= 560 ? 2 : 1;
+                  final width = columns == 2
+                      ? (constraints.maxWidth - 10) / 2
+                      : constraints.maxWidth;
+                  return Wrap(
+                    spacing: 10,
+                    runSpacing: 8,
+                    children: _adblockFeedOptions.map((feed) {
+                      final selected = settings.selectedFeeds.contains(feed.id);
+                      return SizedBox(
+                        width: width,
+                        child: _AdblockFeedTile(
+                          feed: feed,
+                          selected: selected,
+                          enabled: !isSaving,
+                          onTap: () {
                             final next = [...settings.selectedFeeds];
-                            if (value) {
-                              if (!next.contains(feed.id)) next.add(feed.id);
-                            } else {
+                            if (selected) {
                               next.remove(feed.id);
+                            } else {
+                              next.add(feed.id);
                             }
-                            onChanged(settings.copyWith(selectedFeeds: next));
+                            onFeedsChanged(
+                              settings.copyWith(selectedFeeds: next),
+                            );
                           },
+                        ),
+                      );
+                    }).toList(),
                   );
-                }).toList(),
+                },
               ),
             ],
           ),
@@ -313,7 +416,7 @@ class _AdblockEditor extends StatelessWidget {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.save_rounded),
-                label: Text(isSaving ? 'Saving' : 'Save'),
+                label: Text(isSaving ? 'Applying' : 'Apply Settings'),
               ),
             ],
           ),
@@ -383,7 +486,7 @@ class _AdblockEditor extends StatelessWidget {
               OutlinedButton.icon(
                 onPressed: isSaving ? null : onSave,
                 icon: const Icon(Icons.save_rounded),
-                label: const Text('Save Service Settings'),
+                label: const Text('Apply Service State'),
               ),
               const SizedBox(height: 12),
               Wrap(
@@ -416,6 +519,110 @@ class _AdblockEditor extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _AdblockFeedTile extends StatelessWidget {
+  const _AdblockFeedTile({
+    required this.feed,
+    required this.selected,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final _AdblockFeedOption feed;
+  final bool selected;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final detailParts = feed.detail.split(',');
+    final size = detailParts.first.trim();
+    final category = detailParts.length > 1
+        ? detailParts.sublist(1).join(',').trim()
+        : '';
+
+    return Material(
+      color: selected
+          ? colors.primaryContainer.withValues(alpha: 0.55)
+          : colors.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        borderRadius: BorderRadius.circular(8),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          constraints: const BoxConstraints(minHeight: 62),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: selected
+                  ? colors.primary
+                  : colors.outlineVariant.withValues(alpha: 0.6),
+              width: selected ? 1.5 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                width: 28,
+                height: 28,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: selected ? colors.primary : Colors.transparent,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: selected ? colors.primary : colors.outline,
+                    width: 1.5,
+                  ),
+                ),
+                child: selected
+                    ? Icon(
+                        Icons.check_rounded,
+                        color: colors.onPrimary,
+                        size: 18,
+                      )
+                    : null,
+              ),
+              const SizedBox(width: 11),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      feed.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: colors.onSurface,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      category.isEmpty ? size : '$category  |  $size',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: colors.onSurfaceVariant,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
