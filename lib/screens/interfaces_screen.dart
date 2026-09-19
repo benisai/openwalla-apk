@@ -13,6 +13,24 @@ import 'package:luci_mobile/widgets/luci_loading_states.dart';
 import 'package:luci_mobile/widgets/luci_refresh_components.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+bool shouldShowWiredInterface({
+  required Map<String, dynamic> interface,
+  required Set<String> enabledInterfaces,
+  required bool selectionInitialized,
+}) {
+  final name = interface['interface']?.toString() ?? '';
+  if (selectionInitialized) {
+    return enabledInterfaces.isEmpty || enabledInterfaces.contains(name);
+  }
+  if (enabledInterfaces.isNotEmpty) {
+    return enabledInterfaces.contains(name);
+  }
+
+  final disabled = interface['disabled']?.toString().trim().toLowerCase();
+  final isDisabled = disabled == '1' || disabled == 'true' || disabled == 'yes';
+  return interface['up'] == true && !isDisabled;
+}
+
 class InterfacesScreen extends ConsumerStatefulWidget {
   final String? scrollToInterface;
   final VoidCallback? onScrollComplete;
@@ -940,8 +958,8 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
     final appState = ref.watch(appStateProvider);
     final dynamic detailedData = appState.dashboardData?['interfaceDump'];
     final dynamic statsDataSource = appState.dashboardData?['networkDevices'];
-    final enabledWiredInterfaces =
-        appState.dashboardPreferences.enabledWiredInterfaces;
+    final preferences = appState.dashboardPreferences;
+    final enabledWiredInterfaces = preferences.enabledWiredInterfaces;
     var interfacesList = <NetworkInterface>[];
 
     if (detailedData is Map &&
@@ -959,9 +977,12 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
                 !_isLoopbackInterface(detailedInterfaceMap),
           )
           .where((detailedInterfaceMap) {
-            if (enabledWiredInterfaces.isEmpty) return true;
-            final name = detailedInterfaceMap['interface']?.toString() ?? '';
-            return enabledWiredInterfaces.contains(name);
+            return shouldShowWiredInterface(
+              interface: detailedInterfaceMap,
+              enabledInterfaces: enabledWiredInterfaces,
+              selectionInitialized:
+                  preferences.wiredInterfaceSelectionInitialized,
+            );
           })
           .map((detailedInterfaceMap) {
             final mutableInterfaceMap = Map<String, dynamic>.from(
