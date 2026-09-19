@@ -43,6 +43,13 @@ class Client {
     this.scheduledBlockUntil,
   });
 
+  String get displayName {
+    final name = hostname.trim();
+    return name.isNotEmpty && name != '*' ? name : ipAddress;
+  }
+
+  bool get isConnected => status.toLowerCase() == 'online';
+
   // Helper function to determine connection type from MAC address or other data
   static ConnectionType _determineConnectionType(Map<String, dynamic> lease) {
     // Check for wireless-specific fields first

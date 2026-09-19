@@ -20,7 +20,7 @@ import 'package:luci_mobile/screens/network_performance_screen.dart';
 import 'package:luci_mobile/screens/notifications_screen.dart';
 import 'package:luci_mobile/screens/rules_screen.dart';
 import 'package:luci_mobile/screens/router_setup_screen.dart';
-import 'package:luci_mobile/screens/scheduler_screen.dart';
+import 'package:luci_mobile/modules/parental_controls/screens/parental_controls_screen.dart';
 import 'package:luci_mobile/screens/simple_flows_screen.dart';
 import 'package:luci_mobile/screens/routes_screen.dart';
 import 'package:luci_mobile/screens/services_screen.dart';
@@ -1269,7 +1269,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
               onTap: () {
                 Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (context) => const SchedulerScreen(),
+                    builder: (context) => const ParentalControlsScreen(),
                   ),
                 );
               },

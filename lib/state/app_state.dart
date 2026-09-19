@@ -12,6 +12,7 @@ import 'package:luci_mobile/models/ddns_info.dart';
 import 'package:luci_mobile/models/router.dart' as model;
 import 'package:luci_mobile/models/wifi_scan_result.dart';
 import 'package:luci_mobile/models/dashboard_preferences.dart';
+import 'package:luci_mobile/modules/parental_controls/models/parental_profile.dart';
 import 'package:luci_mobile/services/interfaces/auth_service_interface.dart';
 import 'package:luci_mobile/services/interfaces/api_service_interface.dart';
 import 'package:luci_mobile/services/api_service.dart';
@@ -1500,6 +1501,12 @@ class AppState extends ChangeNotifier {
   RouterService? _routerService;
   ThroughputService? _throughputService;
   final HttpClientManager _httpClientManager = HttpClientManager();
+  List<Client> _clients = const [];
+  bool _isClientsLoading = false;
+  final Set<String> _parentalPausedMacs = {};
+
+  List<Client> get clients => List.unmodifiable(_clients);
+  bool get isClientsLoading => _isClientsLoading;
 
   // Reviewer mode state
   bool _reviewerModeEnabled = false;
@@ -8769,6 +8776,19 @@ done | sort -t "|" -k1,1nr | head -n ''' +
   /// Aggregates DHCP leases across all configured routers and classifies clients
   /// as wireless if their MAC appears in any router's associated stations list.
   Future<List<Client>> fetchAggregatedClients() async {
+    if (_isClientsLoading) return _clients;
+    _isClientsLoading = true;
+    notifyListeners();
+    try {
+      _clients = await _fetchAggregatedClientsRaw();
+      return _clients;
+    } finally {
+      _isClientsLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<List<Client>> _fetchAggregatedClientsRaw() async {
     try {
       final staticLeasesFuture = fetchAggregatedStaticDhcpReservations();
       final activeDeviceRecords = await fetchDeviceRecords(
@@ -9602,6 +9622,175 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       );
     }
     return schedules;
+  }
+
+  Future<String?> secureRead(String key) =>
+      _secureStorageService.readValue(key);
+
+  Future<void> secureWrite(String key, String value) =>
+      _secureStorageService.writeValue(key, value);
+
+  bool isInternetPaused(String mac) =>
+      _parentalPausedMacs.contains(_normalizeMacAddress(mac));
+
+  Future<bool> pauseClientInternet(
+    String mac, {
+    required bool pause,
+    BuildContext? context,
+  }) async {
+    final normalized = _normalizeMacAddress(mac);
+    try {
+      await setClientInternetBlocked(
+        Client(ipAddress: '', macAddress: normalized, hostname: normalized),
+        pause,
+      );
+      if (pause) {
+        _parentalPausedMacs.add(normalized);
+      } else {
+        _parentalPausedMacs.remove(normalized);
+      }
+      return true;
+    } catch (e, stack) {
+      Logger.exception('Failed to update parental pause state', e, stack);
+      return false;
+    }
+  }
+
+  Future<List<ParentalProfile>?> fetchParentalProfiles({
+    BuildContext? context,
+  }) async {
+    if (_reviewerModeEnabled) return const [];
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) return null;
+    try {
+      final result = await _apiService!.call(
+        router.ipAddress,
+        sysauth,
+        router.useHttps,
+        object: 'uci',
+        method: 'get',
+        params: {'config': 'parental'},
+        context: context,
+      );
+      final values = _extractUciValues(result);
+      return values.entries
+          .where((entry) => entry.value['.type'] == 'profile')
+          .map(
+            (entry) => ParentalProfile.fromJson(
+              Map<String, dynamic>.from(entry.value as Map),
+              entry.key,
+            ),
+          )
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<bool> saveParentalProfile({
+    required ParentalProfile profile,
+    BuildContext? context,
+  }) async {
+    if (_reviewerModeEnabled) return true;
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) return false;
+    final section = profile.id.replaceAll(RegExp(r'[^a-zA-Z0-9_]'), '_');
+    final macs = profile.macAddresses
+        .map(_normalizeMacAddress)
+        .map(_shellQuote)
+        .join(' ');
+    final dns = profile.customDnsServers.map(_shellQuote).join(' ');
+    final script =
+        '''
+touch /etc/config/parental
+uci set parental.$section=profile
+uci set parental.$section.name=${_shellQuote(profile.name)}
+uci set parental.$section.icon=${_shellQuote(profile.icon)}
+uci set parental.$section.color=${_shellQuote(profile.color)}
+uci set parental.$section.is_paused=${profile.isPaused ? '1' : '0'}
+uci set parental.$section.is_enabled=${profile.isEnabled ? '1' : '0'}
+uci set parental.$section.content_filter=${_shellQuote(profile.contentFilter.toStorageString())}
+uci delete parental.$section.mac 2>/dev/null || true
+for m in $macs; do uci add_list parental.$section.mac="\$m"; done
+uci delete parental.$section.custom_dns 2>/dev/null || true
+for d in $dns; do uci add_list parental.$section.custom_dns="\$d"; done
+uci commit parental
+''';
+    return await _apiService!.systemExec(
+          router.ipAddress,
+          sysauth,
+          router.useHttps,
+          command: script,
+          context: context,
+        ) !=
+        null;
+  }
+
+  Future<bool> deleteParentalProfile({
+    required String profileId,
+    BuildContext? context,
+  }) async {
+    if (_reviewerModeEnabled) return true;
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) return false;
+    final section = profileId.replaceAll(RegExp(r'[^a-zA-Z0-9_]'), '_');
+    return await _apiService!.systemExec(
+          router.ipAddress,
+          sysauth,
+          router.useHttps,
+          command:
+              'uci delete parental.$section 2>/dev/null || true; uci commit parental',
+          context: context,
+        ) !=
+        null;
+  }
+
+  Future<bool> applyParentalProfileDns({
+    required String profileId,
+    required List<String> macAddresses,
+    required List<String>? dnsServers,
+    BuildContext? context,
+  }) async {
+    if (_reviewerModeEnabled) return true;
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) return false;
+    final safeId = profileId.replaceAll(RegExp(r'[^a-zA-Z0-9_]'), '_');
+    final tag = 'p_tag_$safeId';
+    final dns = dnsServers?.join(',') ?? '';
+    final macs = macAddresses.map(_normalizeMacAddress).join(' ');
+    final script =
+        '''
+T=${_shellQuote(tag)}
+DNS=${_shellQuote(dns)}
+if [ -z "\$DNS" ]; then
+  uci delete dhcp.\$T 2>/dev/null || true
+else
+  uci set dhcp.\$T=tag
+  uci set dhcp.\$T.dhcp_option="6,\$DNS"
+  for m in $macs; do
+    sec=\$(uci show dhcp 2>/dev/null | grep -i "@host.*\\.mac=.*\$m" | cut -d. -f2 | head -n1)
+    if [ -z "\$sec" ]; then
+      sec=\$(uci add dhcp host)
+      uci set dhcp.\$sec.mac="\$m"
+    fi
+    uci set dhcp.\$sec.tag="\$T"
+  done
+fi
+uci commit dhcp
+/etc/init.d/dnsmasq restart 2>/dev/null || true
+''';
+    return await _apiService!.systemExec(
+          router.ipAddress,
+          sysauth,
+          router.useHttps,
+          command: script,
+          context: context,
+        ) !=
+        null;
   }
 
   Future<List<OpenwallaScheduleActivity>> fetchScheduleActivity({
