@@ -6596,7 +6596,13 @@ done | sort -t "|" -k1,1nr | head -n ''' +
 
   bool _rpcCallSucceeded(dynamic result) {
     if (result is List && result.isNotEmpty) {
-      return result.first == 0 || result.first == '0';
+      if (result.first != 0 && result.first != '0') return false;
+      if (result.length > 1 &&
+          result[1] is Map &&
+          (result[1] as Map).containsKey('code')) {
+        return _rpcCallSucceeded(result[1]);
+      }
+      return true;
     }
     if (result is Map && result.containsKey('code')) {
       return result['code'] == 0 || result['code'] == '0';
@@ -9718,14 +9724,14 @@ uci delete parental.$section.custom_dns 2>/dev/null || true
 for d in $dns; do uci add_list parental.$section.custom_dns="\$d"; done
 uci commit parental
 ''';
-    return await _apiService!.systemExec(
-          router.ipAddress,
-          sysauth,
-          router.useHttps,
-          command: script,
-          context: context,
-        ) !=
-        null;
+    final result = await _apiService!.systemExec(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      command: script,
+      context: context,
+    );
+    return _rpcCallSucceeded(result);
   }
 
   Future<bool> deleteParentalProfile({
@@ -9737,15 +9743,15 @@ uci commit parental
     final sysauth = _authService?.sysauth;
     if (router == null || sysauth == null || _apiService == null) return false;
     final section = profileId.replaceAll(RegExp(r'[^a-zA-Z0-9_]'), '_');
-    return await _apiService!.systemExec(
-          router.ipAddress,
-          sysauth,
-          router.useHttps,
-          command:
-              'uci delete parental.$section 2>/dev/null || true; uci commit parental',
-          context: context,
-        ) !=
-        null;
+    final result = await _apiService!.systemExec(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      command:
+          'uci delete parental.$section 2>/dev/null || true; uci commit parental',
+      context: context,
+    );
+    return _rpcCallSucceeded(result);
   }
 
   Future<bool> applyParentalProfileDns({
@@ -9760,37 +9766,54 @@ uci commit parental
     if (router == null || sysauth == null || _apiService == null) return false;
     final safeId = profileId.replaceAll(RegExp(r'[^a-zA-Z0-9_]'), '_');
     final tag = 'p_tag_$safeId';
-    final dns = dnsServers?.join(',') ?? '';
-    final macs = macAddresses.map(_normalizeMacAddress).join(' ');
+    final dns =
+        dnsServers
+            ?.map((server) => server.trim())
+            .where((server) => RegExp(r'^[0-9A-Fa-f:.]+$').hasMatch(server))
+            .join(',') ??
+        '';
+    final macs = macAddresses
+        .map(_normalizeMacAddress)
+        .where((mac) => RegExp(r'^([0-9A-F]{2}:){5}[0-9A-F]{2}$').hasMatch(mac))
+        .map((mac) => mac.toLowerCase())
+        .join(' ');
     final script =
         '''
 T=${_shellQuote(tag)}
 DNS=${_shellQuote(dns)}
+MACS=${_shellQuote(macs)}
+for sec in \$(uci show dhcp 2>/dev/null | grep -i '@host' | grep -F '.mac=' | cut -d. -f2 | sort -u); do
+  cur_tag=\$(uci -q get dhcp.\$sec.tag)
+  if [ "\$cur_tag" = "\$T" ]; then
+    uci -q delete dhcp.\$sec.tag
+  fi
+done
 if [ -z "\$DNS" ]; then
-  uci delete dhcp.\$T 2>/dev/null || true
+  uci -q delete dhcp.\$T
 else
   uci set dhcp.\$T=tag
   uci set dhcp.\$T.dhcp_option="6,\$DNS"
-  for m in $macs; do
+  for m in \$MACS; do
     sec=\$(uci show dhcp 2>/dev/null | grep -i "@host.*\\.mac=.*\$m" | cut -d. -f2 | head -n1)
     if [ -z "\$sec" ]; then
       sec=\$(uci add dhcp host)
       uci set dhcp.\$sec.mac="\$m"
+      uci set dhcp.\$sec.name="p_\$(echo "\$m" | tr ':' '-')"
     fi
     uci set dhcp.\$sec.tag="\$T"
   done
 fi
 uci commit dhcp
-/etc/init.d/dnsmasq restart 2>/dev/null || true
+/etc/init.d/dnsmasq restart
 ''';
-    return await _apiService!.systemExec(
-          router.ipAddress,
-          sysauth,
-          router.useHttps,
-          command: script,
-          context: context,
-        ) !=
-        null;
+    final result = await _apiService!.systemExec(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      command: script,
+      context: context,
+    );
+    return _rpcCallSucceeded(result);
   }
 
   Future<List<OpenwallaScheduleActivity>> fetchScheduleActivity({

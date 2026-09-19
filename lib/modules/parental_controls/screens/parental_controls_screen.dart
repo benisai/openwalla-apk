@@ -61,6 +61,17 @@ class _ParentalControlsScreenState extends ConsumerState<ParentalControlsScreen>
     setState(() {});
   }
 
+  void _showActionResult(ParentalActionResult result, {bool info = false}) {
+    if (!mounted || result.message.isEmpty) return;
+    if (!result.success) {
+      context.showToastError(result.message);
+    } else if (info) {
+      context.showToastInfo(result.message);
+    } else {
+      context.showToastSuccess(result.message);
+    }
+  }
+
   Future<void> _pauseProfile(
     ParentalProfile profile,
     PauseDuration duration,
@@ -117,9 +128,7 @@ class _ParentalControlsScreenState extends ConsumerState<ParentalControlsScreen>
         onSave: (profile) async {
           final appState = ref.read(appStateProvider);
           final res = await _controller.addProfile(profile, appState);
-          if (mounted && res.message.isNotEmpty) {
-            context.showToastSuccess(res.message);
-          }
+          _showActionResult(res);
         },
       ),
     );
@@ -138,9 +147,7 @@ class _ParentalControlsScreenState extends ConsumerState<ParentalControlsScreen>
             profile,
             appState,
           );
-          if (mounted && res.message.isNotEmpty) {
-            context.showToastSuccess(res.message);
-          }
+          _showActionResult(res);
         },
       ),
     );
@@ -164,9 +171,7 @@ class _ParentalControlsScreenState extends ConsumerState<ParentalControlsScreen>
               Navigator.pop(ctx);
               final appState = ref.read(appStateProvider);
               final res = await _controller.deleteProfile(profile.id, appState);
-              if (mounted && res.message.isNotEmpty) {
-                context.showToastInfo(res.message);
-              }
+              _showActionResult(res, info: true);
             },
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             child: const Text('Delete'),
@@ -231,11 +236,7 @@ class _ParentalControlsScreenState extends ConsumerState<ParentalControlsScreen>
                             profile.id,
                             appState,
                           );
-                          if (mounted &&
-                              context.mounted &&
-                              res.message.isNotEmpty) {
-                            context.showToastInfo(res.message);
-                          }
+                          _showActionResult(res, info: true);
                         },
                       );
                     },

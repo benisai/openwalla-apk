@@ -321,15 +321,16 @@ class ParentalControlsController {
     AppState appState,
   ) async {
     _store.addProfile(profile);
-    await appState.saveParentalProfile(profile: profile);
+    final profileSaved = await appState.saveParentalProfile(profile: profile);
 
     if (profile.isCurrentlyBlocked) {
       for (final mac in profile.macAddresses) {
         await appState.pauseClientInternet(mac, pause: true, context: null);
       }
     }
+    var dnsApplied = true;
     if (profile.hasContentFilter) {
-      await appState.applyParentalProfileDns(
+      dnsApplied = await appState.applyParentalProfileDns(
         profileId: profile.id,
         macAddresses: profile.macAddresses,
         dnsServers: profile.contentFilter == ContentFilterDns.custom
@@ -339,6 +340,15 @@ class ParentalControlsController {
       );
     }
     await persistStore(appState);
+    if (!profileSaved || !dnsApplied) {
+      return ParentalActionResult(
+        success: false,
+        failureType: ParentalFailureType.partialSuccess,
+        message: dnsApplied
+            ? 'Profile saved locally, but the router profile could not be saved.'
+            : 'Profile saved locally, but its content filter could not be applied.',
+      );
+    }
     return ParentalActionResult(
       success: true,
       message: 'Profile "${profile.name}" created.',
@@ -354,7 +364,7 @@ class ParentalControlsController {
     final newMacs = Set<String>.from(updated.macAddresses);
     _store.updateProfile(updated);
 
-    await appState.saveParentalProfile(profile: updated);
+    final profileSaved = await appState.saveParentalProfile(profile: updated);
 
     // 1. Unblock MACs removed from profile (if no other profile blocks them)
     final removedMacs = oldMacs.difference(newMacs);
@@ -372,7 +382,7 @@ class ParentalControlsController {
     }
 
     // 3. Apply DNS changes
-    await appState.applyParentalProfileDns(
+    final dnsApplied = await appState.applyParentalProfileDns(
       profileId: updated.id,
       macAddresses: updated.macAddresses,
       dnsServers: updated.contentFilter == ContentFilterDns.custom
@@ -382,6 +392,15 @@ class ParentalControlsController {
     );
 
     await persistStore(appState);
+    if (!profileSaved || !dnsApplied) {
+      return ParentalActionResult(
+        success: false,
+        failureType: ParentalFailureType.partialSuccess,
+        message: dnsApplied
+            ? 'Profile updated locally, but the router profile could not be saved.'
+            : 'Profile updated locally, but its content filter could not be applied.',
+      );
+    }
     return ParentalActionResult(
       success: true,
       message: 'Profile "${updated.name}" updated.',
@@ -396,8 +415,10 @@ class ParentalControlsController {
     final profileName = profile?.name ?? 'Profile';
 
     _store.deleteProfile(profileId);
-    await appState.deleteParentalProfile(profileId: profileId);
-    await appState.applyParentalProfileDns(
+    final profileDeleted = await appState.deleteParentalProfile(
+      profileId: profileId,
+    );
+    final dnsRemoved = await appState.applyParentalProfileDns(
       profileId: profileId,
       macAddresses: [],
       dnsServers: null,
@@ -405,6 +426,15 @@ class ParentalControlsController {
     );
 
     await persistStore(appState);
+    if (!profileDeleted || !dnsRemoved) {
+      return ParentalActionResult(
+        success: false,
+        failureType: ParentalFailureType.partialSuccess,
+        message: dnsRemoved
+            ? 'Profile removed locally, but its router record could not be deleted.'
+            : 'Profile removed locally, but its DNS filter could not be removed.',
+      );
+    }
     return ParentalActionResult(
       success: true,
       message: 'Profile "$profileName" deleted.',
@@ -426,7 +456,7 @@ class ParentalControlsController {
     }
 
     final isNowEnabled = updated.isEnabled;
-    await appState.saveParentalProfile(profile: updated);
+    final profileSaved = await appState.saveParentalProfile(profile: updated);
 
     if (!isNowEnabled) {
       for (final mac in updated.macAddresses) {
@@ -438,7 +468,7 @@ class ParentalControlsController {
       }
     }
 
-    await appState.applyParentalProfileDns(
+    final dnsApplied = await appState.applyParentalProfileDns(
       profileId: updated.id,
       macAddresses: isNowEnabled ? updated.macAddresses : [],
       dnsServers: isNowEnabled
@@ -450,6 +480,15 @@ class ParentalControlsController {
     );
 
     await persistStore(appState);
+    if (!profileSaved || !dnsApplied) {
+      return ParentalActionResult(
+        success: false,
+        failureType: ParentalFailureType.partialSuccess,
+        message: dnsApplied
+            ? 'Profile state changed locally, but the router record was not updated.'
+            : 'Profile state changed locally, but its DNS filter was not updated.',
+      );
+    }
     final msg = isNowEnabled
         ? 'Rules re-enabled for ${updated.name}'
         : 'Restrictions bypassed for ${updated.name}';
