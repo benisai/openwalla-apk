@@ -28,7 +28,6 @@ class _VpnScreenState extends ConsumerState<VpnScreen> {
 
   final _portController = TextEditingController(text: '51820');
   final _vpnAddressController = TextEditingController(text: '10.8.0.1/24');
-  final _internalIpController = TextEditingController();
   final _clientConfigController = TextEditingController();
   final _clientAddressController = TextEditingController();
   final _clientDnsController = TextEditingController();
@@ -51,7 +50,6 @@ class _VpnScreenState extends ConsumerState<VpnScreen> {
   void dispose() {
     _portController.dispose();
     _vpnAddressController.dispose();
-    _internalIpController.dispose();
     _clientConfigController.dispose();
     _clientAddressController.dispose();
     _clientDnsController.dispose();
@@ -80,7 +78,6 @@ class _VpnScreenState extends ConsumerState<VpnScreen> {
         _clientSettings = clientSettings;
         _portController.text = settings.listenPort.toString();
         _vpnAddressController.text = settings.vpnAddress;
-        _internalIpController.text = settings.internalIpAddress;
         _syncClientControllers(clientSettings);
         _isLoading = false;
       });
@@ -96,7 +93,6 @@ class _VpnScreenState extends ConsumerState<VpnScreen> {
   Future<void> _saveServer() async {
     final port = int.tryParse(_portController.text.trim());
     final vpnAddress = _vpnAddressController.text.trim();
-    final internalIp = _internalIpController.text.trim();
 
     if (port == null || port < 1 || port > 65535) {
       _showSnack('Enter a UDP port between 1 and 65535.');
@@ -106,11 +102,6 @@ class _VpnScreenState extends ConsumerState<VpnScreen> {
       _showSnack('Enter the VPN address as CIDR, like 10.8.0.1/24.');
       return;
     }
-    if (internalIp.isNotEmpty && !_looksLikeIpv4(internalIp)) {
-      _showSnack('Enter a valid internal IPv4 address or leave it blank.');
-      return;
-    }
-
     setState(() => _isSaving = true);
     try {
       final updated = WireGuardServerSettings(
@@ -120,7 +111,7 @@ class _VpnScreenState extends ConsumerState<VpnScreen> {
         interfaceName: _settings.interfaceName,
         listenPort: port,
         vpnAddress: vpnAddress,
-        internalIpAddress: internalIp,
+        internalIpAddress: '',
         publicKey: _settings.publicKey,
       );
       await ref
@@ -541,18 +532,6 @@ class _VpnScreenState extends ConsumerState<VpnScreen> {
           ),
           const SizedBox(height: 12),
           TextField(
-            controller: _internalIpController,
-            decoration: const InputDecoration(
-              labelText: 'Internal IP Address',
-              helperText: 'Defaults to the WAN IPv4 address for this router.',
-              prefixIcon: Icon(Icons.router_rounded),
-              border: OutlineInputBorder(),
-            ),
-            keyboardType: TextInputType.number,
-            enabled: !_isSaving,
-          ),
-          const SizedBox(height: 12),
-          TextField(
             controller: _vpnAddressController,
             decoration: const InputDecoration(
               labelText: 'VPN Address',
@@ -564,7 +543,12 @@ class _VpnScreenState extends ConsumerState<VpnScreen> {
             enabled: !_isSaving,
           ),
           const SizedBox(height: 14),
-          _DetailRow(label: 'Firewall rule', value: 'owrt_wireguard_server'),
+          _DetailRow(label: 'Interface', value: _settings.interfaceName),
+          _DetailRow(label: 'Firewall zone', value: 'LAN'),
+          _DetailRow(
+            label: 'WAN access',
+            value: 'UDP ${_portController.text.trim()}',
+          ),
           _DetailRow(label: 'Public key', value: _settings.publicKey),
           const SizedBox(height: 18),
           SizedBox(

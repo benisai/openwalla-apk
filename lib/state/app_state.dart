@@ -1089,7 +1089,7 @@ class WireGuardServerSettings {
     installed: false,
     configured: false,
     enabled: true,
-    interfaceName: 'owrt_wg_server',
+    interfaceName: 'wg0',
     listenPort: 51820,
     vpnAddress: '10.8.0.1/24',
     internalIpAddress: '',
@@ -8243,7 +8243,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
         installed: true,
         configured: true,
         enabled: true,
-        interfaceName: 'owrt_wg_server',
+        interfaceName: 'wg0',
         listenPort: 51820,
         vpnAddress: '10.8.0.1/24',
         internalIpAddress: '203.0.113.10',
@@ -8257,47 +8257,75 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       return WireGuardServerSettings.defaults;
     }
 
-    const iface = 'owrt_wg_server';
     try {
-      final result = await _apiService!.call(
+      final feature = await getOpenwrtFeatureStatus(
+        OpenwrtFeature.wireguard,
+        forceRefresh: true,
+      );
+      final networkResult = await _apiService!.call(
         router.ipAddress,
         sysauth,
         router.useHttps,
-        object: 'file',
-        method: 'exec',
-        params: {
-          'command': '/bin/sh',
-          'params': [
-            '-c',
-            _withWireGuardBinaryLookup(
-              r'IFACE="owrt_wg_server"; '
-              r'installed=0; [ -n "$WG_BIN" ] && installed=1; '
-              r'configured=0; [ "$(uci -q get network.$IFACE.proto 2>/dev/null)" = "wireguard" ] && configured=1; '
-              r'enabled=1; [ "$(uci -q get network.$IFACE.disabled 2>/dev/null)" = "1" ] && enabled=0; '
-              r'port="$(uci -q get network.$IFACE.listen_port 2>/dev/null || echo 51820)"; '
-              r'addr="$(uci -q get network.$IFACE.addresses 2>/dev/null | awk "{print \$1}")"; [ -n "$addr" ] || addr="10.8.0.1/24"; '
-              r'wan_ip="$(ifstatus wan 2>/dev/null | jsonfilter -e "@[\"ipv4-address\"][0].address" 2>/dev/null || true)"; '
-              r'[ -n "$wan_ip" ] || wan_ip="$(uci -q get network.wan.ipaddr 2>/dev/null || true)"; '
-              r'internal_ip="$(uci -q get firewall.owrt_wg_server.dest_ip 2>/dev/null || true)"; [ -n "$internal_ip" ] || internal_ip="$wan_ip"; '
-              r'pub=""; priv="$(uci -q get network.$IFACE.private_key 2>/dev/null || true)"; '
-              r'if [ -n "$priv" ] && [ -n "$WG_BIN" ]; then pub="$(printf "%s" "$priv" | "$WG_BIN" pubkey 2>/dev/null || true)"; fi; '
-              r'printf "%s|%s|%s|%s|%s|%s|%s|%s\n" "$installed" "$configured" "$enabled" "$IFACE" "$port" "$addr" "$internal_ip" "$pub"',
-            ),
-          ],
-        },
-        context: context,
+        object: 'uci',
+        method: 'get',
+        params: {'config': 'network'},
       );
-      final parts = _commandOutput(result).trim().split('|');
-      if (parts.length < 8) return WireGuardServerSettings.defaults;
+      final values = _extractUciValues(networkResult);
+      MapEntry<dynamic, dynamic>? serverEntry;
+      for (final entry in values.entries) {
+        final config = entry.value;
+        if (config['proto']?.toString() != 'wireguard') {
+          continue;
+        }
+        final listenPort = config['listen_port']?.toString().trim() ?? '';
+        if (listenPort.isEmpty) continue;
+        if (serverEntry == null || entry.key.toString() == 'wg0') {
+          serverEntry = entry;
+        }
+      }
+      if (serverEntry == null) {
+        return WireGuardServerSettings(
+          installed: feature.installed,
+          configured: false,
+          enabled: true,
+          interfaceName: 'wg0',
+          listenPort: 51820,
+          vpnAddress: '10.8.0.1/24',
+          internalIpAddress: '',
+          publicKey: '',
+        );
+      }
+      final config = serverEntry.value as Map;
+      final interfaceName = serverEntry.key.toString();
+      String readFirst(dynamic value, String fallback) {
+        if (value is List && value.isNotEmpty) return value.first.toString();
+        final text = value?.toString().trim() ?? '';
+        return text.isEmpty ? fallback : text;
+      }
+
+      final privateKey = config['private_key']?.toString().trim() ?? '';
+      var publicKey = '';
+      if (privateKey.isNotEmpty) {
+        final keyResult = await _apiService!.systemExec(
+          router.ipAddress,
+          sysauth,
+          router.useHttps,
+          command: _withWireGuardBinaryLookup(
+            'printf %s ${_shellQuote(privateKey)} | "\$WG_BIN" pubkey',
+          ),
+        );
+        publicKey = _commandOutput(keyResult).trim();
+      }
       return WireGuardServerSettings(
-        installed: parts[0] == '1',
-        configured: parts[1] == '1',
-        enabled: parts[2] != '0',
-        interfaceName: parts[3].isEmpty ? iface : parts[3],
-        listenPort: int.tryParse(parts[4]) ?? 51820,
-        vpnAddress: parts[5].isEmpty ? '10.8.0.1/24' : parts[5],
-        internalIpAddress: parts[6],
-        publicKey: parts[7],
+        installed: feature.installed,
+        configured: true,
+        enabled: config['disabled']?.toString() != '1',
+        interfaceName: interfaceName,
+        listenPort:
+            int.tryParse(config['listen_port']?.toString() ?? '') ?? 51820,
+        vpnAddress: readFirst(config['addresses'], '10.8.0.1/24'),
+        internalIpAddress: '',
+        publicKey: publicKey,
       );
     } catch (e, stack) {
       Logger.warning('Optional WireGuard server settings fetch failed: $e');
@@ -8318,54 +8346,146 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       throw Exception('Router is not connected');
     }
 
-    final port = settings.listenPort.clamp(1, 65535);
-    final vpnAddress = _shellQuote(settings.vpnAddress.trim());
-    final internalIp = _shellQuote(settings.internalIpAddress.trim());
-    final disabled = settings.enabled ? '0' : '1';
-    final command = _withWireGuardBinaryLookup(
-      'IFACE="owrt_wg_server"; '
-      'PORT="$port"; '
-      'VPN_ADDR=$vpnAddress; '
-      'INTERNAL_IP=$internalIp; '
-      '[ -n "\$WG_BIN" ] || { echo "wireguard-tools is not installed"; exit 1; }; '
-      'mkdir -p /etc/wireguard; chmod 700 /etc/wireguard; '
-      'KEY_FILE="/etc/wireguard/openwalla_wg_server.key"; '
-      '[ -s "\$KEY_FILE" ] || "\$WG_BIN" genkey > "\$KEY_FILE"; chmod 600 "\$KEY_FILE"; '
-      'VPN_KEY="\$(cat "\$KEY_FILE")"; '
-      'uci -q delete network.\$IFACE; '
-      'uci set network.\$IFACE="interface"; '
-      'uci set network.\$IFACE.proto="wireguard"; '
-      'uci set network.\$IFACE.private_key="\$VPN_KEY"; '
-      'uci set network.\$IFACE.listen_port="\$PORT"; '
-      'uci set network.\$IFACE.disabled="$disabled"; '
-      'uci add_list network.\$IFACE.addresses="\$VPN_ADDR"; '
-      'uci commit network; '
-      'uci -q del_list firewall.lan.network="\$IFACE" 2>/dev/null || true; '
-      'uci add_list firewall.lan.network="\$IFACE"; '
-      'uci -q delete firewall.owrt_wg_server; '
-      'uci set firewall.owrt_wg_server="rule"; '
-      'uci set firewall.owrt_wg_server.name="owrt_wireguard_server"; '
-      'uci set firewall.owrt_wg_server.src="wan"; '
-      'uci set firewall.owrt_wg_server.proto="udp"; '
-      'uci set firewall.owrt_wg_server.dest_port="\$PORT"; '
-      'uci set firewall.owrt_wg_server.target="ACCEPT"; '
-      '[ -n "\$INTERNAL_IP" ] && uci set firewall.owrt_wg_server.dest_ip="\$INTERNAL_IP"; '
-      'uci commit firewall; '
-      '/etc/init.d/firewall reload >/dev/null 2>&1 || /etc/init.d/firewall restart >/dev/null 2>&1 || true; '
-      'if [ "$disabled" = "0" ]; then ifup "\$IFACE" >/dev/null 2>&1 || /etc/init.d/network reload >/dev/null 2>&1 || true; else ifdown "\$IFACE" >/dev/null 2>&1 || true; fi',
-    );
-
-    await _apiService!.call(
+    final interfaceName = settings.interfaceName.trim().isEmpty
+        ? 'wg0'
+        : settings.interfaceName.trim();
+    final networkResult = await _apiService!.call(
       router.ipAddress,
       sysauth,
       router.useHttps,
-      object: 'file',
-      method: 'exec',
+      object: 'uci',
+      method: 'get',
+      params: {'config': 'network'},
+    );
+    final current = _extractUciValues(networkResult)[interfaceName] ?? const {};
+    var privateKey = current['private_key']?.toString().trim() ?? '';
+    if (privateKey.isEmpty) {
+      final keyResult = await _apiService!.systemExec(
+        router.ipAddress,
+        sysauth,
+        router.useHttps,
+        command: _withWireGuardBinaryLookup('"\$WG_BIN" genkey'),
+      );
+      privateKey = _commandOutput(keyResult).trim();
+    }
+    if (privateKey.isEmpty) {
+      throw StateError('WireGuard could not generate a server private key.');
+    }
+
+    final interfaceResult = await _apiService!.call(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      object: 'uci',
+      method: 'set',
       params: {
-        'command': '/bin/sh',
-        'params': ['-c', command],
+        'config': 'network',
+        'section': interfaceName,
+        'type': 'interface',
+        'values': {
+          'proto': 'wireguard',
+          'private_key': privateKey,
+          'listen_port': settings.listenPort.clamp(1, 65535).toString(),
+          'addresses': [settings.vpnAddress.trim()],
+          'disabled': settings.enabled ? '0' : '1',
+        },
       },
-      context: context,
+    );
+    if (!_rpcCallSucceeded(interfaceResult)) {
+      throw StateError('The WireGuard interface update was rejected.');
+    }
+
+    final firewallResult = await _apiService!.call(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      object: 'uci',
+      method: 'get',
+      params: {'config': 'firewall'},
+    );
+    final firewall = _firewallValuesFromResult(firewallResult);
+    String? lanSection;
+    for (final entry in firewall.entries) {
+      final value = entry.value;
+      if (value is Map &&
+          value['.type'] == 'zone' &&
+          value['name']?.toString() == 'lan') {
+        lanSection = entry.key.toString();
+        break;
+      }
+    }
+    if (lanSection == null) {
+      throw StateError('The LAN firewall zone was not found.');
+    }
+    final lanConfig = firewall[lanSection] as Map;
+    final networks = <String>{};
+    final rawNetworks = lanConfig['network'];
+    if (rawNetworks is List) {
+      networks.addAll(rawNetworks.map((item) => item.toString()));
+    } else if (rawNetworks != null) {
+      networks.addAll(rawNetworks.toString().split(RegExp(r'\s+')));
+    }
+    networks.add(interfaceName);
+    final zoneResult = await _apiService!.call(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      object: 'uci',
+      method: 'set',
+      params: {
+        'config': 'firewall',
+        'section': lanSection,
+        'values': {
+          'network': networks.where((item) => item.isNotEmpty).toList(),
+        },
+      },
+    );
+    if (!_rpcCallSucceeded(zoneResult)) {
+      throw StateError('The LAN firewall zone update was rejected.');
+    }
+    final ruleResult = await _apiService!.call(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      object: 'uci',
+      method: 'set',
+      params: {
+        'config': 'firewall',
+        'section': 'owrt_wg_server',
+        'type': 'rule',
+        'values': {
+          'name': 'Allow-WireGuard',
+          'src': 'wan',
+          'proto': 'udp',
+          'dest_port': settings.listenPort.clamp(1, 65535).toString(),
+          'target': 'ACCEPT',
+          'enabled': settings.enabled ? '1' : '0',
+        },
+      },
+    );
+    if (!_rpcCallSucceeded(ruleResult)) {
+      throw StateError('The WireGuard firewall rule update was rejected.');
+    }
+    await _apiService!.uciCommit(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      config: 'network',
+    );
+    await _apiService!.uciCommit(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      config: 'firewall',
+    );
+    await _reloadFirewall(router, sysauth);
+    await _apiService!.systemExec(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      command: settings.enabled
+          ? 'ifup ${_shellQuote(interfaceName)} >/dev/null 2>&1 || /etc/init.d/network reload >/dev/null 2>&1'
+          : 'ifdown ${_shellQuote(interfaceName)} >/dev/null 2>&1 || true',
     );
   }
 
