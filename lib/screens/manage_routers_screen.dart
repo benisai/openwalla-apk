@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:luci_mobile/main.dart';
@@ -6,7 +9,9 @@ import 'package:luci_mobile/widgets/luci_app_bar.dart';
 import 'package:luci_mobile/utils/url_parser.dart';
 
 class ManageRoutersScreen extends ConsumerStatefulWidget {
-  const ManageRoutersScreen({super.key});
+  const ManageRoutersScreen({super.key, this.isFromLogin = false});
+
+  final bool isFromLogin;
 
   @override
   ConsumerState<ManageRoutersScreen> createState() =>
@@ -15,6 +20,86 @@ class ManageRoutersScreen extends ConsumerStatefulWidget {
 
 class _ManageRoutersScreenState extends ConsumerState<ManageRoutersScreen> {
   String? _switchingRouterId;
+  bool _profileIoBusy = false;
+
+  void _message(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _importProfiles() async {
+    if (_profileIoBusy) return;
+    setState(() => _profileIoBusy = true);
+    try {
+      final picked = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['json'],
+        withData: true,
+      );
+      final bytes = picked?.files.single.bytes;
+      if (bytes == null) return;
+      final result = await ref
+          .read(appStateProvider)
+          .importRouterProfiles(utf8.decode(bytes, allowMalformed: true));
+      if (!mounted) return;
+      _message(
+        result.success
+            ? 'Imported ${result.importedCount} and updated ${result.updatedCount} router profiles.'
+            : result.errorMessage ?? 'Unable to import router profiles.',
+      );
+    } catch (error) {
+      _message('Unable to import profiles: $error');
+    } finally {
+      if (mounted) setState(() => _profileIoBusy = false);
+    }
+  }
+
+  Future<void> _exportProfiles() async {
+    if (_profileIoBusy) return;
+    final appState = ref.read(appStateProvider);
+    if (appState.routers.isEmpty) {
+      _message('There are no saved routers to export.');
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Export router profiles?'),
+        content: const Text(
+          'The JSON backup includes router addresses, usernames, and passwords. Store it securely.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.of(context).pop(true),
+            icon: const Icon(Icons.file_upload_outlined),
+            label: const Text('Export'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _profileIoBusy = true);
+    try {
+      final path = await FilePicker.platform.saveFile(
+        dialogTitle: 'Export Openwalla Router Profiles',
+        fileName: 'openwalla-router-profiles.json',
+        type: FileType.custom,
+        allowedExtensions: const ['json'],
+        bytes: utf8.encode(appState.exportRouterProfiles()),
+      );
+      if (path != null) _message('Router profiles exported.');
+    } catch (error) {
+      _message('Unable to export profiles: $error');
+    } finally {
+      if (mounted) setState(() => _profileIoBusy = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -22,7 +107,24 @@ class _ManageRoutersScreenState extends ConsumerState<ManageRoutersScreen> {
     final List<model.Router> routers = appState.routers;
     final String? selectedId = appState.selectedRouter?.id;
     return Scaffold(
-      appBar: const LuciAppBar(title: 'Routers', showBack: true),
+      appBar: LuciAppBar(
+        title: 'Routers',
+        showBack: true,
+        actions: [
+          IconButton(
+            tooltip: 'Import JSON',
+            onPressed: _profileIoBusy ? null : _importProfiles,
+            icon: const Icon(Icons.file_download_outlined),
+          ),
+          IconButton(
+            tooltip: 'Export JSON',
+            onPressed: _profileIoBusy || routers.isEmpty
+                ? null
+                : _exportProfiles,
+            icon: const Icon(Icons.file_upload_outlined),
+          ),
+        ],
+      ),
       backgroundColor: Theme.of(context).colorScheme.surface,
       body: Column(
         children: [
@@ -87,6 +189,10 @@ class _ManageRoutersScreenState extends ConsumerState<ManageRoutersScreen> {
                               isSelected: isSelected,
                               isSwitching: isSwitching,
                               onTap: () async {
+                                if (widget.isFromLogin) {
+                                  Navigator.of(context).pop(router);
+                                  return;
+                                }
                                 if (!isSelected && !isSwitching) {
                                   setState(() {
                                     _switchingRouterId = router.id;
@@ -159,7 +265,13 @@ class _ManageRoutersScreenState extends ConsumerState<ManageRoutersScreen> {
                                 );
                                 if (!context.mounted) return;
                                 if (confirm == true) {
-                                  await appState.removeRouter(router.id);
+                                  if (widget.isFromLogin) {
+                                    await appState.removeSavedRouterProfile(
+                                      router.id,
+                                    );
+                                  } else {
+                                    await appState.removeRouter(router.id);
+                                  }
                                 }
                               },
                             ),
@@ -619,6 +731,34 @@ class _ManageRoutersScreenState extends ConsumerState<ManageRoutersScreen> {
                                 if (!context.mounted) return;
                               },
                             ),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: _profileIoBusy
+                                      ? null
+                                      : _importProfiles,
+                                  icon: const Icon(
+                                    Icons.file_download_outlined,
+                                  ),
+                                  label: const Text('Import JSON'),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: _profileIoBusy
+                                      ? null
+                                      : _exportProfiles,
+                                  icon: const Icon(Icons.file_upload_outlined),
+                                  label: const Text('Export JSON'),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                         const SizedBox(height: 24),

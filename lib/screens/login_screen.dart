@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:luci_mobile/main.dart';
+import 'package:luci_mobile/screens/manage_routers_screen.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'package:luci_mobile/config/app_config.dart';
@@ -403,6 +404,72 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     setState(() => _prefillRouter(selected));
   }
 
+  Future<void> _openRouterManager() async {
+    final router = await Navigator.of(context).push<model.Router>(
+      MaterialPageRoute(
+        builder: (context) => const ManageRoutersScreen(isFromLogin: true),
+      ),
+    );
+    if (router != null && mounted) {
+      setState(() => _prefillRouter(router));
+    }
+  }
+
+  Future<bool> _confirmExit() async {
+    return await showDialog<bool>(
+          context: context,
+          builder: (context) {
+            final colors = Theme.of(context).colorScheme;
+            return AlertDialog(
+              title: Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: colors.primary.withValues(alpha: 0.14),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.exit_to_app_rounded,
+                      color: colors.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(child: Text('Exit Openwalla?')),
+                ],
+              ),
+              content: const Text('Are you sure you want to exit the app?'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: const Text('Exit'),
+                ),
+              ],
+            );
+          },
+        ) ??
+        false;
+  }
+
+  Widget _withExitGuard(Widget child) {
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        if (await _confirmExit() && mounted) {
+          await SystemNavigator.pop();
+        }
+      },
+      child: child,
+    );
+  }
+
   Future<void> _connect() async {
     if (_formKey.currentState!.validate()) {
       FocusManager.instance.primaryFocus?.unfocus();
@@ -536,14 +603,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   @override
   Widget build(BuildContext context) {
     if (_isCheckingAutoLogin) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return _withExitGuard(
+        const Scaffold(body: Center(child: CircularProgressIndicator())),
+      );
     }
 
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
     final colorScheme = theme.colorScheme;
 
-    return Scaffold(
+    return _withExitGuard(Scaffold(
       body: Stack(
         children: [
           Container(
@@ -997,9 +1066,25 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                                                     ),
                                                   )
                                                 : const SizedBox.shrink(),
-                                          ),
-                                          const SizedBox(height: 16),
-                                          TweenAnimationBuilder<double>(
+                                            ),
+                                            const SizedBox(height: 16),
+                                            Align(
+                                              alignment: Alignment.centerRight,
+                                              child: TextButton.icon(
+                                                onPressed: appState.isLoading
+                                                    ? null
+                                                    : _openRouterManager,
+                                                icon: const Icon(
+                                                  Icons.router_outlined,
+                                                  size: 19,
+                                                ),
+                                                label: const Text(
+                                                  'Manage Routers',
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            TweenAnimationBuilder<double>(
                                             duration: const Duration(
                                               milliseconds: 100,
                                             ),
@@ -1114,6 +1199,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
           ),
         ],
       ),
-    );
+    ));
   }
 }
