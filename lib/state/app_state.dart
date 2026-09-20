@@ -4931,6 +4931,60 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     }
   }
 
+  Future<void> updateFirewallZone({
+    required OpenwrtFirewallZone zone,
+    required List<String> networks,
+    required String input,
+    required String output,
+    required String forward,
+    required bool masquerading,
+    required bool mtuFix,
+    BuildContext? context,
+  }) async {
+    if (_reviewerModeEnabled) {
+      await Future.delayed(const Duration(milliseconds: 450));
+      notifyListeners();
+      return;
+    }
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) {
+      throw StateError('No selected router connection is available');
+    }
+
+    final result = await _apiService!.call(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      object: 'uci',
+      method: 'set',
+      params: {
+        'config': 'firewall',
+        'section': zone.section,
+        'values': {
+          'network': networks,
+          'input': input.toUpperCase(),
+          'output': output.toUpperCase(),
+          'forward': forward.toUpperCase(),
+          'masq': masquerading ? '1' : '0',
+          'mtu_fix': mtuFix ? '1' : '0',
+        },
+      },
+      context: context,
+    );
+    if (!_rpcCallSucceeded(result)) {
+      throw StateError('The firewall zone update was rejected by the router.');
+    }
+    await _apiService!.uciCommit(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      config: 'firewall',
+    );
+    await _reloadFirewall(router, sysauth);
+    notifyListeners();
+  }
+
   Future<List<OpenwrtFirewallForwarding>> fetchFirewallForwardings({
     BuildContext? context,
   }) async {

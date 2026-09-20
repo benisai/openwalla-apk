@@ -904,6 +904,7 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
                                       defaults: _firewallDefaults,
                                       zones: _firewallZones,
                                       onRefresh: _loadNetworkPanels,
+                                      onEdit: _showEditFirewallZoneSheet,
                                     ),
                                   ],
                                 ),
@@ -965,6 +966,62 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
       builder: (context) => _AddPortForwardSheet(forward: forward),
     );
     if (saved == true) await _loadNetworkPanels();
+  }
+
+  Future<void> _showEditFirewallZoneSheet(OpenwrtFirewallZone zone) async {
+    final dashboard = ref.read(appStateProvider).dashboardData;
+    final interfaceRows = dashboard?['interfaceDump']?['interface'];
+    final availableNetworks = <String>{};
+    if (interfaceRows is List) {
+      for (final row in interfaceRows) {
+        if (row is! Map) continue;
+        final name = row['interface']?.toString().trim() ?? '';
+        if (name.isNotEmpty && name != 'loopback') availableNetworks.add(name);
+      }
+    }
+    availableNetworks.addAll(
+      zone.networks
+          .split(RegExp(r'[,\s]+'))
+          .map((item) => item.trim())
+          .where((item) => item.isNotEmpty && item != 'Any'),
+    );
+
+    final update = await showModalBottomSheet<_FirewallZoneUpdate>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (context) => _FirewallZoneEditSheet(
+        zone: zone,
+        availableNetworks: availableNetworks.toList()..sort(),
+      ),
+    );
+    if (update == null || !mounted) return;
+
+    try {
+      await ref
+          .read(appStateProvider)
+          .updateFirewallZone(
+            zone: zone,
+            networks: update.networks,
+            input: update.input,
+            output: update.output,
+            forward: update.forward,
+            masquerading: update.masquerading,
+            mtuFix: update.mtuFix,
+            context: context,
+          );
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('${zone.name} zone updated.')));
+      await _loadNetworkPanels();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to update ${zone.name}: $error')),
+      );
+    }
   }
 
   Widget _buildWiredInterfacesList() {
@@ -1958,7 +2015,7 @@ class _WirelessPanelSwitcher extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    const tabs = ['Wi-Fi', 'STA'];
+    const tabs = ['Wi-Fi', 'Repeater'];
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 10),
       padding: const EdgeInsets.all(4),
@@ -2186,17 +2243,320 @@ class _PortForwardCard extends StatelessWidget {
   }
 }
 
+class _FirewallZoneUpdate {
+  const _FirewallZoneUpdate({
+    required this.networks,
+    required this.input,
+    required this.output,
+    required this.forward,
+    required this.masquerading,
+    required this.mtuFix,
+  });
+
+  final List<String> networks;
+  final String input;
+  final String output;
+  final String forward;
+  final bool masquerading;
+  final bool mtuFix;
+}
+
+class _FirewallZoneEditSheet extends StatefulWidget {
+  const _FirewallZoneEditSheet({
+    required this.zone,
+    required this.availableNetworks,
+  });
+
+  final OpenwrtFirewallZone zone;
+  final List<String> availableNetworks;
+
+  @override
+  State<_FirewallZoneEditSheet> createState() => _FirewallZoneEditSheetState();
+}
+
+class _FirewallZoneEditSheetState extends State<_FirewallZoneEditSheet> {
+  static const _policies = ['ACCEPT', 'REJECT', 'DROP'];
+  late final Set<String> _networks;
+  late String _input;
+  late String _output;
+  late String _forward;
+  late bool _masquerading;
+  late bool _mtuFix;
+
+  @override
+  void initState() {
+    super.initState();
+    _networks = widget.zone.networks
+        .split(RegExp(r'[,\s]+'))
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty && item != 'Any')
+        .toSet();
+    _input = widget.zone.input;
+    _output = widget.zone.output;
+    _forward = widget.zone.forward;
+    _masquerading = widget.zone.masquerading;
+    _mtuFix = widget.zone.mtuFix;
+  }
+
+  void _save() {
+    Navigator.of(context).pop(
+      _FirewallZoneUpdate(
+        networks: _networks.toList()..sort(),
+        input: _input,
+        output: _output,
+        forward: _forward,
+        masquerading: _masquerading,
+        mtuFix: _mtuFix,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        20,
+        4,
+        20,
+        20 + MediaQuery.viewInsetsOf(context).bottom,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: colors.primaryContainer,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.shield_outlined,
+                    color: colors.onPrimaryContainer,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Edit ${widget.zone.name.toUpperCase()} Zone',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      Text(
+                        'UCI section: ${widget.zone.section}',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: colors.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Close',
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            Text(
+              'Covered Networks',
+              style: Theme.of(
+                context,
+              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Interfaces assigned to this firewall zone',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              decoration: BoxDecoration(
+                color: colors.surfaceContainerHighest.withValues(alpha: 0.35),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: widget.availableNetworks.isEmpty
+                  ? const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Text('No logical network interfaces found.'),
+                    )
+                  : Column(
+                      children: [
+                        for (
+                          var index = 0;
+                          index < widget.availableNetworks.length;
+                          index++
+                        ) ...[
+                          if (index > 0) const Divider(height: 1),
+                          CheckboxListTile(
+                            dense: true,
+                            title: Text(widget.availableNetworks[index]),
+                            value: _networks.contains(
+                              widget.availableNetworks[index],
+                            ),
+                            onChanged: (selected) => setState(() {
+                              if (selected == true) {
+                                _networks.add(widget.availableNetworks[index]);
+                              } else {
+                                _networks.remove(
+                                  widget.availableNetworks[index],
+                                );
+                              }
+                            }),
+                          ),
+                        ],
+                      ],
+                    ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Default Policies',
+              style: Theme.of(
+                context,
+              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: _FirewallPolicyField(
+                    label: 'Input',
+                    value: _input,
+                    policies: _policies,
+                    onChanged: (value) => setState(() => _input = value),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _FirewallPolicyField(
+                    label: 'Output',
+                    value: _output,
+                    policies: _policies,
+                    onChanged: (value) => setState(() => _output = value),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _FirewallPolicyField(
+                    label: 'Forward',
+                    value: _forward,
+                    policies: _policies,
+                    onChanged: (value) => setState(() => _forward = value),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Masquerading (NAT)'),
+              subtitle: const Text('Rewrite outgoing source addresses'),
+              value: _masquerading,
+              onChanged: (value) => setState(() => _masquerading = value),
+            ),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('MSS Clamping'),
+              subtitle: const Text('Adjust TCP MSS to the outgoing MTU'),
+              value: _mtuFix,
+              onChanged: (value) => setState(() => _mtuFix = value),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Cancel'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: _save,
+                    icon: const Icon(Icons.check_rounded),
+                    label: const Text('Save Zone'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FirewallPolicyField extends StatelessWidget {
+  const _FirewallPolicyField({
+    required this.label,
+    required this.value,
+    required this.policies,
+    required this.onChanged,
+  });
+
+  final String label;
+  final String value;
+  final List<String> policies;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return DropdownButtonFormField<String>(
+      initialValue: policies.contains(value) ? value : 'REJECT',
+      isExpanded: true,
+      decoration: InputDecoration(
+        labelText: label,
+        border: const OutlineInputBorder(),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 10,
+          vertical: 14,
+        ),
+      ),
+      items: policies
+          .map(
+            (policy) => DropdownMenuItem(
+              value: policy,
+              child: Text(
+                policy,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12),
+              ),
+            ),
+          )
+          .toList(),
+      onChanged: (value) {
+        if (value != null) onChanged(value);
+      },
+    );
+  }
+}
+
 class _FirewallZonesPanel extends StatelessWidget {
   final bool isLoading;
   final OpenwrtFirewallDefaults defaults;
   final List<OpenwrtFirewallZone> zones;
   final Future<void> Function() onRefresh;
+  final ValueChanged<OpenwrtFirewallZone> onEdit;
 
   const _FirewallZonesPanel({
     required this.isLoading,
     required this.defaults,
     required this.zones,
     required this.onRefresh,
+    required this.onEdit,
   });
 
   @override
@@ -2229,7 +2589,9 @@ class _FirewallZonesPanel extends StatelessWidget {
           title: 'Firewall Zones Overview',
         ),
         const SizedBox(height: 10),
-        ...zones.map((zone) => _FirewallZoneCard(zone: zone)),
+        ...zones.map(
+          (zone) => _FirewallZoneCard(zone: zone, onEdit: () => onEdit(zone)),
+        ),
       ],
     );
   }
@@ -2342,8 +2704,9 @@ Color _firewallPolicyColor(BuildContext context, String policy) {
 
 class _FirewallZoneCard extends StatelessWidget {
   final OpenwrtFirewallZone zone;
+  final VoidCallback onEdit;
 
-  const _FirewallZoneCard({required this.zone});
+  const _FirewallZoneCard({required this.zone, required this.onEdit});
 
   Color _policyColor(BuildContext context, String policy) {
     return _firewallPolicyColor(context, policy);
@@ -2381,6 +2744,11 @@ class _FirewallZoneCard extends StatelessWidget {
                     label: 'MASQUERADE (NAT)',
                     color: Color(0xFF1688D4),
                   ),
+                IconButton(
+                  tooltip: 'Edit ${zone.name} zone',
+                  onPressed: onEdit,
+                  icon: const Icon(Icons.edit_outlined, size: 20),
+                ),
               ],
             ),
             const SizedBox(height: 10),
