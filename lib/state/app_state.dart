@@ -8800,6 +8800,51 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     }
   }
 
+  Future<bool> factoryReset({BuildContext? context}) async {
+    if (_reviewerModeEnabled) {
+      await Future.delayed(const Duration(milliseconds: 700));
+      return true;
+    }
+    if (_authService?.sysauth == null || _authService?.ipAddress == null) {
+      return false;
+    }
+
+    _cancelThroughputTimer();
+    _isRebooting = true;
+    notifyListeners();
+
+    try {
+      final result = await _apiService!.systemExec(
+        _authService!.ipAddress!,
+        _authService!.sysauth!,
+        _authService!.useHttps,
+        command: '/sbin/firstboot -y',
+        context: context,
+      );
+      final resetAccepted =
+          result is List && result.isNotEmpty && result.first == 0;
+      if (!resetAccepted) {
+        _isRebooting = false;
+        notifyListeners();
+        return false;
+      }
+
+      // Do not call reboot(), because normal reboots intentionally save
+      // Openwalla state first. A factory reset must leave nothing to restore.
+      await _apiService!.reboot(
+        _authService!.ipAddress!,
+        _authService!.sysauth!,
+        _authService!.useHttps,
+      );
+      return true;
+    } catch (e, stack) {
+      Logger.exception('Router factory reset failed', e, stack);
+      _isRebooting = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
   void finishRebootRecovery() {
     _isRebooting = false;
     if (_dashboardData != null) {
