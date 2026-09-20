@@ -30,6 +30,10 @@ set_uci openwalla.ping_monitor.warning_percent "95"
 set_uci openwalla.ping_monitor.timeout "2"
 set_uci openwalla.ping_monitor.output_file "/tmp/openwalla-ping-monitor.txt"
 set_uci openwalla.ping_monitor.max_lines "2000"
+set_uci openwalla.ping_monitor.state_file "/tmp/openwalla-ping-monitor.state"
+set_uci openwalla.ping_monitor.outage_failures "2"
+set_uci openwalla.ping_monitor.restore_successes "2"
+set_uci openwalla.ping_monitor.alert_cooldown "1800"
 uci commit openwalla
 
 /usr/bin/openwalla-ping-monitor --once || true

@@ -31,11 +31,26 @@ CREATE TABLE IF NOT EXISTS notifications (
 	app TEXT NOT NULL DEFAULT '',
 	msg TEXT NOT NULL DEFAULT '',
 	archived INTEGER NOT NULL DEFAULT 0,
-	"delete" INTEGER NOT NULL DEFAULT 0
+	"delete" INTEGER NOT NULL DEFAULT 0,
+	category TEXT NOT NULL DEFAULT '',
+	severity TEXT NOT NULL DEFAULT '',
+	title TEXT NOT NULL DEFAULT '',
+	details TEXT NOT NULL DEFAULT '',
+	metadata TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_notifications_timestamp ON notifications(timestamp);
 CREATE INDEX IF NOT EXISTS idx_notifications_archived ON notifications(archived);
 SQL
+	for column in \
+		"category TEXT NOT NULL DEFAULT ''" \
+		"severity TEXT NOT NULL DEFAULT ''" \
+		"title TEXT NOT NULL DEFAULT ''" \
+		"details TEXT NOT NULL DEFAULT ''" \
+		"metadata TEXT NOT NULL DEFAULT ''"; do
+		name="${column%% *}"
+		"$SQLITE_BIN" "$DB_PATH" "SELECT $name FROM notifications LIMIT 0;" >/dev/null 2>&1 || \
+			"$SQLITE_BIN" "$DB_PATH" "ALTER TABLE notifications ADD COLUMN $column;"
+	done
 	echo "initialized: $DB_PATH"
 }
 

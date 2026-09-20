@@ -561,26 +561,12 @@ class _RecentEventsCard extends StatelessWidget {
   });
 
   Color _eventColor(OpenwallaNotification notification) {
-    final app = notification.app.toLowerCase();
-    final message = notification.message.toLowerCase();
-    if (message.contains('restored') ||
-        message.contains('connected') ||
-        message.contains('ok')) {
-      return NetworkPerformanceScreen._green;
-    }
-    if (message.contains('threshold') ||
-        message.contains('latency') ||
-        message.contains('dropped')) {
-      return NetworkPerformanceScreen._yellow;
-    }
-    if (message.contains('disconnect') ||
-        message.contains('failed') ||
-        message.contains('outage') ||
-        message.contains('blocked') ||
-        app.contains('quarantine')) {
-      return const Color(0xFFFF4D4F);
-    }
-    return NetworkPerformanceScreen._cyan;
+    return switch (notification.effectiveSeverity) {
+      'resolved' => NetworkPerformanceScreen._green,
+      'warning' => NetworkPerformanceScreen._yellow,
+      'critical' => const Color(0xFFFF4D4F),
+      _ => NetworkPerformanceScreen._cyan,
+    };
   }
 
   String _formatTimestamp(DateTime timestamp) {
@@ -682,7 +668,7 @@ class _RecentEventsCard extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            event.message,
+                            event.displayTitle,
                             style: Theme.of(context).textTheme.titleMedium
                                 ?.copyWith(
                                   color: colorScheme.onSurface,

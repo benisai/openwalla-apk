@@ -134,6 +134,11 @@ class OpenwallaNotification {
   final String message;
   final bool archived;
   final bool deleted;
+  final String category;
+  final String severity;
+  final String title;
+  final String details;
+  final String metadata;
 
   const OpenwallaNotification({
     required this.id,
@@ -142,6 +147,11 @@ class OpenwallaNotification {
     required this.message,
     required this.archived,
     required this.deleted,
+    this.category = '',
+    this.severity = '',
+    this.title = '',
+    this.details = '',
+    this.metadata = '',
   });
 
   static OpenwallaNotification? fromSqliteRow(String line) {
@@ -162,7 +172,52 @@ class OpenwallaNotification {
       message: parts[3],
       archived: parts[4] == '1',
       deleted: parts[5] == '1',
+      category: parts.length > 6 ? parts[6] : '',
+      severity: parts.length > 7 ? parts[7] : '',
+      title: parts.length > 8 ? parts[8] : '',
+      details: parts.length > 9 ? parts[9] : '',
+      metadata: parts.length > 10 ? parts[10] : '',
     );
+  }
+
+  String get displayTitle {
+    if (title.trim().isNotEmpty) return title.trim();
+    final lower = message.toLowerCase();
+    if (lower.contains('ping outage')) return 'Internet connection lost';
+    if (lower.contains('threshold exceeded')) return 'High latency detected';
+    if (lower.contains('restored')) return 'Internet connection restored';
+    if (lower.contains('new device')) return 'New device detected';
+    return app.trim().isEmpty ? 'Openwalla event' : app.trim();
+  }
+
+  String get displayDetails {
+    if (details.trim().isNotEmpty) return details.trim();
+    return message.trim();
+  }
+
+  String get effectiveSeverity {
+    if (severity.trim().isNotEmpty) return severity.trim().toLowerCase();
+    final lower = message.toLowerCase();
+    if (lower.contains('restored') || lower.contains('connected')) {
+      return 'resolved';
+    }
+    if (lower.contains('outage') ||
+        lower.contains('failed') ||
+        lower.contains('disconnect') ||
+        lower.contains('blocked')) {
+      return 'critical';
+    }
+    if (lower.contains('threshold') || lower.contains('latency')) {
+      return 'warning';
+    }
+    return 'info';
+  }
+
+  String get effectiveCategory {
+    if (category.trim().isNotEmpty) return category.trim().toLowerCase();
+    if (app.toLowerCase().contains('ping')) return 'network_health';
+    if (app.toLowerCase().contains('quarantine')) return 'device';
+    return 'system';
   }
 }
 
@@ -6229,12 +6284,23 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     try {
       final safeLimit = limit.clamp(1, 500).toInt();
       final archivedFilter = includeArchived ? '' : ' AND archived = 0';
-      final output = await _sqliteQueryOutput(
-        dbExpression: _notificationsDbExpression(),
-        sql:
-            'SELECT id, timestamp, app, msg, archived, "delete" FROM notifications WHERE "delete" = 0$archivedFilter ORDER BY timestamp DESC LIMIT $safeLimit;',
-        context: context,
-      );
+      String output;
+      try {
+        output = await _sqliteQueryOutput(
+          dbExpression: _notificationsDbExpression(),
+          sql:
+              'SELECT id, timestamp, app, msg, archived, "delete", category, severity, title, details, metadata FROM notifications WHERE "delete" = 0$archivedFilter ORDER BY timestamp DESC LIMIT $safeLimit;',
+          context: context,
+        );
+      } catch (_) {
+        if (context != null && !context.mounted) return const [];
+        output = await _sqliteQueryOutput(
+          dbExpression: _notificationsDbExpression(),
+          sql:
+              'SELECT id, timestamp, app, msg, archived, "delete" FROM notifications WHERE "delete" = 0$archivedFilter ORDER BY timestamp DESC LIMIT $safeLimit;',
+          context: context,
+        );
+      }
       return output
           .split('\n')
           .map((line) => OpenwallaNotification.fromSqliteRow(line.trim()))

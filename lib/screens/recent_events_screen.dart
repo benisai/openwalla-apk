@@ -100,26 +100,12 @@ class _RecentEventTile extends StatelessWidget {
   const _RecentEventTile({required this.event, required this.isLast});
 
   Color _eventColor() {
-    final app = event.app.toLowerCase();
-    final message = event.message.toLowerCase();
-    if (message.contains('restored') ||
-        message.contains('connected') ||
-        message.contains('ok')) {
-      return const Color(0xFF20CF70);
-    }
-    if (message.contains('threshold') ||
-        message.contains('latency') ||
-        message.contains('dropped')) {
-      return const Color(0xFFEAB308);
-    }
-    if (message.contains('disconnect') ||
-        message.contains('failed') ||
-        message.contains('outage') ||
-        message.contains('blocked') ||
-        app.contains('quarantine')) {
-      return const Color(0xFFFF4D4F);
-    }
-    return const Color(0xFF18AEEA);
+    return switch (event.effectiveSeverity) {
+      'resolved' => const Color(0xFF20CF70),
+      'warning' => const Color(0xFFFFB020),
+      'critical' => const Color(0xFFFF4D4F),
+      _ => const Color(0xFF18AEEA),
+    };
   }
 
   String _formatTimestamp(DateTime timestamp) {
@@ -190,7 +176,7 @@ class _RecentEventTile extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        event.message,
+                        event.displayTitle,
                         style: Theme.of(context).textTheme.titleSmall?.copyWith(
                           color: colorScheme.onSurface,
                           fontWeight: FontWeight.w900,
@@ -206,6 +192,18 @@ class _RecentEventTile extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 7),
+                if (event.displayDetails != event.displayTitle) ...[
+                  Text(
+                    event.displayDetails,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0,
+                      height: 1.3,
+                    ),
+                  ),
+                  const SizedBox(height: 7),
+                ],
                 Text(
                   _formatTimestamp(event.timestamp),
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
