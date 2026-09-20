@@ -571,25 +571,31 @@ class _CronEditorSheetState extends State<_CronEditorSheet> {
                     const SizedBox(height: 18),
                     Row(
                       children: [
-                        if (editing)
-                          IconButton.filledTonal(
-                            tooltip: 'Delete task',
-                            style: IconButton.styleFrom(
-                              foregroundColor: colors.error,
+                        if (editing) ...[
+                          Expanded(
+                            child: OutlinedButton(
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: colors.error,
+                                side: BorderSide(color: colors.error),
+                              ),
+                              onPressed: _delete,
+                              child: const Text('Delete'),
                             ),
-                            onPressed: _delete,
-                            icon: const Icon(Icons.delete_outline_rounded),
                           ),
-                        const Spacer(),
-                        TextButton(
-                          onPressed: () => Navigator.of(context).pop(),
-                          child: const Text('Cancel'),
+                          const SizedBox(width: 8),
+                        ],
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: _save,
+                            child: Text(editing ? 'Save' : 'Add'),
+                          ),
                         ),
                         const SizedBox(width: 8),
-                        FilledButton.icon(
-                          onPressed: _save,
-                          icon: const Icon(Icons.check_rounded),
-                          label: Text(editing ? 'Save Task' : 'Add Task'),
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            child: const Text('Cancel'),
+                          ),
                         ),
                       ],
                     ),
