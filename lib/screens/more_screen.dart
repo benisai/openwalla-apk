@@ -6,6 +6,7 @@ import 'package:luci_mobile/main.dart';
 import 'package:luci_mobile/screens/backup_restore_screen.dart';
 import 'package:luci_mobile/screens/login_screen.dart';
 import 'package:luci_mobile/screens/reboot_countdown_screen.dart';
+import 'package:luci_mobile/screens/router_management_screen.dart';
 import 'package:luci_mobile/screens/settings_screen.dart';
 import 'package:luci_mobile/screens/router_setup_screen.dart';
 import 'package:luci_mobile/widgets/luci_app_bar.dart';
@@ -214,6 +215,21 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
                 );
                 return _MoreScreenSection(
                   tiles: [
+                    _buildMoreTile(
+                      context,
+                      icon: Icons.router_outlined,
+                      iconColor: Theme.of(context).colorScheme.primary,
+                      title: 'Router Management',
+                      subtitle: 'View, restart, back up, or reset this router',
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                const RouterManagementScreen(),
+                          ),
+                        );
+                      },
+                    ),
                     _buildMoreTile(
                       context,
                       icon: Icons.restart_alt,

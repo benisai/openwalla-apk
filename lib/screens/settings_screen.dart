@@ -6,7 +6,6 @@ import 'package:luci_mobile/main.dart';
 import 'package:luci_mobile/state/app_state.dart';
 import 'package:luci_mobile/widgets/luci_app_bar.dart';
 import 'package:luci_mobile/screens/router_dashboard_settings_screen.dart';
-import 'package:luci_mobile/screens/router_management_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -119,18 +118,6 @@ class SettingsScreen extends ConsumerWidget {
                     onTap: () => _openSettingsPage(
                       context,
                       const _ThemeSettingsScreen(),
-                    ),
-                  ),
-                  const Divider(height: 32),
-                  _buildSectionTitle(context, 'Router'),
-                  _buildSettingsCard(
-                    context: context,
-                    icon: Icons.router_outlined,
-                    title: 'Router Management',
-                    subtitle: 'View, restart, back up, or reset this router',
-                    onTap: () => _openSettingsPage(
-                      context,
-                      const RouterManagementScreen(),
                     ),
                   ),
                   const Divider(height: 32),
