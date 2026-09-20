@@ -955,6 +955,7 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
   }
 
   Future<void> _showAddPortForwardSheet([OpenwrtPortForward? forward]) async {
+    final routerIp = ref.read(appStateProvider).selectedRouter?.ipAddress ?? '';
     final saved = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -963,7 +964,8 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (context) => _AddPortForwardSheet(forward: forward),
+      builder: (context) =>
+          _AddPortForwardSheet(forward: forward, routerIp: routerIp),
     );
     if (saved == true) await _loadNetworkPanels();
   }
@@ -2981,8 +2983,9 @@ class _NetworkValueBlock extends StatelessWidget {
 
 class _AddPortForwardSheet extends ConsumerStatefulWidget {
   final OpenwrtPortForward? forward;
+  final String routerIp;
 
-  const _AddPortForwardSheet({this.forward});
+  const _AddPortForwardSheet({this.forward, required this.routerIp});
 
   @override
   ConsumerState<_AddPortForwardSheet> createState() =>
@@ -3018,7 +3021,12 @@ class _AddPortForwardSheetState extends ConsumerState<_AddPortForwardSheet> {
         ? ''
         : forward.destinationPort;
     _sourceZone = forward.source;
-    _destinationZone = forward.destinationZone;
+    _destinationZone =
+        widget.routerIp.isNotEmpty &&
+            forward.destinationIp == widget.routerIp &&
+            forward.destinationZone == 'lan'
+        ? 'router'
+        : forward.destinationZone;
     final protocol = _normalizeProtocol(forward.protocol);
     _protocol = const {'tcp', 'udp', 'tcp udp'}.contains(protocol)
         ? protocol
@@ -3056,14 +3064,20 @@ class _AddPortForwardSheetState extends ConsumerState<_AddPortForwardSheet> {
     try {
       final appState = ref.read(appStateProvider);
       final forward = widget.forward;
+      final destinationZone = _destinationZone == 'router'
+          ? 'lan'
+          : _destinationZone;
+      final destinationIp = _destinationZone == 'router'
+          ? widget.routerIp
+          : _destinationIpController.text;
       if (forward == null) {
         await appState.addPortForward(
           name: _nameController.text,
           sourceZone: _sourceZone,
           externalPort: _externalPortController.text,
           protocol: _protocol,
-          destinationZone: _destinationZone,
-          destinationIp: _destinationIpController.text,
+          destinationZone: destinationZone,
+          destinationIp: destinationIp,
           internalPort: _internalPortController.text,
         );
       } else {
@@ -3073,8 +3087,8 @@ class _AddPortForwardSheetState extends ConsumerState<_AddPortForwardSheet> {
           sourceZone: _sourceZone,
           externalPort: _externalPortController.text,
           protocol: _protocol,
-          destinationZone: _destinationZone,
-          destinationIp: _destinationIpController.text,
+          destinationZone: destinationZone,
+          destinationIp: destinationIp,
           internalPort: _internalPortController.text,
         );
       }
@@ -3102,11 +3116,19 @@ class _AddPortForwardSheetState extends ConsumerState<_AddPortForwardSheet> {
     }
   }
 
-  List<DropdownMenuItem<String>> _zoneItems(String selected) {
-    final zones = <String>{'wan', 'lan', selected};
+  List<DropdownMenuItem<String>> _zoneItems(
+    String selected, {
+    bool includeRouter = false,
+  }) {
+    final zones = <String>{'wan', 'lan', if (includeRouter) 'router', selected};
     return zones
         .where((zone) => zone.trim().isNotEmpty)
-        .map((zone) => DropdownMenuItem(value: zone, child: Text(zone)))
+        .map(
+          (zone) => DropdownMenuItem(
+            value: zone,
+            child: Text(zone == 'router' ? 'Router' : zone.toUpperCase()),
+          ),
+        )
         .toList();
   }
 
@@ -3287,20 +3309,33 @@ class _AddPortForwardSheetState extends ConsumerState<_AddPortForwardSheet> {
                             labelText: 'Destination Zone',
                             prefixIcon: Icon(Icons.lan_outlined),
                           ),
-                          items: _zoneItems(_destinationZone),
-                          onChanged: (value) =>
-                              setState(() => _destinationZone = value ?? 'lan'),
+                          items: _zoneItems(
+                            _destinationZone,
+                            includeRouter: true,
+                          ),
+                          onChanged: (value) {
+                            setState(() {
+                              _destinationZone = value ?? 'lan';
+                              if (_destinationZone == 'router') {
+                                _destinationIpController.text = widget.routerIp;
+                              }
+                            });
+                          },
                         ),
                         const SizedBox(height: 12),
                         TextFormField(
                           controller: _destinationIpController,
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                             labelText: 'Destination IP Address',
-                            prefixIcon: Icon(Icons.computer_rounded),
+                            prefixIcon: const Icon(Icons.computer_rounded),
+                            helperText: _destinationZone == 'router'
+                                ? 'Router local address'
+                                : null,
                           ),
                           validator: _required,
                           keyboardType: TextInputType.number,
                           textInputAction: TextInputAction.next,
+                          readOnly: _destinationZone == 'router',
                         ),
                         const SizedBox(height: 12),
                         TextFormField(
