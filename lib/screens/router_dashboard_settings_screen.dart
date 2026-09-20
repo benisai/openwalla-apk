@@ -847,6 +847,20 @@ class _RouterDashboardSettingsScreenState
                 title: 'Parental Controls Shortcut',
                 subtitle: 'Show device schedules and block groups',
                 icon: Icons.family_restroom_rounded,
+                value: _preferences.showParentalShortcut,
+                onChanged: (value) {
+                  setState(() {
+                    _preferences = _preferences.copyWith(
+                      showParentalShortcut: value,
+                    );
+                  });
+                  _onPreferenceChanged();
+                },
+              ),
+              _buildCardVisibilitySwitch(
+                title: 'Scheduler Shortcut',
+                subtitle: 'Show system cron jobs and scheduled commands',
+                icon: Icons.schedule_rounded,
                 value: _preferences.showSchedulerShortcut,
                 onChanged: (value) {
                   setState(() {
@@ -933,7 +947,8 @@ class _RouterDashboardSettingsScreenState
       'adblock' => 'AdBlock',
       'services' => 'Services',
       'vpn' => 'VPN',
-      'scheduler' => 'Parental Controls',
+      'parental' => 'Parental Controls',
+      'scheduler' => 'Scheduler',
       'ddns' => 'DDNS',
       _ => id,
     };
@@ -949,7 +964,8 @@ class _RouterDashboardSettingsScreenState
       'adblock' => Icons.block_rounded,
       'services' => Icons.miscellaneous_services_rounded,
       'vpn' => Icons.security_rounded,
-      'scheduler' => Icons.family_restroom_rounded,
+      'parental' => Icons.family_restroom_rounded,
+      'scheduler' => Icons.schedule_rounded,
       'ddns' => Icons.cloud_sync_rounded,
       _ => Icons.apps_rounded,
     };

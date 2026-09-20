@@ -8845,6 +8845,65 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     }
   }
 
+  Future<String> fetchRootCrontab({BuildContext? context}) async {
+    if (_reviewerModeEnabled) {
+      return '0 4 * * * /usr/bin/openwalla-state-sync save\n'
+          '*/15 * * * * /usr/bin/openwalla-network-monitor --once\n'
+          '# 30 2 * * 0 /sbin/wifi reload\n';
+    }
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null) {
+      throw StateError('No authenticated router is selected.');
+    }
+    final result = await _apiService!.call(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      object: 'file',
+      method: 'read',
+      params: {'path': '/etc/crontabs/root'},
+      context: context,
+    );
+    if (result is! List || result.isEmpty || result.first != 0) {
+      throw StateError('The router crontab could not be read.');
+    }
+    return _commandOutput(result);
+  }
+
+  Future<bool> saveRootCrontab(String content, {BuildContext? context}) async {
+    if (_reviewerModeEnabled) {
+      await Future.delayed(const Duration(milliseconds: 450));
+      return true;
+    }
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null) return false;
+    try {
+      final result = await _apiService!.call(
+        router.ipAddress,
+        sysauth,
+        router.useHttps,
+        object: 'file',
+        method: 'write',
+        params: {'path': '/etc/crontabs/root', 'data': content},
+        context: context,
+      );
+      if (result is! List || result.isEmpty || result.first != 0) return false;
+      await _apiService!.systemExec(
+        router.ipAddress,
+        sysauth,
+        router.useHttps,
+        command:
+            '/etc/init.d/cron reload >/dev/null 2>&1 || /etc/init.d/cron restart >/dev/null 2>&1',
+      );
+      return true;
+    } catch (e, stack) {
+      Logger.exception('Saving root crontab failed', e, stack);
+      return false;
+    }
+  }
+
   void finishRebootRecovery() {
     _isRebooting = false;
     if (_dashboardData != null) {

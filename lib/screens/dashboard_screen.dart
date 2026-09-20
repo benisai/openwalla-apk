@@ -11,6 +11,7 @@ import 'package:luci_mobile/widgets/luci_animation_system.dart';
 import 'package:luci_mobile/models/dashboard_preferences.dart';
 import 'package:luci_mobile/screens/adblock_screen.dart';
 import 'package:luci_mobile/screens/clients_screen.dart';
+import 'package:luci_mobile/screens/cron_scheduler_screen.dart';
 import 'package:luci_mobile/screens/dns_screen.dart';
 import 'package:luci_mobile/screens/ddns_screen.dart';
 import 'package:luci_mobile/screens/flows_screen.dart';
@@ -1260,9 +1261,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                 );
               },
             ),
-          if (preferences.showSchedulerShortcut)
+          if (preferences.showParentalShortcut)
             _DashboardShortcutData(
-              id: 'scheduler',
+              id: 'parental',
               label: 'Parental',
               icon: Icons.family_restroom_rounded,
               color: _openwallaGreen,
@@ -1270,6 +1271,20 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                 Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (context) => const ParentalControlsScreen(),
+                  ),
+                );
+              },
+            ),
+          if (preferences.showSchedulerShortcut)
+            _DashboardShortcutData(
+              id: 'scheduler',
+              label: 'Scheduler',
+              icon: Icons.schedule_rounded,
+              color: _shortcutYellow,
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const CronSchedulerScreen(),
                   ),
                 );
               },

@@ -14,6 +14,7 @@ class DashboardPreferences {
   final bool showSmartQueueShortcut;
   final bool showAdblockShortcut;
   final bool showVpnShortcut;
+  final bool showParentalShortcut;
   final bool showSchedulerShortcut;
   final bool showDdnsShortcut;
   final bool showInactiveWirelessNetworks;
@@ -36,6 +37,7 @@ class DashboardPreferences {
     this.showSmartQueueShortcut = true,
     this.showAdblockShortcut = true,
     this.showVpnShortcut = true,
+    this.showParentalShortcut = true,
     this.showSchedulerShortcut = true,
     this.showDdnsShortcut = true,
     this.showInactiveWirelessNetworks = false,
@@ -56,6 +58,7 @@ class DashboardPreferences {
     'adblock',
     'services',
     'vpn',
+    'parental',
     'scheduler',
     'ddns',
   ];
@@ -74,6 +77,7 @@ class DashboardPreferences {
     bool? showSmartQueueShortcut,
     bool? showAdblockShortcut,
     bool? showVpnShortcut,
+    bool? showParentalShortcut,
     bool? showSchedulerShortcut,
     bool? showDdnsShortcut,
     bool? showInactiveWirelessNetworks,
@@ -105,6 +109,7 @@ class DashboardPreferences {
           showSmartQueueShortcut ?? this.showSmartQueueShortcut,
       showAdblockShortcut: showAdblockShortcut ?? this.showAdblockShortcut,
       showVpnShortcut: showVpnShortcut ?? this.showVpnShortcut,
+      showParentalShortcut: showParentalShortcut ?? this.showParentalShortcut,
       showSchedulerShortcut:
           showSchedulerShortcut ?? this.showSchedulerShortcut,
       showDdnsShortcut: showDdnsShortcut ?? this.showDdnsShortcut,
@@ -134,7 +139,8 @@ class DashboardPreferences {
     'showSmartQueueShortcut': showSmartQueueShortcut,
     'showAdblockShortcut': showAdblockShortcut,
     'showVpnShortcut': showVpnShortcut,
-    'showSchedulerShortcut': showSchedulerShortcut,
+    'showParentalShortcut': showParentalShortcut,
+    'showCronSchedulerShortcut': showSchedulerShortcut,
     'showDdnsShortcut': showDdnsShortcut,
     'showInactiveWirelessNetworks': showInactiveWirelessNetworks,
     'shortcutPanelVisibleCount': shortcutPanelVisibleCount,
@@ -164,7 +170,9 @@ class DashboardPreferences {
       showSmartQueueShortcut: json['showSmartQueueShortcut'] ?? true,
       showAdblockShortcut: json['showAdblockShortcut'] ?? true,
       showVpnShortcut: json['showVpnShortcut'] ?? true,
-      showSchedulerShortcut: json['showSchedulerShortcut'] ?? true,
+      showParentalShortcut:
+          json['showParentalShortcut'] ?? json['showSchedulerShortcut'] ?? true,
+      showSchedulerShortcut: json['showCronSchedulerShortcut'] ?? true,
       showDdnsShortcut: json['showDdnsShortcut'] ?? true,
       showInactiveWirelessNetworks:
           json['showInactiveWirelessNetworks'] == true,
@@ -193,9 +201,14 @@ class DashboardPreferences {
   }
 
   static List<String> _parseShortcutOrder(dynamic value) {
-    final raw = value is List
+    final original = value is List
         ? value.map((item) => item.toString()).toList()
         : const <String>[];
+    final raw = original.contains('parental')
+        ? original
+        : original
+              .map((item) => item == 'scheduler' ? 'parental' : item)
+              .toList();
     final clean = raw
         .where((item) => defaultShortcutOrder.contains(item))
         .toSet()
