@@ -453,15 +453,16 @@ class _ThemeAccentTile extends StatelessWidget {
   }
 }
 
-class _PingSettingsScreen extends ConsumerStatefulWidget {
-  const _PingSettingsScreen();
+class _NetworkMonitorSettingsScreen extends ConsumerStatefulWidget {
+  const _NetworkMonitorSettingsScreen();
 
   @override
-  ConsumerState<_PingSettingsScreen> createState() =>
-      _PingSettingsScreenState();
+  ConsumerState<_NetworkMonitorSettingsScreen> createState() =>
+      _NetworkMonitorSettingsScreenState();
 }
 
-class _PingSettingsScreenState extends ConsumerState<_PingSettingsScreen> {
+class _NetworkMonitorSettingsScreenState
+    extends ConsumerState<_NetworkMonitorSettingsScreen> {
   final _targetController = TextEditingController(text: '1.1.1.1');
   final _thresholdController = TextEditingController(text: '100');
   bool _isLoading = true;
@@ -483,7 +484,9 @@ class _PingSettingsScreenState extends ConsumerState<_PingSettingsScreen> {
   Future<void> _loadSettings() async {
     setState(() => _isLoading = true);
     final appState = ref.read(appStateProvider);
-    final settings = await appState.fetchPingMonitorSettings(context: context);
+    final settings = await appState.fetchNetworkMonitorSettings(
+      context: context,
+    );
     if (!mounted) return;
 
     _targetController.text = settings.target;
@@ -508,18 +511,18 @@ class _PingSettingsScreenState extends ConsumerState<_PingSettingsScreen> {
     try {
       await ref
           .read(appStateProvider)
-          .savePingMonitorSettings(
-            PingMonitorSettings(target: target, thresholdMs: threshold),
+          .saveNetworkMonitorSettings(
+            NetworkMonitorSettings(target: target, thresholdMs: threshold),
             context: context,
           );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ping monitor settings saved.')),
+        const SnackBar(content: Text('Network monitor settings saved.')),
       );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to save ping settings: $e')),
+        SnackBar(content: Text('Failed to save network monitor settings: $e')),
       );
     } finally {
       if (mounted) {
@@ -531,7 +534,7 @@ class _PingSettingsScreenState extends ConsumerState<_PingSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: const LuciAppBar(title: 'Ping Settings', showBack: true),
+      appBar: const LuciAppBar(title: 'Network Monitor', showBack: true),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : ListView(

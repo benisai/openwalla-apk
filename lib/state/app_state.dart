@@ -46,11 +46,14 @@ enum OpenwallaThemeAccent {
   }
 }
 
-class PingMonitorSettings {
+class NetworkMonitorSettings {
   final String target;
   final int thresholdMs;
 
-  const PingMonitorSettings({required this.target, required this.thresholdMs});
+  const NetworkMonitorSettings({
+    required this.target,
+    required this.thresholdMs,
+  });
 }
 
 class DnsMonitorSettings {
@@ -215,7 +218,10 @@ class OpenwallaNotification {
 
   String get effectiveCategory {
     if (category.trim().isNotEmpty) return category.trim().toLowerCase();
-    if (app.toLowerCase().contains('ping')) return 'network_health';
+    if (app.toLowerCase().contains('ping') ||
+        app.toLowerCase().contains('network-monitor')) {
+      return 'network_health';
+    }
     if (app.toLowerCase().contains('interface') ||
         message.toLowerCase().contains('ethernet')) {
       return 'interface';
@@ -1542,8 +1548,8 @@ class AppState extends ChangeNotifier {
   static const List<({String name, String label, String category})>
   _managedServices = [
     (
-      name: 'openwalla-ping-monitor',
-      label: 'Ping Monitor',
+      name: 'openwalla-network-monitor',
+      label: 'Network Monitor',
       category: 'Openwalla',
     ),
     (
@@ -2149,7 +2155,7 @@ class AppState extends ChangeNotifier {
   Future<bool> hasNetworkPerformanceSupport({BuildContext? context}) async {
     if (_reviewerModeEnabled) return true;
     final hasInstalledScripts = await _routerCommandSucceeds(
-      '[ -x /usr/bin/openwalla-ping-monitor ] && [ -x /usr/bin/openwalla-dns-monitor ] && [ -x /usr/bin/openwalla-speedtest-monitor ] && echo OK',
+      '[ -x /usr/bin/openwalla-network-monitor ] && [ -x /usr/bin/openwalla-dns-monitor ] && [ -x /usr/bin/openwalla-speedtest-monitor ] && echo OK',
       context: context,
     );
     if (hasInstalledScripts) return true;
@@ -2157,10 +2163,10 @@ class AppState extends ChangeNotifier {
     try {
       final values = await _fetchOpenwallaUciValues();
       if (values is Map) {
-        final hasPingConfig = values['ping_monitor'] is Map;
+        final hasNetworkConfig = values['network_monitor'] is Map;
         final hasDnsConfig = values['dns_monitor'] is Map;
         final hasSpeedtestConfig = values['speedtest_monitor'] is Map;
-        if (hasPingConfig || hasDnsConfig || hasSpeedtestConfig) {
+        if (hasNetworkConfig || hasDnsConfig || hasSpeedtestConfig) {
           return true;
         }
       }
@@ -3604,7 +3610,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       return const [
         'Fri Sep 11 10:14:03 2026 daemon.info dnsmasq[1321]: started, version 2.90 cachesize 150',
         'Fri Sep 11 10:14:05 2026 daemon.notice netifd: Interface lan is now up',
-        'Fri Sep 11 10:14:07 2026 user.info openwalla-ping-monitor: latency 18.4ms target=benisai.com',
+        'Fri Sep 11 10:14:07 2026 user.info openwalla-network-monitor: latency 18.4ms target=benisai.com',
         'Fri Sep 11 10:14:12 2026 kern.info kernel: br-lan: port 1(eth0) entered forwarding state',
       ].take(safeLimit).toList();
     }
@@ -6269,7 +6275,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
         OpenwallaNotification(
           id: 1,
           timestamp: now.subtract(const Duration(minutes: 4)),
-          app: 'ping-monitor',
+          app: 'network-monitor',
           message: 'Ping threshold exceeded: target=1.1.1.1 latency=124ms',
           archived: false,
           deleted: false,
@@ -6811,10 +6817,13 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     return data is Map ? data['values'] as Map? : null;
   }
 
-  Future<PingMonitorSettings> fetchPingMonitorSettings({
+  Future<NetworkMonitorSettings> fetchNetworkMonitorSettings({
     BuildContext? context,
   }) async {
-    const defaults = PingMonitorSettings(target: '1.1.1.1', thresholdMs: 100);
+    const defaults = NetworkMonitorSettings(
+      target: '1.1.1.1',
+      thresholdMs: 100,
+    );
     if (_reviewerModeEnabled) return defaults;
 
     final router = _routerService?.selectedRouter;
@@ -6825,26 +6834,26 @@ done | sort -t "|" -k1,1nr | head -n ''' +
 
     try {
       final values = await _fetchOpenwallaUciValues(context: context);
-      final ping = values is Map ? values['ping_monitor'] : null;
+      final ping = values is Map ? values['network_monitor'] : null;
 
       if (ping is Map) {
         final target = ping['target']?.toString();
         final threshold = int.tryParse(ping['threshold']?.toString() ?? '');
-        return PingMonitorSettings(
+        return NetworkMonitorSettings(
           target: target?.isNotEmpty == true ? target! : defaults.target,
           thresholdMs: threshold ?? defaults.thresholdMs,
         );
       }
     } catch (e, stack) {
-      Logger.warning('Failed to fetch ping monitor settings: $e');
-      Logger.debug('Ping monitor settings stack: $stack');
+      Logger.warning('Failed to fetch network monitor settings: $e');
+      Logger.debug('Network monitor settings stack: $stack');
     }
 
     return defaults;
   }
 
-  Future<void> savePingMonitorSettings(
-    PingMonitorSettings settings, {
+  Future<void> saveNetworkMonitorSettings(
+    NetworkMonitorSettings settings, {
     BuildContext? context,
   }) async {
     if (_reviewerModeEnabled) return;
@@ -6860,7 +6869,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       sysauth,
       router.useHttps,
       config: 'openwalla',
-      section: 'ping_monitor',
+      section: 'network_monitor',
       values: {
         'target': settings.target,
         'threshold': settings.thresholdMs.toString(),
@@ -6878,7 +6887,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       sysauth,
       router.useHttps,
       command:
-          '/etc/init.d/openwalla-ping-monitor restart >/dev/null 2>&1 || true',
+          '/etc/init.d/openwalla-network-monitor restart >/dev/null 2>&1 || true',
     );
   }
 
@@ -6977,7 +6986,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
           'command': '/bin/sh',
           'params': [
             '-c',
-            r'file="$(uci -q get openwalla.ping_monitor.output_file 2>/dev/null || echo /tmp/openwalla-ping-monitor.txt)"; '
+            r'file="$(uci -q get openwalla.network_monitor.output_file 2>/dev/null || echo /tmp/openwalla-network-monitor.txt)"; '
                 'if [ -f "\$file" ]; then tail -n $safeLimit "\$file" 2>/dev/null; fi',
           ],
         },
@@ -6990,8 +6999,8 @@ done | sort -t "|" -k1,1nr | head -n ''' +
           .whereType<PingMonitorSample>()
           .toList();
     } catch (e, stack) {
-      Logger.warning('Optional ping monitor samples fetch failed: $e');
-      Logger.debug('Optional ping monitor samples stack: $stack');
+      Logger.warning('Optional network monitor samples fetch failed: $e');
+      Logger.debug('Optional network monitor samples stack: $stack');
       return const [];
     }
   }

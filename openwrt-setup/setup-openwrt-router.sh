@@ -39,17 +39,17 @@ Usage:
 Examples:
   sh setup-openwrt-router.sh netify
   sh setup-openwrt-router.sh conntrack
-  sh setup-openwrt-router.sh ping dns speedtest
+  sh setup-openwrt-router.sh network-monitor dns speedtest
   sh setup-openwrt-router.sh monitoring
   sh setup-openwrt-router.sh stack --with-netify
   sh setup-openwrt-router.sh --profile=3
-  sh setup-openwrt-router.sh uninstall ping dns speedtest
+  sh setup-openwrt-router.sh uninstall network-monitor dns speedtest
   sh setup-openwrt-router.sh uninstall usage adblock netify
 
 Feature groups:
   stack        Standard Openwrt apps plus Openwalla monitoring, usage,
                notifications, devices, blocking, state sync, and quarantine.
-  monitoring   Standard apps plus usage, ping, DNS, speedtest, notifications,
+  monitoring   Standard apps plus usage, network, DNS, speedtest, notifications,
                devices, device bandwidth, blocking, and state sync.
   flows        Simple Conntrack flows plus detailed Netify flows.
   all          Everything in stack plus AdBlock, PBR, Netify, banIP, and SQM.
@@ -57,7 +57,7 @@ Feature groups:
 Individual features:
   standard          uhttpd-mod-ubus, nlbwmon, vnstat2/vnstat, sqlite, conntrack, qrencode
   usage            vnstat/nlbwmon usage support
-  ping             ping monitor script and init service
+  network-monitor  latency, outage, and Ethernet link monitor
   dns              DNS monitor script and init service
   speedtest        speedtest monitor script and cron
   notifications    notifications sqlite helper
@@ -126,7 +126,7 @@ feature_to_installer() {
 	case "$1" in
 	standard) echo "install-standard-apps.sh" ;;
 	usage) echo "install-usage-monitoring.sh" ;;
-	ping) echo "install-ping-monitor.sh" ;;
+	network-monitor) echo "install-network-monitor.sh" ;;
 	dns) echo "install-dns-monitor.sh" ;;
 	speedtest) echo "install-speedtest-monitor.sh" ;;
 	notifications) echo "install-notifications-db.sh" ;;
@@ -152,7 +152,7 @@ canonical_feature() {
 	case "$1" in
 	apps|packages|standard-apps) echo "standard" ;;
 	usage|statistics|stats|vnstat|nlbwmon) echo "usage" ;;
-	ping|ping-test|ping-monitor) echo "ping" ;;
+	network|network-monitor|ping|ping-test|ping-monitor) echo "network-monitor" ;;
 	dns|dns-test|dns-monitor) echo "dns" ;;
 	speedtest|speed-test|speedtest-monitor) echo "speedtest" ;;
 	notifications|notification|notifications-db) echo "notifications" ;;
@@ -177,7 +177,7 @@ canonical_feature() {
 append_monitoring_features() {
 	append_feature standard
 	append_feature usage
-	append_feature ping
+	append_feature network-monitor
 	append_feature dns
 	append_feature speedtest
 	append_feature notifications
@@ -427,9 +427,12 @@ uninstall_feature() {
 		remove_pkg_if_installed vnstat
 		clear_openwalla_section dashboard
 		;;
-	ping)
+	network-monitor)
+		stop_disable_service openwalla-network-monitor
 		stop_disable_service openwalla-ping-monitor
+		rm -f /usr/bin/openwalla-network-monitor /etc/init.d/openwalla-network-monitor
 		rm -f /usr/bin/openwalla-ping-monitor /etc/init.d/openwalla-ping-monitor
+		clear_openwalla_section network_monitor
 		clear_openwalla_section ping_monitor
 		;;
 	dns)

@@ -223,9 +223,9 @@ class _NetworkPerformanceScreenState
       await ref
           .read(appStateProvider)
           .installOpenwallaSetupFeatures(
-            const ['ping', 'dns', 'speedtest', 'notifications'],
+            const ['network-monitor', 'dns', 'speedtest', 'notifications'],
             postInstallCheck:
-                '[ -x /usr/bin/openwalla-ping-monitor ] && [ -x /usr/bin/openwalla-dns-monitor ] && [ -x /usr/bin/openwalla-speedtest-monitor ] && echo OK',
+                '[ -x /usr/bin/openwalla-network-monitor ] && [ -x /usr/bin/openwalla-dns-monitor ] && [ -x /usr/bin/openwalla-speedtest-monitor ] && echo OK',
             onOutput: (chunk) {
               outputBuffer.write(chunk);
               console.setOutput(outputBuffer.toString().trimRight());
@@ -349,7 +349,7 @@ class _NetworkSetupRequiredCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'Install the Openwalla ping, DNS, and speedtest helper scripts to enable the timeline and test graphs.',
+            'Install the Openwalla network, DNS, and speedtest helpers to enable the timeline and test graphs.',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               color: colorScheme.onSurfaceVariant,
               fontWeight: FontWeight.w700,

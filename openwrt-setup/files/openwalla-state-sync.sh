@@ -96,11 +96,11 @@ read_parental_db() {
 	echo "$path"
 }
 
-read_ping_file() {
+read_network_file() {
 	local path
-	path="$(uci_get openwalla.ping_monitor.output_file)"
+	path="$(uci_get openwalla.network_monitor.output_file)"
 	if [ -z "$path" ]; then
-		path="/tmp/openwalla-ping-monitor.txt"
+		path="/tmp/openwalla-network-monitor.txt"
 	fi
 	echo "$path"
 }
@@ -186,7 +186,7 @@ save_runtime_logs() {
 		/tmp/openwalla-device-quarantine.log \
 		/tmp/openwalla-dns-monitor.last.log \
 		/tmp/openwalla-paternal-pause.last.log \
-		/tmp/openwalla-ping-monitor.last.log \
+		/tmp/openwalla-network-monitor.last.log \
 		/tmp/openwalla-speedtest-monitor.last.log
 	do
 		[ -f "$f" ] || continue
@@ -222,7 +222,7 @@ read_last_backup_epoch() {
 		"$state_dir/openwalla-device-bandwidth.sqlite" \
 			"$state_dir/openwalla-notifications.sqlite" \
 			"$state_dir/openwalla-parental.sqlite" \
-		"$state_dir/openwalla-ping-monitor.txt" \
+		"$state_dir/openwalla-network-monitor.txt" \
 		"$state_dir/openwalla-dns-monitor.txt" \
 		"$state_dir/openwalla-speedtest-monitor.txt" \
 		"$state_dir/openwalla-quarantine-known.txt" \
@@ -278,7 +278,7 @@ restore_vnstat_dir() {
 }
 
 save_state() {
-	local state_dir netify_db flows_db devices_db device_bandwidth_db notifications_db parental_db ping_file dns_file speedtest_file quarantine_state_file
+	local state_dir netify_db flows_db devices_db device_bandwidth_db notifications_db parental_db network_file dns_file speedtest_file quarantine_state_file
 	state_dir="$(read_state_dir)"
 	netify_db="$(read_netify_db)"
 	flows_db="$(read_connection_flows_db)"
@@ -286,7 +286,7 @@ save_state() {
 	device_bandwidth_db="$(read_device_bandwidth_db)"
 	notifications_db="$(read_notifications_db)"
 	parental_db="$(read_parental_db)"
-	ping_file="$(read_ping_file)"
+	network_file="$(read_network_file)"
 	dns_file="$(read_dns_file)"
 	speedtest_file="$(read_speedtest_file)"
 	quarantine_state_file="$(read_quarantine_state_file)"
@@ -299,7 +299,7 @@ save_state() {
 	save_sqlite "$notifications_db" "$state_dir/openwalla-notifications.sqlite"
 	save_sqlite "$parental_db" "$state_dir/openwalla-parental.sqlite"
 	save_netify_archives "$netify_db" "$state_dir"
-	save_copy "$ping_file" "$state_dir/openwalla-ping-monitor.txt"
+	save_copy "$network_file" "$state_dir/openwalla-network-monitor.txt"
 	save_copy "$dns_file" "$state_dir/openwalla-dns-monitor.txt"
 	save_copy "$speedtest_file" "$state_dir/openwalla-speedtest-monitor.txt"
 	save_copy "$quarantine_state_file" "$state_dir/openwalla-quarantine-known.txt"
@@ -311,7 +311,7 @@ save_state() {
 }
 
 restore_state() {
-	local state_dir netify_db flows_db devices_db device_bandwidth_db notifications_db parental_db ping_file dns_file speedtest_file quarantine_state_file
+	local state_dir netify_db flows_db devices_db device_bandwidth_db notifications_db parental_db network_file dns_file speedtest_file quarantine_state_file
 	state_dir="$(read_state_dir)"
 	netify_db="$(read_netify_db)"
 	flows_db="$(read_connection_flows_db)"
@@ -319,7 +319,7 @@ restore_state() {
 	device_bandwidth_db="$(read_device_bandwidth_db)"
 	notifications_db="$(read_notifications_db)"
 	parental_db="$(read_parental_db)"
-	ping_file="$(read_ping_file)"
+	network_file="$(read_network_file)"
 	dns_file="$(read_dns_file)"
 	speedtest_file="$(read_speedtest_file)"
 	quarantine_state_file="$(read_quarantine_state_file)"
@@ -332,7 +332,11 @@ restore_state() {
 	restore_copy "$state_dir/openwalla-notifications.sqlite" "$notifications_db"
 	restore_copy "$state_dir/openwalla-parental.sqlite" "$parental_db"
 	restore_netify_archives "$netify_db" "$state_dir"
-	restore_copy "$state_dir/openwalla-ping-monitor.txt" "$ping_file"
+	if [ -f "$state_dir/openwalla-network-monitor.txt" ]; then
+		restore_copy "$state_dir/openwalla-network-monitor.txt" "$network_file"
+	else
+		restore_copy "$state_dir/openwalla-ping-monitor.txt" "$network_file"
+	fi
 	restore_copy "$state_dir/openwalla-dns-monitor.txt" "$dns_file"
 	restore_copy "$state_dir/openwalla-speedtest-monitor.txt" "$speedtest_file"
 	restore_copy "$state_dir/openwalla-quarantine-known.txt" "$quarantine_state_file"
@@ -393,7 +397,7 @@ print_debug() {
 	local state_dir
 	state_dir="$(read_state_dir)"
 	print_status
-	printf "runtime_ping_file|%s|%s\n" "$(read_ping_file)" "$(wc -l "$(read_ping_file)" 2>/dev/null | awk '{print $1}' || echo 0)"
+	printf "runtime_network_file|%s|%s\n" "$(read_network_file)" "$(wc -l "$(read_network_file)" 2>/dev/null | awk '{print $1}' || echo 0)"
 	printf "runtime_dns_file|%s|%s\n" "$(read_dns_file)" "$(wc -l "$(read_dns_file)" 2>/dev/null | awk '{print $1}' || echo 0)"
 	printf "runtime_speedtest_file|%s|%s\n" "$(read_speedtest_file)" "$(wc -l "$(read_speedtest_file)" 2>/dev/null | awk '{print $1}' || echo 0)"
 	printf "checkpoint_files|\n"

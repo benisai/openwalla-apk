@@ -8,7 +8,7 @@ Use the dispatcher when you want a simple feature command:
 sh openwrt-setup/setup-openwrt-router.sh netify
 sh openwrt-setup/setup-openwrt-router.sh conntrack
 sh openwrt-setup/setup-openwrt-router.sh device-speed
-sh openwrt-setup/setup-openwrt-router.sh ping dns speedtest
+sh openwrt-setup/setup-openwrt-router.sh network-monitor dns speedtest
 sh openwrt-setup/setup-openwrt-router.sh stack --with-netify
 ```
 
@@ -33,7 +33,8 @@ Available installers:
 - `install-netify.sh` - netifyd plus Openwalla Netify collector
 - `install-conntrack.sh` - connection flow collector backed by SQLite
 - `install-device-speed.sh` - one-shot conntrack byte summary for live per-device speed
-- `install-ping-monitor.sh` / `install-ping-test.sh` - ping monitor output for latency timeline
+- `install-network-monitor.sh` - latency, outage, and Ethernet link monitoring
+- `install-ping-monitor.sh` / `install-ping-test.sh` - compatibility aliases for the network monitor
 - `install-dns-monitor.sh` / `install-dns-test.sh` - DNS monitor output
 - `install-speedtest-monitor.sh` - speedtest helper and cron schedule
 - `install-usage-monitoring.sh` - vnStat/nlbwmon usage package support

@@ -42,13 +42,13 @@ class _NetworkPerformanceSettingsScreenState
     setState(() => _isLoading = true);
     final appState = ref.read(appStateProvider);
     final results = await Future.wait([
-      appState.fetchPingMonitorSettings(context: context),
+      appState.fetchNetworkMonitorSettings(context: context),
       appState.fetchDnsMonitorSettings(context: context),
       appState.fetchSpeedtestMonitorSettings(context: context),
     ]);
     if (!mounted) return;
 
-    final ping = results[0] as PingMonitorSettings;
+    final ping = results[0] as NetworkMonitorSettings;
     final dns = results[1] as DnsMonitorSettings;
     final speedtest = results[2] as SpeedtestMonitorSettings;
     setState(() {
@@ -82,8 +82,8 @@ class _NetworkPerformanceSettingsScreenState
     setState(() => _isSaving = true);
     try {
       final appState = ref.read(appStateProvider);
-      await appState.savePingMonitorSettings(
-        PingMonitorSettings(target: pingTarget, thresholdMs: threshold),
+      await appState.saveNetworkMonitorSettings(
+        NetworkMonitorSettings(target: pingTarget, thresholdMs: threshold),
       );
       await appState.saveDnsMonitorSettings(
         DnsMonitorSettings(hostname: dnsHostname),

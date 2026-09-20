@@ -518,7 +518,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
               'The app downloads the setup dispatcher with wget, then it fetches each selected feature bundle.',
           child: const _InstallerList(
             items: [
-              'Ping, DNS, and speedtest monitors',
+              'Network, DNS, and speedtest monitors',
               'Notifications and device inventory',
               'Usage and per-device bandwidth helpers',
               'Internet blocking and state sync helpers',
@@ -918,9 +918,9 @@ class _UninstallComponentsCard extends StatelessWidget {
       icon: Icons.bar_chart_rounded,
     ),
     (
-      feature: 'ping',
-      title: 'Ping Monitor',
-      subtitle: 'Latency helper and service.',
+      feature: 'network-monitor',
+      title: 'Network Monitor',
+      subtitle: 'Latency, outage, and Ethernet link monitoring.',
       icon: Icons.monitor_heart_outlined,
     ),
     (
