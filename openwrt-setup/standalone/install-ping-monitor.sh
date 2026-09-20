@@ -34,6 +34,7 @@ set_uci openwalla.ping_monitor.state_file "/tmp/openwalla-ping-monitor.state"
 set_uci openwalla.ping_monitor.outage_failures "2"
 set_uci openwalla.ping_monitor.restore_successes "2"
 set_uci openwalla.ping_monitor.alert_cooldown "1800"
+set_uci openwalla.ping_monitor.interface_state_file "/tmp/openwalla-interface-monitor.state"
 uci commit openwalla
 
 /usr/bin/openwalla-ping-monitor --once || true

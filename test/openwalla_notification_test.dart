@@ -31,5 +31,18 @@ void main() {
       expect(notification.effectiveSeverity, 'critical');
       expect(notification.effectiveCategory, 'network_health');
     });
+
+    test('recognizes interface events from enriched rows', () {
+      final notification = OpenwallaNotification.fromSqliteRow(
+        '9|1789849887|interface-monitor|lan1 changed speed|0|0|interface|'
+        'warning|Ethernet link speed decreased|'
+        'lan1 changed from 1 Gbps to 100 Mbps.|speed_mbps=100',
+      );
+
+      expect(notification, isNotNull);
+      expect(notification!.displayTitle, 'Ethernet link speed decreased');
+      expect(notification.effectiveSeverity, 'warning');
+      expect(notification.effectiveCategory, 'interface');
+    });
   });
 }

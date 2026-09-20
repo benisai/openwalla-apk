@@ -216,6 +216,10 @@ class OpenwallaNotification {
   String get effectiveCategory {
     if (category.trim().isNotEmpty) return category.trim().toLowerCase();
     if (app.toLowerCase().contains('ping')) return 'network_health';
+    if (app.toLowerCase().contains('interface') ||
+        message.toLowerCase().contains('ethernet')) {
+      return 'interface';
+    }
     if (app.toLowerCase().contains('quarantine')) return 'device';
     return 'system';
   }

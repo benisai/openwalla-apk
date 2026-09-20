@@ -16,6 +16,7 @@ DEFAULT_STATE_FILE="/tmp/openwalla-ping-monitor.state"
 DEFAULT_OUTAGE_FAILURES="2"
 DEFAULT_RESTORE_SUCCESSES="2"
 DEFAULT_ALERT_COOLDOWN="1800"
+DEFAULT_INTERFACE_STATE_FILE="/tmp/openwalla-interface-monitor.state"
 
 PING_TARGET="$DEFAULT_TARGET"
 PING_INTERVAL="$DEFAULT_INTERVAL"
@@ -28,6 +29,7 @@ STATE_FILE="$DEFAULT_STATE_FILE"
 OUTAGE_FAILURES="$DEFAULT_OUTAGE_FAILURES"
 RESTORE_SUCCESSES="$DEFAULT_RESTORE_SUCCESSES"
 ALERT_COOLDOWN="$DEFAULT_ALERT_COOLDOWN"
+INTERFACE_STATE_FILE="$DEFAULT_INTERFACE_STATE_FILE"
 SQLITE_BIN=""
 
 log() {
@@ -66,6 +68,9 @@ load_config() {
 
 		value="$(uci -q get openwalla.ping_monitor.alert_cooldown 2>/dev/null || true)"
 		[ -n "$value" ] && ALERT_COOLDOWN="$value"
+
+		value="$(uci -q get openwalla.ping_monitor.interface_state_file 2>/dev/null || true)"
+		[ -n "$value" ] && INTERFACE_STATE_FILE="$value"
 
 		value="$(uci -q get openwalla.notifications.db_path 2>/dev/null || true)"
 		[ -n "$value" ] && NOTIFICATIONS_DB="$value"
@@ -131,6 +136,9 @@ write_notification() {
 	local title="$2"
 	local details="$3"
 	local metadata="${4:-}"
+	local category="${5:-network_health}"
+	local app_name="ping-monitor"
+	[ "$category" = "interface" ] && app_name="interface-monitor"
 	notification_db_ready || return 0
 
 	local esc_title esc_details esc_metadata
@@ -139,7 +147,7 @@ write_notification() {
 	esc_metadata="$(printf "%s" "$metadata" | sed "s/'/''/g")"
 
 	"$SQLITE_BIN" "$NOTIFICATIONS_DB" \
-		"INSERT INTO notifications (app, msg, archived, \"delete\", category, severity, title, details, metadata) VALUES ('ping-monitor', '$esc_details', 0, 0, 'network_health', '$severity', '$esc_title', '$esc_details', '$esc_metadata');" >/dev/null 2>&1 || true
+		"INSERT INTO notifications (app, msg, archived, \"delete\", category, severity, title, details, metadata) VALUES ('$app_name', '$esc_details', 0, 0, '$category', '$severity', '$esc_title', '$esc_details', '$esc_metadata');" >/dev/null 2>&1 || true
 }
 
 load_state() {
@@ -175,6 +183,79 @@ format_duration() {
 	else
 		echo "$((minutes / 60))h $((minutes % 60))m"
 	fi
+}
+
+format_link_speed() {
+	local speed
+	speed="$(sanitize_int "${1:-}" "0")"
+	if [ "$speed" -ge 1000 ] && [ $((speed % 1000)) -eq 0 ]; then
+		echo "$((speed / 1000)) Gbps"
+	elif [ "$speed" -gt 0 ]; then
+		echo "${speed} Mbps"
+	else
+		echo "Unknown"
+	fi
+}
+
+interface_state_value() {
+	local interface="$1" field="$2" state_file="$3"
+	awk -F '|' -v interface="$interface" -v field="$field" \
+		'$1 == interface { print $field; exit }' "$state_file" 2>/dev/null
+}
+
+monitor_interfaces() {
+	local previous_state temp_state path resolved_path interface carrier speed old_carrier old_speed severity title details
+	previous_state="$INTERFACE_STATE_FILE"
+	temp_state="${INTERFACE_STATE_FILE}.tmp"
+	mkdir -p "$(dirname "$INTERFACE_STATE_FILE")"
+	: >"$temp_state"
+
+	for path in /sys/class/net/*; do
+		[ -d "$path" ] || continue
+		[ -r "$path/speed" ] || continue
+		resolved_path="$(readlink -f "$path" 2>/dev/null || echo "$path")"
+		case "$resolved_path" in
+			*/devices/virtual/*) continue ;;
+		esac
+		interface="${path##*/}"
+		[ "$interface" = "lo" ] && continue
+		carrier="$(cat "$path/carrier" 2>/dev/null || echo 0)"
+		speed="$(cat "$path/speed" 2>/dev/null || echo 0)"
+		carrier="$(sanitize_int "$carrier" "0")"
+		speed="$(sanitize_int "$speed" "0")"
+		[ "$carrier" -eq 1 ] || speed="0"
+		printf '%s|%s|%s\n' "$interface" "$carrier" "$speed" >>"$temp_state"
+
+		[ -f "$previous_state" ] || continue
+		old_carrier="$(interface_state_value "$interface" 2 "$previous_state")"
+		old_speed="$(interface_state_value "$interface" 3 "$previous_state")"
+		[ -n "$old_carrier" ] || continue
+		old_carrier="$(sanitize_int "$old_carrier" "0")"
+		old_speed="$(sanitize_int "$old_speed" "0")"
+
+		if [ "$old_carrier" -eq 0 ] && [ "$carrier" -eq 1 ]; then
+			write_notification "resolved" "Ethernet port connected" \
+				"$interface connected at $(format_link_speed "$speed")." \
+				"interface=$interface;carrier=1;speed_mbps=$speed" "interface"
+		elif [ "$old_carrier" -eq 1 ] && [ "$carrier" -eq 0 ]; then
+			write_notification "critical" "Ethernet port disconnected" \
+				"$interface lost its Ethernet link. Its previous speed was $(format_link_speed "$old_speed")." \
+				"interface=$interface;carrier=0;previous_speed_mbps=$old_speed" "interface"
+		elif [ "$carrier" -eq 1 ] && [ "$old_speed" -gt 0 ] && \
+			[ "$speed" -gt 0 ] && [ "$old_speed" -ne "$speed" ]; then
+			severity="resolved"
+			title="Ethernet link speed increased"
+			if [ "$speed" -lt "$old_speed" ]; then
+				severity="warning"
+				title="Ethernet link speed decreased"
+			fi
+			details="$interface changed from $(format_link_speed "$old_speed") to $(format_link_speed "$speed")."
+			write_notification "$severity" "$title" "$details" \
+				"interface=$interface;previous_speed_mbps=$old_speed;speed_mbps=$speed" "interface"
+		fi
+	done
+
+	mv "$temp_state" "$INTERFACE_STATE_FILE"
 }
 
 sanitize_int() {
@@ -278,6 +359,7 @@ run_ping_once() {
 	fi
 
 	save_state
+	monitor_interfaces
 	prune_file
 }
 
