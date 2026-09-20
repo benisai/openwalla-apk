@@ -2163,7 +2163,7 @@ class AppState extends ChangeNotifier {
     try {
       final values = await _fetchOpenwallaUciValues();
       if (values is Map) {
-        final hasNetworkConfig = values['network_monitor'] is Map;
+        final hasNetworkConfig = values['ping_monitor'] is Map;
         final hasDnsConfig = values['dns_monitor'] is Map;
         final hasSpeedtestConfig = values['speedtest_monitor'] is Map;
         if (hasNetworkConfig || hasDnsConfig || hasSpeedtestConfig) {
@@ -6834,7 +6834,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
 
     try {
       final values = await _fetchOpenwallaUciValues(context: context);
-      final ping = values is Map ? values['network_monitor'] : null;
+      final ping = values is Map ? values['ping_monitor'] : null;
 
       if (ping is Map) {
         final target = ping['target']?.toString();
@@ -6869,7 +6869,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       sysauth,
       router.useHttps,
       config: 'openwalla',
-      section: 'network_monitor',
+      section: 'ping_monitor',
       values: {
         'target': settings.target,
         'threshold': settings.thresholdMs.toString(),
@@ -6986,7 +6986,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
           'command': '/bin/sh',
           'params': [
             '-c',
-            r'file="$(uci -q get openwalla.network_monitor.output_file 2>/dev/null || echo /tmp/openwalla-network-monitor.txt)"; '
+            r'file="$(uci -q get openwalla.ping_monitor.output_file 2>/dev/null || echo /tmp/openwalla-ping-monitor.txt)"; '
                 'if [ -f "\$file" ]; then tail -n $safeLimit "\$file" 2>/dev/null; fi',
           ],
         },

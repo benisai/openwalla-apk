@@ -16,7 +16,7 @@
 				"/etc/banip/banip.feeds": ["read"],
 				"/etc/banip/banip.custom.feeds": ["read"],
 				"/etc/banip/banip.countries": ["read"],
-				"/tmp/openwalla-network-monitor.txt": ["read"],
+				"/tmp/openwalla-ping-monitor.txt": ["read"],
 				"/tmp/openwalla-dns-monitor.txt": ["read"],
 				"/tmp/openwalla-speedtest-monitor.txt": ["read"],
 				"/tmp/openwalla-netify.sqlite": ["read"],
@@ -93,7 +93,7 @@
 				"/tmp/openwalla-device-bandwidth.sqlite": ["write"],
 				"/tmp/openwalla-notifications.sqlite": ["write"],
 				"/tmp/openwalla-parental.sqlite": ["write"],
-				"/tmp/openwalla-network-monitor.txt": ["write"],
+				"/tmp/openwalla-ping-monitor.txt": ["write"],
 				"/tmp/openwalla-dns-monitor.txt": ["write"],
 				"/tmp/openwalla-speedtest-monitor.txt": ["write"]
 			},

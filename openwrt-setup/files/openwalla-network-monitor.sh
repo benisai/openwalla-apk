@@ -8,7 +8,7 @@ set -u
 DEFAULT_TARGET="1.1.1.1"
 DEFAULT_INTERVAL="60"
 DEFAULT_TIMEOUT="2"
-DEFAULT_OUTPUT="/tmp/openwalla-network-monitor.txt"
+DEFAULT_OUTPUT="/tmp/openwalla-ping-monitor.txt"
 DEFAULT_MAX_LINES="2000"
 DEFAULT_THRESHOLD="100"
 DEFAULT_NOTIFICATIONS_DB="/tmp/openwalla-notifications.sqlite"
@@ -39,37 +39,37 @@ log() {
 load_config() {
 	if command -v uci >/dev/null 2>&1; then
 		local value
-		value="$(uci -q get openwalla.network_monitor.target 2>/dev/null || true)"
+		value="$(uci -q get openwalla.ping_monitor.target 2>/dev/null || true)"
 		[ -n "$value" ] && PING_TARGET="$value"
 
-		value="$(uci -q get openwalla.network_monitor.interval 2>/dev/null || true)"
+		value="$(uci -q get openwalla.ping_monitor.interval 2>/dev/null || true)"
 		[ -n "$value" ] && PING_INTERVAL="$value"
 
-		value="$(uci -q get openwalla.network_monitor.timeout 2>/dev/null || true)"
+		value="$(uci -q get openwalla.ping_monitor.timeout 2>/dev/null || true)"
 		[ -n "$value" ] && PING_TIMEOUT="$value"
 
-		value="$(uci -q get openwalla.network_monitor.output_file 2>/dev/null || true)"
+		value="$(uci -q get openwalla.ping_monitor.output_file 2>/dev/null || true)"
 		[ -n "$value" ] && PING_OUTPUT="$value"
 
-		value="$(uci -q get openwalla.network_monitor.max_lines 2>/dev/null || true)"
+		value="$(uci -q get openwalla.ping_monitor.max_lines 2>/dev/null || true)"
 		[ -n "$value" ] && PING_MAX_LINES="$value"
 
-		value="$(uci -q get openwalla.network_monitor.threshold 2>/dev/null || true)"
+		value="$(uci -q get openwalla.ping_monitor.threshold 2>/dev/null || true)"
 		[ -n "$value" ] && PING_THRESHOLD="$value"
 
-		value="$(uci -q get openwalla.network_monitor.state_file 2>/dev/null || true)"
+		value="$(uci -q get openwalla.ping_monitor.state_file 2>/dev/null || true)"
 		[ -n "$value" ] && STATE_FILE="$value"
 
-		value="$(uci -q get openwalla.network_monitor.outage_failures 2>/dev/null || true)"
+		value="$(uci -q get openwalla.ping_monitor.outage_failures 2>/dev/null || true)"
 		[ -n "$value" ] && OUTAGE_FAILURES="$value"
 
-		value="$(uci -q get openwalla.network_monitor.restore_successes 2>/dev/null || true)"
+		value="$(uci -q get openwalla.ping_monitor.restore_successes 2>/dev/null || true)"
 		[ -n "$value" ] && RESTORE_SUCCESSES="$value"
 
-		value="$(uci -q get openwalla.network_monitor.alert_cooldown 2>/dev/null || true)"
+		value="$(uci -q get openwalla.ping_monitor.alert_cooldown 2>/dev/null || true)"
 		[ -n "$value" ] && ALERT_COOLDOWN="$value"
 
-		value="$(uci -q get openwalla.network_monitor.interface_state_file 2>/dev/null || true)"
+		value="$(uci -q get openwalla.ping_monitor.interface_state_file 2>/dev/null || true)"
 		[ -n "$value" ] && INTERFACE_STATE_FILE="$value"
 
 		value="$(uci -q get openwalla.notifications.db_path 2>/dev/null || true)"

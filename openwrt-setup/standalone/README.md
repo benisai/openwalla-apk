@@ -34,7 +34,6 @@ Available installers:
 - `install-conntrack.sh` - connection flow collector backed by SQLite
 - `install-device-speed.sh` - one-shot conntrack byte summary for live per-device speed
 - `install-network-monitor.sh` - latency, outage, and Ethernet link monitoring
-- `install-ping-monitor.sh` / `install-ping-test.sh` - compatibility aliases for the network monitor
 - `install-dns-monitor.sh` / `install-dns-test.sh` - DNS monitor output
 - `install-speedtest-monitor.sh` - speedtest helper and cron schedule
 - `install-usage-monitoring.sh` - vnStat/nlbwmon usage package support

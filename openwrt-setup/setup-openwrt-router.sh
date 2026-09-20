@@ -152,7 +152,7 @@ canonical_feature() {
 	case "$1" in
 	apps|packages|standard-apps) echo "standard" ;;
 	usage|statistics|stats|vnstat|nlbwmon) echo "usage" ;;
-	network|network-monitor|ping|ping-test|ping-monitor) echo "network-monitor" ;;
+	network|network-monitor) echo "network-monitor" ;;
 	dns|dns-test|dns-monitor) echo "dns" ;;
 	speedtest|speed-test|speedtest-monitor) echo "speedtest" ;;
 	notifications|notification|notifications-db) echo "notifications" ;;
@@ -429,10 +429,7 @@ uninstall_feature() {
 		;;
 	network-monitor)
 		stop_disable_service openwalla-network-monitor
-		stop_disable_service openwalla-ping-monitor
 		rm -f /usr/bin/openwalla-network-monitor /etc/init.d/openwalla-network-monitor
-		rm -f /usr/bin/openwalla-ping-monitor /etc/init.d/openwalla-ping-monitor
-		clear_openwalla_section network_monitor
 		clear_openwalla_section ping_monitor
 		;;
 	dns)
