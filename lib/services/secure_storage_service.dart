@@ -52,14 +52,22 @@ class SecureStorageService {
 
   Future<void> clearCredentials() async {
     try {
-      // Clear all credentials but preserve reviewer mode flag
+      // Preserve app-level state that should survive signing out.
       final reviewerMode = await _storage.read(key: AppConfig.reviewerModeKey);
+      final welcomeSetupSeen = await _storage.read(
+        key: 'openwalla_welcome_setup_seen',
+      );
       await _storage.deleteAll();
-      // Restore reviewer mode flag if it was set
       if (reviewerMode != null) {
         await _storage.write(
           key: AppConfig.reviewerModeKey,
           value: reviewerMode,
+        );
+      }
+      if (welcomeSetupSeen != null) {
+        await _storage.write(
+          key: 'openwalla_welcome_setup_seen',
+          value: welcomeSetupSeen,
         );
       }
     } catch (e, stack) {

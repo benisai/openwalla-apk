@@ -1626,6 +1626,7 @@ class AppState extends ChangeNotifier {
   static const String _themeModeKey = 'themeMode';
   OpenwallaThemeAccent _themeAccent = OpenwallaThemeAccent.blue;
   static const String _themeAccentKey = 'themeAccent';
+  static const String _welcomeSetupSeenKey = 'openwalla_welcome_setup_seen';
 
   // Clients view mode (selected router only by default for fast page loads)
   bool _clientsAggregateAllRouters = false;
@@ -1658,6 +1659,16 @@ class AppState extends ChangeNotifier {
 
   List<model.Router> get routers => _routerService?.routers ?? [];
   model.Router? get selectedRouter => _routerService?.selectedRouter;
+
+  Future<bool> shouldShowWelcomeSetup() async {
+    if (_reviewerModeEnabled) return false;
+    return await _secureStorageService.readValue(_welcomeSetupSeenKey) !=
+        'true';
+  }
+
+  Future<void> markWelcomeSetupSeen() async {
+    await _secureStorageService.writeValue(_welcomeSetupSeenKey, 'true');
+  }
 
   String exportRouterProfiles() =>
       _routerService?.exportRoutersAsJson() ?? '{"version":1,"profiles":[]}';

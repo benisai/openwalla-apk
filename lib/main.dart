@@ -7,6 +7,7 @@ import 'package:luci_mobile/screens/login_screen.dart';
 import 'package:luci_mobile/screens/main_screen.dart';
 import 'package:luci_mobile/screens/settings_screen.dart';
 import 'package:luci_mobile/screens/splash_screen.dart';
+import 'package:luci_mobile/screens/welcome_setup_screen.dart';
 
 void main() {
   runApp(ProviderScope(child: const LuCIApp()));
@@ -134,6 +135,7 @@ class LuCIApp extends ConsumerWidget {
       routes: {
         '/splash': (context) => const SplashScreen(),
         '/login': (context) => const LoginScreen(),
+        '/welcome-setup': (context) => const WelcomeSetupScreen(),
         '/': (context) => const MainScreen(),
         '/settings': (context) => const SettingsScreen(),
       },
