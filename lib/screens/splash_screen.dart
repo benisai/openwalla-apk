@@ -79,10 +79,11 @@ class _SplashScreenState extends State<SplashScreen>
             children: [
               ScaleTransition(
                 scale: _logoScale,
-                child: Icon(
-                  Icons.router,
-                  size: 100,
-                  color: colorScheme.primary,
+                child: Image.asset(
+                  'assets/branding/openwalla-mark.png',
+                  width: 112,
+                  height: 112,
+                  filterQuality: FilterQuality.high,
                 ),
               ),
               const SizedBox(height: 32),
