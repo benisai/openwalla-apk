@@ -1594,16 +1594,6 @@ class AppState extends ChangeNotifier {
   List<model.Router> get routers => _routerService?.routers ?? [];
   model.Router? get selectedRouter => _routerService?.selectedRouter;
 
-  String exportRouterProfiles() =>
-      _routerService?.exportRoutersAsJson() ?? '{"version":1,"profiles":[]}';
-
-  Future<RouterImportResult> importRouterProfiles(String content) async {
-    final result = await _routerService?.importRoutersFromJson(content);
-    notifyListeners();
-    return result ??
-        const RouterImportResult.error('Router storage unavailable.');
-  }
-
   VoidCallback? onRouterBackOnline;
 
   // Add requestedTab for programmatic tab switching
@@ -2408,11 +2398,6 @@ class AppState extends ChangeNotifier {
     } else {
       notifyListeners();
     }
-  }
-
-  Future<void> removeSavedRouterProfile(String id) async {
-    await _routerService?.removeRouter(id);
-    notifyListeners();
   }
 
   Future<void> selectRouter(String id, {BuildContext? context}) async {

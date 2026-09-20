@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:luci_mobile/main.dart';
-import 'package:luci_mobile/screens/manage_routers_screen.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'package:luci_mobile/config/app_config.dart';
@@ -284,7 +283,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   Future<void> _showSavedRoutersSheet() async {
     var routers = List<model.Router>.of(ref.read(appStateProvider).routers);
     if (routers.isEmpty) return;
-    var openManager = false;
 
     final selected = await showModalBottomSheet<model.Router>(
       context: context,
@@ -386,18 +384,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                         ),
                       );
                     }),
-                    const SizedBox(height: 4),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: () {
-                          openManager = true;
-                          Navigator.of(context).pop();
-                        },
-                        icon: const Icon(Icons.settings_outlined),
-                        label: const Text('Manage Routers'),
-                      ),
-                    ),
                   ],
                 ),
               ),
@@ -407,16 +393,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       },
     );
 
-    if (openManager && mounted) {
-      final managedRouter = await Navigator.of(context).push<model.Router>(
-        MaterialPageRoute(builder: (context) => const ManageRoutersScreen()),
-      );
-      if (managedRouter != null && mounted) {
-        setState(() => _prefillRouter(managedRouter));
-      }
-      return;
-    }
-
     if (selected == null || !mounted) {
       final selectedRouter = ref.read(appStateProvider).selectedRouter;
       if (selectedRouter != null && mounted) {
@@ -425,70 +401,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       return;
     }
     setState(() => _prefillRouter(selected));
-  }
-
-  Future<void> _openRouterManager() async {
-    final router = await Navigator.of(context).push<model.Router>(
-      MaterialPageRoute(builder: (context) => const ManageRoutersScreen()),
-    );
-    if (router != null && mounted) {
-      setState(() => _prefillRouter(router));
-    }
-  }
-
-  Future<bool> _confirmExit() async {
-    return await showDialog<bool>(
-          context: context,
-          builder: (context) {
-            final colors = Theme.of(context).colorScheme;
-            return AlertDialog(
-              title: Row(
-                children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: colors.primary.withValues(alpha: 0.14),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      Icons.exit_to_app_rounded,
-                      color: colors.primary,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  const Expanded(child: Text('Exit Openwalla?')),
-                ],
-              ),
-              content: const Text('Are you sure you want to exit the app?'),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(false),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () => Navigator.of(context).pop(true),
-                  child: const Text('Exit'),
-                ),
-              ],
-            );
-          },
-        ) ??
-        false;
-  }
-
-  Widget _withExitGuard(Widget child) {
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) async {
-        if (didPop) return;
-        if (await _confirmExit() && mounted) {
-          await SystemNavigator.pop();
-        }
-      },
-      child: child,
-    );
   }
 
   Future<void> _connect() async {
@@ -624,615 +536,583 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   @override
   Widget build(BuildContext context) {
     if (_isCheckingAutoLogin) {
-      return _withExitGuard(
-        const Scaffold(body: Center(child: CircularProgressIndicator())),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
     final colorScheme = theme.colorScheme;
 
-    return _withExitGuard(
-      Scaffold(
-        body: Stack(
-          children: [
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    colorScheme.surfaceContainerLowest,
-                    colorScheme.surface,
-                    colorScheme.surfaceContainer,
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
+    return Scaffold(
+      body: Stack(
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  colorScheme.surfaceContainerLowest,
+                  colorScheme.surface,
+                  colorScheme.surfaceContainer,
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
             ),
-            Center(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  return SingleChildScrollView(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 32,
-                    ),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 400),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          const SizedBox(height: 32),
-                          GestureDetector(
-                            onLongPress: () {
-                              _startReviewerModeActivation();
-                            },
-                            onLongPressUp: () {
-                              _cancelReviewerModeActivation();
-                            },
-                            child: Column(
-                              children: [
-                                Column(
-                                  children: [
-                                    Text(
-                                      'Openwalla',
-                                      style: textTheme.headlineLarge?.copyWith(
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      'Connect to your OpenWrt router',
-                                      style: textTheme.titleMedium?.copyWith(
-                                        color: colorScheme.onSurface.withValues(
-                                          alpha: 0.8,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      'Fast. Secure. Open source.',
-                                      style: textTheme.bodySmall?.copyWith(
-                                        color: colorScheme.primary,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                AnimatedSwitcher(
-                                  duration: const Duration(milliseconds: 200),
-                                  child: _isActivatingReviewerMode
-                                      ? Padding(
-                                          key: const ValueKey('progress'),
-                                          padding: const EdgeInsets.only(
-                                            top: 24,
-                                          ),
-                                          child: AnimatedBuilder(
-                                            animation: _progressAnimController,
-                                            builder: (context, child) {
-                                              return Column(
-                                                children: [
-                                                  Text(
-                                                    'Hold to activate reviewer mode...',
-                                                    style: textTheme.bodySmall
-                                                        ?.copyWith(
-                                                          color: colorScheme
-                                                              .primary,
-                                                          fontWeight:
-                                                              FontWeight.w600,
-                                                          fontSize: 13,
-                                                        ),
-                                                  ),
-                                                  const SizedBox(height: 12),
-                                                  Container(
-                                                    width: 280,
-                                                    height: 6,
-                                                    decoration: BoxDecoration(
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                            12,
-                                                          ),
-                                                      color: colorScheme
-                                                          .surfaceContainerHighest
-                                                          .withValues(
-                                                            alpha: 0.4,
-                                                          ),
-                                                      border: Border.all(
-                                                        color: colorScheme
-                                                            .outline
-                                                            .withValues(
-                                                              alpha: 0.15,
-                                                            ),
-                                                        width: 0.5,
-                                                      ),
-                                                    ),
-                                                    child: ClipRRect(
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                            12,
-                                                          ),
-                                                      child: LinearProgressIndicator(
-                                                        value:
-                                                            _progressAnimController
-                                                                .value,
-                                                        backgroundColor:
-                                                            Colors.transparent,
-                                                        valueColor:
-                                                            AlwaysStoppedAnimation<
-                                                              Color
-                                                            >(
-                                                              colorScheme
-                                                                  .primary
-                                                                  .withValues(
-                                                                    alpha: 0.9,
-                                                                  ),
-                                                            ),
-                                                        minHeight: 6,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ],
-                                              );
-                                            },
-                                          ),
-                                        )
-                                      : const SizedBox(
-                                          key: ValueKey('empty'),
-                                          height: 0,
-                                        ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 24),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(24),
-                            child: BackdropFilter(
-                              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                              child: Card(
-                                elevation: 0,
-                                color: colorScheme.surface.withValues(
-                                  alpha: 0.94,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(24),
-                                  side: BorderSide(
-                                    color: colorScheme.outline.withValues(
-                                      alpha: 0.14,
+          ),
+          Center(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 32,
+                  ),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 400),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        const SizedBox(height: 32),
+                        GestureDetector(
+                          onLongPress: () {
+                            _startReviewerModeActivation();
+                          },
+                          onLongPressUp: () {
+                            _cancelReviewerModeActivation();
+                          },
+                          child: Column(
+                            children: [
+                              Column(
+                                children: [
+                                  Text(
+                                    'Openwalla',
+                                    style: textTheme.headlineLarge?.copyWith(
+                                      fontWeight: FontWeight.bold,
                                     ),
                                   ),
-                                ),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 18.0,
-                                    vertical: 16.0,
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Connect to your OpenWrt router',
+                                    style: textTheme.titleMedium?.copyWith(
+                                      color: colorScheme.onSurface.withValues(
+                                        alpha: 0.8,
+                                      ),
+                                    ),
                                   ),
-                                  child: Form(
-                                    key: _formKey,
-                                    child: Builder(
-                                      builder: (context) {
-                                        final appState = ref.watch(
-                                          appStateProvider,
-                                        );
-                                        return Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.stretch,
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: <Widget>[
-                                            _loginField(
-                                              context: context,
-                                              child: Tooltip(
-                                                message:
-                                                    'Enter the IP address, hostname, or full URL of your router',
-                                                child: TextFormField(
-                                                  controller: _ipController,
-                                                  autofocus: true,
-                                                  autofillHints: const [
-                                                    AutofillHints.url,
-                                                    AutofillHints.username,
-                                                  ],
-                                                  decoration: _loginInputDecoration(
-                                                    context: context,
-                                                    icon: Icons.shield_outlined,
-                                                    helperText:
-                                                        '192.168.1.1, router.local:8080, or https://192.168.1.1',
-                                                    suffixIcon: Row(
-                                                      mainAxisSize:
-                                                          MainAxisSize.min,
-                                                      children: [
-                                                        IconButton(
-                                                          tooltip:
-                                                              'Locate router',
-                                                          onPressed:
-                                                              _isDetectingRouter
-                                                              ? null
-                                                              : () =>
-                                                                    _detectRouterAddress(),
-                                                          icon:
-                                                              _isDetectingRouter
-                                                              ? const SizedBox(
-                                                                  width: 18,
-                                                                  height: 18,
-                                                                  child: CircularProgressIndicator(
-                                                                    strokeWidth:
-                                                                        2,
-                                                                  ),
-                                                                )
-                                                              : const Icon(
-                                                                  Icons
-                                                                      .my_location_rounded,
-                                                                ),
-                                                        ),
-                                                        if (appState
-                                                            .routers
-                                                            .isNotEmpty)
-                                                          IconButton(
-                                                            tooltip:
-                                                                'Saved routers',
-                                                            onPressed:
-                                                                _showSavedRoutersSheet,
-                                                            icon: const Icon(
-                                                              Icons
-                                                                  .arrow_drop_down_rounded,
-                                                            ),
-                                                          ),
-                                                      ],
-                                                    ),
-                                                  ),
-                                                  textInputAction:
-                                                      TextInputAction.next,
-                                                  validator: (value) {
-                                                    if (value == null ||
-                                                        value.isEmpty) {
-                                                      return 'Please enter the router address';
-                                                    }
-                                                    final parsed =
-                                                        UrlParser.parse(value);
-                                                    if (!parsed.isValid) {
-                                                      return parsed.error ??
-                                                          'Invalid address format';
-                                                    }
-                                                    return null;
-                                                  },
-                                                ),
-                                              ),
-                                            ),
-                                            const SizedBox(height: 16),
-                                            AnimatedSwitcher(
-                                              duration: const Duration(
-                                                milliseconds: 180,
-                                              ),
-                                              child: _advancedLogin
-                                                  ? _loginField(
-                                                      key: const ValueKey(
-                                                        'username',
-                                                      ),
-                                                      context: context,
-                                                      label: 'Username',
-                                                      child: Tooltip(
-                                                        message:
-                                                            'Enter your router username',
-                                                        child: TextFormField(
-                                                          controller:
-                                                              _usernameController,
-                                                          autofillHints: const [
-                                                            AutofillHints
-                                                                .username,
-                                                          ],
-                                                          decoration: _loginInputDecoration(
-                                                            context: context,
-                                                            icon: Icons
-                                                                .person_outline,
-                                                            helperText:
-                                                                'Default is root',
-                                                          ),
-                                                          textInputAction:
-                                                              TextInputAction
-                                                                  .next,
-                                                          validator: (value) {
-                                                            if (value == null ||
-                                                                value.isEmpty) {
-                                                              return 'Please enter the username';
-                                                            }
-                                                            return null;
-                                                          },
-                                                        ),
-                                                      ),
-                                                    )
-                                                  : const SizedBox.shrink(),
-                                            ),
-                                            if (_advancedLogin)
-                                              const SizedBox(height: 14),
-                                            _loginField(
-                                              context: context,
-                                              child: Tooltip(
-                                                message:
-                                                    'Enter your router password',
-                                                child: TextFormField(
-                                                  controller:
-                                                      _passwordController,
-                                                  obscureText:
-                                                      !_passwordVisible,
-                                                  autofillHints: const [
-                                                    AutofillHints.password,
-                                                  ],
-                                                  decoration: _loginInputDecoration(
-                                                    context: context,
-                                                    icon: Icons.lock_outline,
-                                                    hintText: 'Password',
-                                                    suffixIcon: IconButton(
-                                                      icon: Icon(
-                                                        _passwordVisible
-                                                            ? Icons
-                                                                  .visibility_outlined
-                                                            : Icons
-                                                                  .visibility_off_outlined,
-                                                      ),
-                                                      onPressed: () => setState(
-                                                        () => _passwordVisible =
-                                                            !_passwordVisible,
-                                                      ),
-                                                      tooltip: _passwordVisible
-                                                          ? 'Hide password'
-                                                          : 'Show password',
-                                                    ),
-                                                  ),
-                                                  textInputAction:
-                                                      TextInputAction.done,
-                                                ),
-                                              ),
-                                            ),
-                                            const SizedBox(height: 18),
-                                            Row(
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Fast. Secure. Open source.',
+                                    style: textTheme.bodySmall?.copyWith(
+                                      color: colorScheme.primary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 200),
+                                child: _isActivatingReviewerMode
+                                    ? Padding(
+                                        key: const ValueKey('progress'),
+                                        padding: const EdgeInsets.only(top: 24),
+                                        child: AnimatedBuilder(
+                                          animation: _progressAnimController,
+                                          builder: (context, child) {
+                                            return Column(
                                               children: [
-                                                Checkbox(
-                                                  value: _saveCredentials,
-                                                  onChanged: appState.isLoading
-                                                      ? null
-                                                      : (value) => setState(
-                                                          () =>
-                                                              _saveCredentials =
-                                                                  value ?? true,
-                                                        ),
-                                                  visualDensity:
-                                                      VisualDensity.compact,
+                                                Text(
+                                                  'Hold to activate reviewer mode...',
+                                                  style: textTheme.bodySmall
+                                                      ?.copyWith(
+                                                        color:
+                                                            colorScheme.primary,
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                        fontSize: 13,
+                                                      ),
                                                 ),
-                                                const SizedBox(width: 4),
-                                                Expanded(
-                                                  child: GestureDetector(
-                                                    behavior:
-                                                        HitTestBehavior.opaque,
-                                                    onTap: appState.isLoading
-                                                        ? null
-                                                        : () => setState(
-                                                            () => _saveCredentials =
-                                                                !_saveCredentials,
+                                                const SizedBox(height: 12),
+                                                Container(
+                                                  width: 280,
+                                                  height: 6,
+                                                  decoration: BoxDecoration(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          12,
+                                                        ),
+                                                    color: colorScheme
+                                                        .surfaceContainerHighest
+                                                        .withValues(alpha: 0.4),
+                                                    border: Border.all(
+                                                      color: colorScheme.outline
+                                                          .withValues(
+                                                            alpha: 0.15,
                                                           ),
-                                                    child: Text(
-                                                      'Save credentials',
-                                                      style: textTheme
-                                                          .bodyMedium
-                                                          ?.copyWith(
-                                                            color: colorScheme
-                                                                .onSurfaceVariant,
-                                                            fontWeight:
-                                                                FontWeight.w700,
-                                                          ),
+                                                      width: 0.5,
                                                     ),
                                                   ),
-                                                ),
-                                                TextButton.icon(
-                                                  onPressed: () => setState(
-                                                    () => _advancedLogin =
-                                                        !_advancedLogin,
-                                                  ),
-                                                  icon: Icon(
-                                                    _advancedLogin
-                                                        ? Icons.expand_less
-                                                        : Icons.tune_rounded,
-                                                    size: 18,
-                                                  ),
-                                                  label: Text(
-                                                    _advancedLogin
-                                                        ? 'Hide User'
-                                                        : 'Show User',
+                                                  child: ClipRRect(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          12,
+                                                        ),
+                                                    child: LinearProgressIndicator(
+                                                      value:
+                                                          _progressAnimController
+                                                              .value,
+                                                      backgroundColor:
+                                                          Colors.transparent,
+                                                      valueColor:
+                                                          AlwaysStoppedAnimation<
+                                                            Color
+                                                          >(
+                                                            colorScheme.primary
+                                                                .withValues(
+                                                                  alpha: 0.9,
+                                                                ),
+                                                          ),
+                                                      minHeight: 6,
+                                                    ),
                                                   ),
                                                 ),
                                               ],
-                                            ),
-                                            AnimatedSwitcher(
-                                              duration: const Duration(
-                                                milliseconds: 300,
-                                              ),
-                                              child:
-                                                  appState.errorMessage != null
-                                                  ? Padding(
-                                                      key: const ValueKey(
-                                                        'error',
-                                                      ),
-                                                      padding:
-                                                          const EdgeInsets.only(
-                                                            top: 12.0,
-                                                          ),
-                                                      child: Container(
-                                                        padding:
-                                                            const EdgeInsets.all(
-                                                              10,
-                                                            ),
-                                                        decoration: BoxDecoration(
-                                                          color: colorScheme
-                                                              .errorContainer
-                                                              .withValues(
-                                                                alpha: 1,
-                                                              ),
-                                                          borderRadius:
-                                                              BorderRadius.circular(
-                                                                8,
-                                                              ),
-                                                        ),
-                                                        child: Row(
-                                                          children: [
-                                                            Icon(
-                                                              Icons
-                                                                  .error_outline,
-                                                              color: colorScheme
-                                                                  .onErrorContainer,
-                                                            ),
-                                                            const SizedBox(
-                                                              width: 12,
-                                                            ),
-                                                            Expanded(
-                                                              child: Text(
-                                                                appState
-                                                                    .errorMessage!,
-                                                                style: textTheme
-                                                                    .bodyMedium
-                                                                    ?.copyWith(
-                                                                      color: colorScheme
-                                                                          .onErrorContainer,
+                                            );
+                                          },
+                                        ),
+                                      )
+                                    : const SizedBox(
+                                        key: ValueKey('empty'),
+                                        height: 0,
+                                      ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(24),
+                          child: BackdropFilter(
+                            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                            child: Card(
+                              elevation: 0,
+                              color: colorScheme.surface.withValues(
+                                alpha: 0.94,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(24),
+                                side: BorderSide(
+                                  color: colorScheme.outline.withValues(
+                                    alpha: 0.14,
+                                  ),
+                                ),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 18.0,
+                                  vertical: 16.0,
+                                ),
+                                child: Form(
+                                  key: _formKey,
+                                  child: Builder(
+                                    builder: (context) {
+                                      final appState = ref.watch(
+                                        appStateProvider,
+                                      );
+                                      return Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: <Widget>[
+                                          _loginField(
+                                            context: context,
+                                            child: Tooltip(
+                                              message:
+                                                  'Enter the IP address, hostname, or full URL of your router',
+                                              child: TextFormField(
+                                                controller: _ipController,
+                                                autofocus: true,
+                                                autofillHints: const [
+                                                  AutofillHints.url,
+                                                  AutofillHints.username,
+                                                ],
+                                                decoration: _loginInputDecoration(
+                                                  context: context,
+                                                  icon: Icons.shield_outlined,
+                                                  helperText:
+                                                      '192.168.1.1, router.local:8080, or https://192.168.1.1',
+                                                  suffixIcon: Row(
+                                                    mainAxisSize:
+                                                        MainAxisSize.min,
+                                                    children: [
+                                                      IconButton(
+                                                        tooltip:
+                                                            'Locate router',
+                                                        onPressed:
+                                                            _isDetectingRouter
+                                                            ? null
+                                                            : () =>
+                                                                  _detectRouterAddress(),
+                                                        icon: _isDetectingRouter
+                                                            ? const SizedBox(
+                                                                width: 18,
+                                                                height: 18,
+                                                                child:
+                                                                    CircularProgressIndicator(
+                                                                      strokeWidth:
+                                                                          2,
                                                                     ),
+                                                              )
+                                                            : const Icon(
+                                                                Icons
+                                                                    .my_location_rounded,
                                                               ),
-                                                            ),
-                                                          ],
-                                                        ),
                                                       ),
-                                                    )
-                                                  : const SizedBox.shrink(),
+                                                      if (appState
+                                                          .routers
+                                                          .isNotEmpty)
+                                                        IconButton(
+                                                          tooltip:
+                                                              'Saved routers',
+                                                          onPressed:
+                                                              _showSavedRoutersSheet,
+                                                          icon: const Icon(
+                                                            Icons
+                                                                .arrow_drop_down_rounded,
+                                                          ),
+                                                        ),
+                                                    ],
+                                                  ),
+                                                ),
+                                                textInputAction:
+                                                    TextInputAction.next,
+                                                validator: (value) {
+                                                  if (value == null ||
+                                                      value.isEmpty) {
+                                                    return 'Please enter the router address';
+                                                  }
+                                                  final parsed =
+                                                      UrlParser.parse(value);
+                                                  if (!parsed.isValid) {
+                                                    return parsed.error ??
+                                                        'Invalid address format';
+                                                  }
+                                                  return null;
+                                                },
+                                              ),
                                             ),
-                                            const SizedBox(height: 16),
-                                            Align(
-                                              alignment: Alignment.centerRight,
-                                              child: TextButton.icon(
+                                          ),
+                                          const SizedBox(height: 16),
+                                          AnimatedSwitcher(
+                                            duration: const Duration(
+                                              milliseconds: 180,
+                                            ),
+                                            child: _advancedLogin
+                                                ? _loginField(
+                                                    key: const ValueKey(
+                                                      'username',
+                                                    ),
+                                                    context: context,
+                                                    label: 'Username',
+                                                    child: Tooltip(
+                                                      message:
+                                                          'Enter your router username',
+                                                      child: TextFormField(
+                                                        controller:
+                                                            _usernameController,
+                                                        autofillHints: const [
+                                                          AutofillHints
+                                                              .username,
+                                                        ],
+                                                        decoration:
+                                                            _loginInputDecoration(
+                                                              context: context,
+                                                              icon: Icons
+                                                                  .person_outline,
+                                                              helperText:
+                                                                  'Default is root',
+                                                            ),
+                                                        textInputAction:
+                                                            TextInputAction
+                                                                .next,
+                                                        validator: (value) {
+                                                          if (value == null ||
+                                                              value.isEmpty) {
+                                                            return 'Please enter the username';
+                                                          }
+                                                          return null;
+                                                        },
+                                                      ),
+                                                    ),
+                                                  )
+                                                : const SizedBox.shrink(),
+                                          ),
+                                          if (_advancedLogin)
+                                            const SizedBox(height: 14),
+                                          _loginField(
+                                            context: context,
+                                            child: Tooltip(
+                                              message:
+                                                  'Enter your router password',
+                                              child: TextFormField(
+                                                controller: _passwordController,
+                                                obscureText: !_passwordVisible,
+                                                autofillHints: const [
+                                                  AutofillHints.password,
+                                                ],
+                                                decoration: _loginInputDecoration(
+                                                  context: context,
+                                                  icon: Icons.lock_outline,
+                                                  hintText: 'Password',
+                                                  suffixIcon: IconButton(
+                                                    icon: Icon(
+                                                      _passwordVisible
+                                                          ? Icons
+                                                                .visibility_outlined
+                                                          : Icons
+                                                                .visibility_off_outlined,
+                                                    ),
+                                                    onPressed: () => setState(
+                                                      () => _passwordVisible =
+                                                          !_passwordVisible,
+                                                    ),
+                                                    tooltip: _passwordVisible
+                                                        ? 'Hide password'
+                                                        : 'Show password',
+                                                  ),
+                                                ),
+                                                textInputAction:
+                                                    TextInputAction.done,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 18),
+                                          Row(
+                                            children: [
+                                              Checkbox(
+                                                value: _saveCredentials,
+                                                onChanged: appState.isLoading
+                                                    ? null
+                                                    : (value) => setState(
+                                                        () => _saveCredentials =
+                                                            value ?? true,
+                                                      ),
+                                                visualDensity:
+                                                    VisualDensity.compact,
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Expanded(
+                                                child: GestureDetector(
+                                                  behavior:
+                                                      HitTestBehavior.opaque,
+                                                  onTap: appState.isLoading
+                                                      ? null
+                                                      : () => setState(
+                                                          () => _saveCredentials =
+                                                              !_saveCredentials,
+                                                        ),
+                                                  child: Text(
+                                                    'Save credentials',
+                                                    style: textTheme.bodyMedium
+                                                        ?.copyWith(
+                                                          color: colorScheme
+                                                              .onSurfaceVariant,
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                        ),
+                                                  ),
+                                                ),
+                                              ),
+                                              TextButton.icon(
+                                                onPressed: () => setState(
+                                                  () => _advancedLogin =
+                                                      !_advancedLogin,
+                                                ),
+                                                icon: Icon(
+                                                  _advancedLogin
+                                                      ? Icons.expand_less
+                                                      : Icons.tune_rounded,
+                                                  size: 18,
+                                                ),
+                                                label: Text(
+                                                  _advancedLogin
+                                                      ? 'Hide User'
+                                                      : 'Show User',
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          AnimatedSwitcher(
+                                            duration: const Duration(
+                                              milliseconds: 300,
+                                            ),
+                                            child: appState.errorMessage != null
+                                                ? Padding(
+                                                    key: const ValueKey(
+                                                      'error',
+                                                    ),
+                                                    padding:
+                                                        const EdgeInsets.only(
+                                                          top: 12.0,
+                                                        ),
+                                                    child: Container(
+                                                      padding:
+                                                          const EdgeInsets.all(
+                                                            10,
+                                                          ),
+                                                      decoration: BoxDecoration(
+                                                        color: colorScheme
+                                                            .errorContainer
+                                                            .withValues(
+                                                              alpha: 1,
+                                                            ),
+                                                        borderRadius:
+                                                            BorderRadius.circular(
+                                                              8,
+                                                            ),
+                                                      ),
+                                                      child: Row(
+                                                        children: [
+                                                          Icon(
+                                                            Icons.error_outline,
+                                                            color: colorScheme
+                                                                .onErrorContainer,
+                                                          ),
+                                                          const SizedBox(
+                                                            width: 12,
+                                                          ),
+                                                          Expanded(
+                                                            child: Text(
+                                                              appState
+                                                                  .errorMessage!,
+                                                              style: textTheme
+                                                                  .bodyMedium
+                                                                  ?.copyWith(
+                                                                    color: colorScheme
+                                                                        .onErrorContainer,
+                                                                  ),
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  )
+                                                : const SizedBox.shrink(),
+                                          ),
+                                          const SizedBox(height: 16),
+                                          TweenAnimationBuilder<double>(
+                                            duration: const Duration(
+                                              milliseconds: 100,
+                                            ),
+                                            tween: Tween<double>(
+                                              begin: 1,
+                                              end: appState.isLoading
+                                                  ? 0.98
+                                                  : 1,
+                                            ),
+                                            builder: (context, scale, child) {
+                                              return Transform.scale(
+                                                scale: scale,
+                                                child: child,
+                                              );
+                                            },
+                                            child: SizedBox(
+                                              width: double.infinity,
+                                              child: ElevatedButton(
                                                 onPressed: appState.isLoading
                                                     ? null
-                                                    : _openRouterManager,
-                                                icon: const Icon(
-                                                  Icons.router_outlined,
-                                                  size: 19,
-                                                ),
-                                                label: const Text(
-                                                  'Manage Routers',
-                                                ),
-                                              ),
-                                            ),
-                                            const SizedBox(height: 4),
-                                            TweenAnimationBuilder<double>(
-                                              duration: const Duration(
-                                                milliseconds: 100,
-                                              ),
-                                              tween: Tween<double>(
-                                                begin: 1,
-                                                end: appState.isLoading
-                                                    ? 0.98
-                                                    : 1,
-                                              ),
-                                              builder: (context, scale, child) {
-                                                return Transform.scale(
-                                                  scale: scale,
-                                                  child: child,
-                                                );
-                                              },
-                                              child: SizedBox(
-                                                width: double.infinity,
-                                                child: ElevatedButton(
-                                                  onPressed: appState.isLoading
-                                                      ? null
-                                                      : _connect,
-                                                  style: ElevatedButton.styleFrom(
-                                                    padding:
-                                                        const EdgeInsets.symmetric(
-                                                          vertical: 18,
-                                                        ),
-                                                    textStyle: const TextStyle(
-                                                      fontSize: 18,
-                                                      fontWeight:
-                                                          FontWeight.bold,
-                                                    ),
-                                                    shape: RoundedRectangleBorder(
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                            14,
-                                                          ),
-                                                    ),
-                                                    elevation: 4,
-                                                    backgroundColor:
-                                                        colorScheme.primary,
-                                                    foregroundColor:
-                                                        colorScheme.onPrimary,
+                                                    : _connect,
+                                                style: ElevatedButton.styleFrom(
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        vertical: 18,
+                                                      ),
+                                                  textStyle: const TextStyle(
+                                                    fontSize: 18,
+                                                    fontWeight: FontWeight.bold,
                                                   ),
-                                                  child: appState.isLoading
-                                                      ? const SizedBox(
-                                                          height: 26,
-                                                          width: 26,
-                                                          child:
-                                                              CircularProgressIndicator(
-                                                                strokeWidth: 3,
-                                                                color: Colors
-                                                                    .white,
-                                                              ),
-                                                        )
-                                                      : Row(
-                                                          mainAxisAlignment:
-                                                              MainAxisAlignment
-                                                                  .center,
-                                                          children: const [
-                                                            Icon(Icons.login),
-                                                            SizedBox(width: 12),
-                                                            Text('Connect'),
-                                                          ],
+                                                  shape: RoundedRectangleBorder(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          14,
                                                         ),
+                                                  ),
+                                                  elevation: 4,
+                                                  backgroundColor:
+                                                      colorScheme.primary,
+                                                  foregroundColor:
+                                                      colorScheme.onPrimary,
                                                 ),
+                                                child: appState.isLoading
+                                                    ? const SizedBox(
+                                                        height: 26,
+                                                        width: 26,
+                                                        child:
+                                                            CircularProgressIndicator(
+                                                              strokeWidth: 3,
+                                                              color:
+                                                                  Colors.white,
+                                                            ),
+                                                      )
+                                                    : Row(
+                                                        mainAxisAlignment:
+                                                            MainAxisAlignment
+                                                                .center,
+                                                        children: const [
+                                                          Icon(Icons.login),
+                                                          SizedBox(width: 12),
+                                                          Text('Connect'),
+                                                        ],
+                                                      ),
                                               ),
                                             ),
-                                          ],
-                                        );
-                                      },
-                                    ),
+                                          ),
+                                        ],
+                                      );
+                                    },
                                   ),
                                 ),
                               ),
                             ),
                           ),
-                          const SizedBox(height: 16),
-                          Tooltip(
-                            message: 'Open GitHub issues for support',
-                            child: TextButton(
-                              onPressed: _openGitHubIssues,
-                              style: TextButton.styleFrom(
-                                foregroundColor: colorScheme.primary,
-                              ),
-                              child: const Text('Need help?'),
+                        ),
+                        const SizedBox(height: 16),
+                        Tooltip(
+                          message: 'Open GitHub issues for support',
+                          child: TextButton(
+                            onPressed: _openGitHubIssues,
+                            style: TextButton.styleFrom(
+                              foregroundColor: colorScheme.primary,
                             ),
+                            child: const Text('Need help?'),
                           ),
-                          FutureBuilder<PackageInfo>(
-                            future: PackageInfo.fromPlatform(),
-                            builder: (context, snapshot) {
-                              if (!snapshot.hasData) {
-                                return const SizedBox.shrink();
-                              }
-                              final info = snapshot.data!;
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 8.0),
-                                child: Text(
-                                  'Version ${info.version}',
-                                  style: textTheme.bodySmall?.copyWith(
-                                    color: colorScheme.onSurfaceVariant
-                                        .withValues(alpha: 0.7),
-                                  ),
+                        ),
+                        FutureBuilder<PackageInfo>(
+                          future: PackageInfo.fromPlatform(),
+                          builder: (context, snapshot) {
+                            if (!snapshot.hasData) {
+                              return const SizedBox.shrink();
+                            }
+                            final info = snapshot.data!;
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 8.0),
+                              child: Text(
+                                'Version ${info.version}',
+                                style: textTheme.bodySmall?.copyWith(
+                                  color: colorScheme.onSurfaceVariant
+                                      .withValues(alpha: 0.7),
                                 ),
-                              );
-                            },
-                          ),
-                        ],
-                      ),
+                              ),
+                            );
+                          },
+                        ),
+                      ],
                     ),
-                  );
-                },
-              ),
+                  ),
+                );
+              },
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
