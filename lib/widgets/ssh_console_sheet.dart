@@ -91,39 +91,53 @@ class _SshConsoleSheet extends StatelessWidget {
             return ValueListenableBuilder<String>(
               valueListenable: controller.output,
               builder: (context, output, _) {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.terminal_rounded,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            isRunning ? '$title Running' : title,
-                            style: Theme.of(context).textTheme.titleMedium
-                                ?.copyWith(fontWeight: FontWeight.w900),
+                return PopScope(
+                  canPop: !isRunning,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.terminal_rounded,
+                            color: Theme.of(context).colorScheme.primary,
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Expanded(
-                      child: _SshConsolePanel(
-                        title: null,
-                        output: output,
-                        isRunning: isRunning,
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              isRunning ? '$title Running' : title,
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.w900),
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(height: 14),
-                    FilledButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('Close'),
-                    ),
-                  ],
+                      const SizedBox(height: 12),
+                      Expanded(
+                        child: _SshConsolePanel(
+                          title: null,
+                          output: output,
+                          isRunning: isRunning,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      FilledButton.icon(
+                        onPressed: isRunning
+                            ? null
+                            : () => Navigator.of(context).pop(),
+                        icon: isRunning
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.close_rounded),
+                        label: Text(isRunning ? 'Waiting' : 'Close'),
+                      ),
+                    ],
+                  ),
                 );
               },
             );

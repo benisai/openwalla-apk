@@ -49,13 +49,36 @@ class _WelcomeSetupScreenState extends ConsumerState<WelcomeSetupScreen> {
       console.setOutput(
         result.trim().isEmpty ? 'Openwalla setup complete.' : result.trim(),
       );
-      console.complete();
       await appState.markWelcomeSetupSeen();
       if (!mounted) return;
       setState(() {
         _installing = false;
         _complete = true;
       });
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          icon: const Icon(
+            Icons.check_circle_rounded,
+            color: Color(0xFF20CF70),
+            size: 44,
+          ),
+          title: const Text('Setup complete'),
+          content: const Text(
+            'The core Openwalla components are installed and the router is ready.',
+            textAlign: TextAlign.center,
+          ),
+          actionsAlignment: MainAxisAlignment.center,
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Done'),
+            ),
+          ],
+        ),
+      );
+      console.complete();
     } catch (error) {
       console.setOutput('Setup failed.\n\n$error');
       console.complete();
