@@ -8,6 +8,7 @@ import 'package:luci_mobile/screens/login_screen.dart';
 import 'package:luci_mobile/screens/reboot_countdown_screen.dart';
 import 'package:luci_mobile/screens/router_management_screen.dart';
 import 'package:luci_mobile/screens/settings_screen.dart';
+import 'package:luci_mobile/screens/ssh_terminal_screen.dart';
 import 'package:luci_mobile/screens/router_setup_screen.dart';
 import 'package:luci_mobile/widgets/luci_app_bar.dart';
 import 'package:luci_mobile/design/luci_design_system.dart';
@@ -241,6 +242,20 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
                           : () => _showRebootDialog(context),
                       enabled: !isRebooting,
                       showSpinner: isRebooting,
+                    ),
+                    _buildMoreTile(
+                      context,
+                      icon: Icons.terminal_rounded,
+                      iconColor: Theme.of(context).colorScheme.primary,
+                      title: 'SSH Terminal',
+                      subtitle: 'Open a shell using saved router credentials',
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => const SshTerminalScreen(),
+                          ),
+                        );
+                      },
                     ),
                     _buildMoreTile(
                       context,

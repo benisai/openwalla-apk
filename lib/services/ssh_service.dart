@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:dartssh2/dartssh2.dart';
 
@@ -11,6 +12,35 @@ class SshCommandResult {
 }
 
 class SshService {
+  Future<SshShellConnection> connectShell({
+    required String host,
+    required String username,
+    required String password,
+    int port = 22,
+    Duration timeout = const Duration(seconds: 18),
+  }) async {
+    final target = _parseTarget(host, port);
+    final socket = await SSHSocket.connect(
+      target.host,
+      target.port,
+      timeout: timeout,
+    );
+    final client = SSHClient(
+      socket,
+      username: username,
+      onPasswordRequest: () => password,
+    );
+    try {
+      final session = await client.shell(
+        pty: const SSHPtyConfig(type: 'xterm-256color', width: 120, height: 40),
+      );
+      return SshShellConnection(client, session);
+    } catch (_) {
+      unawaited(client.close());
+      rethrow;
+    }
+  }
+
   Future<SshCommandResult> runCommand({
     required String host,
     required String username,
@@ -101,6 +131,30 @@ class SshService {
     }
 
     return _SshTarget(value, defaultPort);
+  }
+}
+
+class SshShellConnection {
+  SshShellConnection(this._client, this._session);
+
+  final SSHClient _client;
+  final SSHSession _session;
+  bool _closed = false;
+
+  Stream<String> get stdout => utf8.decoder.bind(_session.stdout);
+  Stream<String> get stderr => utf8.decoder.bind(_session.stderr);
+  Future<void> get done => _session.done;
+
+  void write(String value) {
+    if (_closed) return;
+    _session.stdin.add(Uint8List.fromList(utf8.encode(value)));
+  }
+
+  Future<void> close() async {
+    if (_closed) return;
+    _closed = true;
+    _session.close();
+    await _client.close();
   }
 }
 
