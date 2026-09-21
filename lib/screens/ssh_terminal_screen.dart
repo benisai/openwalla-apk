@@ -18,7 +18,8 @@ class _SshTerminalScreenState extends ConsumerState<SshTerminalScreen> {
     r'\x1B(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))',
   );
 
-  final _commandController = TextEditingController();
+  final _keyboardController = TextEditingController();
+  final _terminalFocusNode = FocusNode();
   final _scrollController = ScrollController();
   final _output = StringBuffer();
   SshShellConnection? _connection;
@@ -26,6 +27,7 @@ class _SshTerminalScreenState extends ConsumerState<SshTerminalScreen> {
   StreamSubscription<String>? _stderrSubscription;
   bool _connecting = true;
   bool _connected = false;
+  String _keyboardValue = '';
   String? _error;
 
   @override
@@ -36,7 +38,8 @@ class _SshTerminalScreenState extends ConsumerState<SshTerminalScreen> {
 
   @override
   void dispose() {
-    _commandController.dispose();
+    _keyboardController.dispose();
+    _terminalFocusNode.dispose();
     _scrollController.dispose();
     unawaited(_disconnect(updateState: false));
     super.dispose();
@@ -140,11 +143,27 @@ class _SshTerminalScreenState extends ConsumerState<SshTerminalScreen> {
     });
   }
 
-  void _sendCommand() {
-    final command = _commandController.text;
-    if (!_connected || command.trim().isEmpty) return;
-    _connection?.write('$command\n');
-    _commandController.clear();
+  void _handleKeyboardInput(String value) {
+    if (!_connected) return;
+    final previous = _keyboardValue;
+    if (value.length > previous.length && value.startsWith(previous)) {
+      _connection?.write(value.substring(previous.length));
+    } else if (value.length < previous.length && previous.startsWith(value)) {
+      _connection?.write(
+        List.filled(previous.length - value.length, '\x7f').join(),
+      );
+    } else if (value.isNotEmpty) {
+      _connection?.write(value);
+    }
+    _keyboardValue = value;
+  }
+
+  void _sendEnter() {
+    if (!_connected) return;
+    _connection?.write('\r');
+    _keyboardValue = '';
+    _keyboardController.clear();
+    _terminalFocusNode.requestFocus();
   }
 
   Future<void> _disconnect({bool updateState = true}) async {
@@ -226,27 +245,76 @@ class _SshTerminalScreenState extends ConsumerState<SshTerminalScreen> {
               ),
               const SizedBox(height: 10),
               Expanded(
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF090C12),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: colors.outlineVariant),
-                  ),
-                  child: SingleChildScrollView(
-                    controller: _scrollController,
-                    child: SelectableText(
-                      _output.isEmpty
-                          ? 'Waiting for terminal output...'
-                          : _output.toString(),
-                      style: const TextStyle(
-                        color: Color(0xFFE5E7EB),
-                        fontFamily: 'monospace',
-                        fontSize: 13,
-                        height: 1.35,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _connected
+                      ? () => _terminalFocusNode.requestFocus()
+                      : null,
+                  child: Stack(
+                    children: [
+                      AnimatedBuilder(
+                        animation: _terminalFocusNode,
+                        builder: (context, child) => Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF090C12),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: _terminalFocusNode.hasFocus
+                                  ? colors.primary
+                                  : colors.outlineVariant,
+                            ),
+                          ),
+                          child: child,
+                        ),
+                        child: SingleChildScrollView(
+                          controller: _scrollController,
+                          child: SelectableText(
+                            _output.isEmpty
+                                ? 'Waiting for terminal output...'
+                                : _output.toString(),
+                            style: const TextStyle(
+                              color: Color(0xFFE5E7EB),
+                              fontFamily: 'monospace',
+                              fontSize: 13,
+                              height: 1.35,
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
+                      Positioned(
+                        left: 0,
+                        bottom: 0,
+                        width: 1,
+                        height: 1,
+                        child: Opacity(
+                          opacity: 0.01,
+                          child: TextField(
+                            controller: _keyboardController,
+                            focusNode: _terminalFocusNode,
+                            enabled: _connected,
+                            autocorrect: false,
+                            enableSuggestions: false,
+                            keyboardType: TextInputType.text,
+                            textInputAction: TextInputAction.send,
+                            onChanged: _handleKeyboardInput,
+                            onSubmitted: (_) => _sendEnter(),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        right: 8,
+                        bottom: 8,
+                        child: IconButton.filledTonal(
+                          tooltip: 'Send Ctrl+C',
+                          onPressed: _connected
+                              ? () => _connection?.write('\x03')
+                              : null,
+                          icon: const Icon(Icons.stop_rounded),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -259,42 +327,6 @@ class _SshTerminalScreenState extends ConsumerState<SshTerminalScreen> {
                   style: TextStyle(color: colors.error),
                 ),
               ],
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  IconButton.filledTonal(
-                    tooltip: 'Send Ctrl+C',
-                    onPressed: _connected
-                        ? () => _connection?.write('\x03')
-                        : null,
-                    icon: const Icon(Icons.stop_rounded),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextField(
-                      controller: _commandController,
-                      enabled: _connected,
-                      autocorrect: false,
-                      enableSuggestions: false,
-                      style: const TextStyle(fontFamily: 'monospace'),
-                      decoration: const InputDecoration(
-                        hintText: 'Enter command',
-                        prefixText: r'$ ',
-                        border: OutlineInputBorder(),
-                        isDense: true,
-                      ),
-                      textInputAction: TextInputAction.send,
-                      onSubmitted: (_) => _sendCommand(),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton.filled(
-                    tooltip: 'Send command',
-                    onPressed: _connected ? _sendCommand : null,
-                    icon: const Icon(Icons.arrow_upward_rounded),
-                  ),
-                ],
-              ),
             ],
           ),
         ),
