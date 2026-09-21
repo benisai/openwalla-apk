@@ -114,7 +114,23 @@ class OpenwallaStateBackupStatus {
   }
 }
 
-enum OpenwrtFeature { wireguard, adblock, sqm }
+enum OpenwrtFeature { wireguard, adblock, sqm, tor }
+
+enum TorRoutingMode { none, devices, lan }
+
+class OpenwallaTorSettings {
+  final TorRoutingMode mode;
+  final bool dnsViaTor;
+  final bool running;
+  final Set<String> deviceMacs;
+
+  const OpenwallaTorSettings({
+    this.mode = TorRoutingMode.none,
+    this.dnsViaTor = false,
+    this.running = false,
+    this.deviceMacs = const {},
+  });
+}
 
 class OpenwrtFeatureStatus {
   final OpenwrtFeature feature;
@@ -2305,6 +2321,7 @@ class AppState extends ChangeNotifier {
       OpenwrtFeature.wireguard => 'WireGuard',
       OpenwrtFeature.adblock => 'AdBlock',
       OpenwrtFeature.sqm => 'SQM',
+      OpenwrtFeature.tor => 'Tor',
     };
   }
 
@@ -2313,6 +2330,7 @@ class AppState extends ChangeNotifier {
       OpenwrtFeature.wireguard => 'wireguard',
       OpenwrtFeature.adblock => 'adblock',
       OpenwrtFeature.sqm => 'qos',
+      OpenwrtFeature.tor => 'tor',
     };
   }
 
@@ -2325,6 +2343,8 @@ class AppState extends ChangeNotifier {
         r'([ -x /etc/init.d/adblock ] || command -v adblock >/dev/null 2>&1 || uci -q get adblock.global >/dev/null 2>&1 || opkg list-installed 2>/dev/null | grep -Eq "^(adblock|luci-app-adblock) ") && echo OK',
       OpenwrtFeature.sqm =>
         r'([ -x /etc/init.d/sqm ] || command -v sqm >/dev/null 2>&1 || [ -d /usr/lib/sqm ] || opkg list-installed 2>/dev/null | grep -Eq "^(sqm-scripts|luci-app-sqm) ") && echo OK',
+      OpenwrtFeature.tor =>
+        r'([ -x /usr/bin/openwalla-tor ] && command -v tor >/dev/null 2>&1) && echo OK',
     };
   }
 
@@ -2362,6 +2382,73 @@ class AppState extends ChangeNotifier {
         'checkedAt': status.checkedAt.toIso8601String(),
       }),
     );
+  }
+
+  Future<OpenwallaTorSettings> fetchTorSettings({BuildContext? context}) async {
+    if (_reviewerModeEnabled) {
+      return const OpenwallaTorSettings(running: true);
+    }
+    final output = await runRouterSetupCommand(
+      '/usr/bin/openwalla-tor status',
+      context: context,
+    );
+    var mode = TorRoutingMode.none;
+    var dnsViaTor = false;
+    var running = false;
+    final macs = <String>{};
+    for (final line in output.split('\n')) {
+      final clean = line.trim();
+      if (clean.startsWith('MODE=')) {
+        final value = clean.substring(5);
+        mode = TorRoutingMode.values.firstWhere(
+          (candidate) => candidate.name == value,
+          orElse: () => TorRoutingMode.none,
+        );
+      } else if (clean == 'DNS=1') {
+        dnsViaTor = true;
+      } else if (clean == 'RUNNING=1') {
+        running = true;
+      } else if (clean.startsWith('MAC=')) {
+        final mac = clean.substring(4).toUpperCase().replaceAll('-', ':');
+        if (mac.isNotEmpty) macs.add(mac);
+      }
+    }
+    return OpenwallaTorSettings(
+      mode: mode,
+      dnsViaTor: dnsViaTor,
+      running: running,
+      deviceMacs: macs,
+    );
+  }
+
+  Future<void> saveTorSettings(
+    OpenwallaTorSettings settings, {
+    BuildContext? context,
+  }) async {
+    if (_reviewerModeEnabled) return;
+    final macs =
+        settings.deviceMacs
+            .map((mac) => mac.trim().toUpperCase().replaceAll('-', ':'))
+            .where(
+              (mac) => RegExp(r'^[0-9A-F]{2}(:[0-9A-F]{2}){5}$').hasMatch(mac),
+            )
+            .toSet()
+            .toList()
+          ..sort();
+    if (settings.mode == TorRoutingMode.devices && macs.isEmpty) {
+      throw StateError('Select at least one device to route through Tor');
+    }
+    final commands = <String>[
+      'uci set openwalla.tor=tor',
+      'uci set openwalla.tor.mode=${_shellQuote(settings.mode.name)}',
+      'uci set openwalla.tor.dns_via_tor=${settings.dnsViaTor ? '1' : '0'}',
+      'uci -q delete openwalla.tor.device_mac >/dev/null 2>&1 || true',
+      for (final mac in macs)
+        'uci add_list openwalla.tor.device_mac=${_shellQuote(mac)}',
+      'uci commit openwalla',
+      '/usr/bin/openwalla-tor apply',
+    ];
+    await runRouterSetupCommand(commands.join('; '), context: context);
   }
 
   Future<bool> _routerCommandSucceeds(

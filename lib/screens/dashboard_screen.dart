@@ -27,6 +27,7 @@ import 'package:luci_mobile/screens/routes_screen.dart';
 import 'package:luci_mobile/screens/services_screen.dart';
 import 'package:luci_mobile/screens/smart_queue_screen.dart';
 import 'package:luci_mobile/screens/system_resources_screen.dart';
+import 'package:luci_mobile/screens/tor_screen.dart';
 import 'package:luci_mobile/screens/vpn_screen.dart';
 import 'package:luci_mobile/models/router.dart' as model;
 
@@ -1298,6 +1299,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
               onTap: () {
                 Navigator.of(context).push(
                   MaterialPageRoute(builder: (context) => const DdnsScreen()),
+                );
+              },
+            ),
+          if (preferences.showTorShortcut)
+            _DashboardShortcutData(
+              id: 'tor',
+              label: 'Tor',
+              icon: Icons.hub_rounded,
+              color: _shortcutPurple,
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (context) => const TorScreen()),
                 );
               },
             ),

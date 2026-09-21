@@ -75,6 +75,7 @@ Individual features:
   banip            OpenWrt banIP packages and config
   pbr              OpenWrt PBR packages and config
   qos              Smart Queue/SQM packages
+  tor              Tor transparent proxy support
 
 Compatibility options:
   --profile=1         Same as stack
@@ -144,6 +145,7 @@ feature_to_installer() {
 	banip) echo "install-banip.sh" ;;
 	pbr) echo "install-pbr.sh" ;;
 	qos) echo "install-qos-scripts.sh" ;;
+	tor) echo "install-tor.sh" ;;
 	*) return 1 ;;
 	esac
 }
@@ -170,6 +172,7 @@ canonical_feature() {
 	banip|ban-ip) echo "banip" ;;
 	pbr) echo "pbr" ;;
 	qos|sqm|smart-queue|smartqueue) echo "qos" ;;
+	tor|onion) echo "tor" ;;
 	*) return 1 ;;
 	esac
 }
@@ -200,6 +203,7 @@ append_all_features() {
 	append_feature netify
 	append_feature banip
 	append_feature qos
+	append_feature tor
 }
 
 append_feature_arg() {
@@ -523,6 +527,16 @@ uninstall_feature() {
 		uci -q delete openwalla.features.sqm >/dev/null 2>&1 || true
 		remove_pkg_if_installed luci-app-sqm
 		remove_pkg_if_installed sqm-scripts
+		;;
+	tor)
+		[ -x /usr/bin/openwalla-tor ] && /usr/bin/openwalla-tor disable >/dev/null 2>&1 || true
+		[ -x /usr/bin/openwalla-tor ] && /usr/bin/openwalla-tor unconfigure >/dev/null 2>&1 || true
+		stop_disable_service tor
+		rm -f /usr/bin/openwalla-tor
+		clear_openwalla_section tor
+		uci -q delete openwalla.features.tor >/dev/null 2>&1 || true
+		remove_pkg_if_installed tor-geoip
+		remove_pkg_if_installed tor
 		;;
 	*)
 		echo "Unknown uninstall feature: $feature" >&2

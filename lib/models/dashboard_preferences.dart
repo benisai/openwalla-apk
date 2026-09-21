@@ -17,6 +17,7 @@ class DashboardPreferences {
   final bool showParentalShortcut;
   final bool showSchedulerShortcut;
   final bool showDdnsShortcut;
+  final bool showTorShortcut;
   final bool showInactiveWirelessNetworks;
   final int shortcutPanelVisibleCount;
   final List<String> shortcutOrder;
@@ -40,6 +41,7 @@ class DashboardPreferences {
     this.showParentalShortcut = true,
     this.showSchedulerShortcut = true,
     this.showDdnsShortcut = true,
+    this.showTorShortcut = true,
     this.showInactiveWirelessNetworks = false,
     this.shortcutPanelVisibleCount = 6,
     List<String>? shortcutOrder,
@@ -61,6 +63,7 @@ class DashboardPreferences {
     'parental',
     'scheduler',
     'ddns',
+    'tor',
   ];
 
   DashboardPreferences copyWith({
@@ -80,6 +83,7 @@ class DashboardPreferences {
     bool? showParentalShortcut,
     bool? showSchedulerShortcut,
     bool? showDdnsShortcut,
+    bool? showTorShortcut,
     bool? showInactiveWirelessNetworks,
     int? shortcutPanelVisibleCount,
     List<String>? shortcutOrder,
@@ -113,6 +117,7 @@ class DashboardPreferences {
       showSchedulerShortcut:
           showSchedulerShortcut ?? this.showSchedulerShortcut,
       showDdnsShortcut: showDdnsShortcut ?? this.showDdnsShortcut,
+      showTorShortcut: showTorShortcut ?? this.showTorShortcut,
       showInactiveWirelessNetworks:
           showInactiveWirelessNetworks ?? this.showInactiveWirelessNetworks,
       shortcutPanelVisibleCount:
@@ -142,6 +147,7 @@ class DashboardPreferences {
     'showParentalShortcut': showParentalShortcut,
     'showCronSchedulerShortcut': showSchedulerShortcut,
     'showDdnsShortcut': showDdnsShortcut,
+    'showTorShortcut': showTorShortcut,
     'showInactiveWirelessNetworks': showInactiveWirelessNetworks,
     'shortcutPanelVisibleCount': shortcutPanelVisibleCount,
     'shortcutOrder': shortcutOrder,
@@ -174,6 +180,7 @@ class DashboardPreferences {
           json['showParentalShortcut'] ?? json['showSchedulerShortcut'] ?? true,
       showSchedulerShortcut: json['showCronSchedulerShortcut'] ?? true,
       showDdnsShortcut: json['showDdnsShortcut'] ?? true,
+      showTorShortcut: json['showTorShortcut'] ?? true,
       showInactiveWirelessNetworks:
           json['showInactiveWirelessNetworks'] == true,
       shortcutPanelVisibleCount: _parseShortcutPanelVisibleCount(

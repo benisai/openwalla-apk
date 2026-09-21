@@ -885,6 +885,20 @@ class _RouterDashboardSettingsScreenState
                   _onPreferenceChanged();
                 },
               ),
+              _buildCardVisibilitySwitch(
+                title: 'Tor Shortcut',
+                subtitle: 'Show Tor routing controls on the dashboard',
+                icon: Icons.hub_rounded,
+                value: _preferences.showTorShortcut,
+                onChanged: (value) {
+                  setState(() {
+                    _preferences = _preferences.copyWith(
+                      showTorShortcut: value,
+                    );
+                  });
+                  _onPreferenceChanged();
+                },
+              ),
               const Divider(height: 1),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
@@ -950,6 +964,7 @@ class _RouterDashboardSettingsScreenState
       'parental' => 'Parental Controls',
       'scheduler' => 'Scheduler',
       'ddns' => 'DDNS',
+      'tor' => 'Tor',
       _ => id,
     };
   }
@@ -967,6 +982,7 @@ class _RouterDashboardSettingsScreenState
       'parental' => Icons.family_restroom_rounded,
       'scheduler' => Icons.schedule_rounded,
       'ddns' => Icons.cloud_sync_rounded,
+      'tor' => Icons.hub_rounded,
       _ => Icons.apps_rounded,
     };
   }

@@ -2,10 +2,20 @@ import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:luci_mobile/models/dashboard_preferences.dart';
 import 'package:luci_mobile/models/router.dart';
 import 'package:luci_mobile/services/router_service.dart';
 
 void main() {
+  test('existing dashboard preferences gain the Tor shortcut', () {
+    final preferences = DashboardPreferences.fromJson({
+      'shortcutOrder': ['network', 'wifi'],
+    });
+
+    expect(preferences.showTorShortcut, isTrue);
+    expect(preferences.shortcutOrder, contains('tor'));
+  });
+
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() => FlutterSecureStorage.setMockInitialValues({}));
