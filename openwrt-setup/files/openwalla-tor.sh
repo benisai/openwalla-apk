@@ -2,9 +2,8 @@
 
 set -u
 
-TORRC="/etc/tor/torrc"
-BEGIN_MARKER="# BEGIN OPENWALLA TOR"
-END_MARKER="# END OPENWALLA TOR"
+TOR_INCLUDE="/etc/tor/openwalla"
+SYSUPGRADE_CONF="/etc/sysupgrade.conf"
 
 cleanup_firewall() {
 	for section in openwalla_tor_tcp openwalla_tor_dns; do
@@ -13,37 +12,25 @@ cleanup_firewall() {
 }
 
 configure_tor() {
-	mkdir -p "$(dirname "$TORRC")"
-	[ -f "$TORRC" ] || : >"$TORRC"
-	tmp="/tmp/openwalla-torrc.$$"
-	awk -v begin="$BEGIN_MARKER" -v end="$END_MARKER" '
-		$0 == begin { skip = 1; next }
-		$0 == end { skip = 0; next }
-		!skip { print }
-	' "$TORRC" >"$tmp"
-	cat >>"$tmp" <<EOF
-$BEGIN_MARKER
-AutomapHostsOnResolve 1
-AutomapHostsSuffixes .
-VirtualAddrNetworkIPv4 172.16.0.0/12
+	mkdir -p "$(dirname "$TOR_INCLUDE")"
+	cat >"$TOR_INCLUDE" <<EOF
+# Managed by Openwalla.
 TransPort 0.0.0.0:9040
 DNSPort 0.0.0.0:9053
-$END_MARKER
+DNSPort [::]:9053
 EOF
-	cp "$tmp" "$TORRC"
-	rm -f "$tmp"
+	uci -q get tor.conf >/dev/null 2>&1 || uci set tor.conf="tor"
+	uci -q del_list tor.conf.tail_include="$TOR_INCLUDE" >/dev/null 2>&1 || true
+	uci add_list tor.conf.tail_include="$TOR_INCLUDE"
+	uci commit tor
+	touch "$SYSUPGRADE_CONF"
+	grep -qxF '/etc/tor' "$SYSUPGRADE_CONF" || printf '%s\n' '/etc/tor' >>"$SYSUPGRADE_CONF"
 }
 
 unconfigure_tor() {
-	[ -f "$TORRC" ] || return 0
-	tmp="/tmp/openwalla-torrc.$$"
-	awk -v begin="$BEGIN_MARKER" -v end="$END_MARKER" '
-		$0 == begin { skip = 1; next }
-		$0 == end { skip = 0; next }
-		!skip { print }
-	' "$TORRC" >"$tmp"
-	cp "$tmp" "$TORRC"
-	rm -f "$tmp"
+	uci -q del_list tor.conf.tail_include="$TOR_INCLUDE" >/dev/null 2>&1 || true
+	uci commit tor >/dev/null 2>&1 || true
+	rm -f "$TOR_INCLUDE"
 }
 
 add_scope() {
