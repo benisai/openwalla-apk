@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:luci_mobile/main.dart';
+import 'package:luci_mobile/models/dashboard_preferences.dart';
 import 'package:luci_mobile/widgets/ssh_console_sheet.dart';
 
 class WelcomeSetupScreen extends ConsumerStatefulWidget {
@@ -48,6 +49,13 @@ class _WelcomeSetupScreenState extends ConsumerState<WelcomeSetupScreen> {
       );
       console.setOutput(
         result.trim().isEmpty ? 'Openwalla setup complete.' : result.trim(),
+      );
+      await appState.saveDashboardPreferences(
+        appState.dashboardPreferences.copyWith(
+          showNetworkPerformanceCard: true,
+          showStatisticsTab: true,
+          flowMode: DashboardFlowMode.detailed,
+        ),
       );
       await appState.markWelcomeSetupSeen();
       if (!mounted) return;

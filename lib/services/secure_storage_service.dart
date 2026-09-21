@@ -2,7 +2,6 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'dart:convert';
 import 'package:luci_mobile/models/router.dart';
 import '../utils/logger.dart';
-import 'package:luci_mobile/config/app_config.dart';
 
 class SecureStorageService {
   final _storage = const FlutterSecureStorage();
@@ -52,23 +51,13 @@ class SecureStorageService {
 
   Future<void> clearCredentials() async {
     try {
-      // Preserve app-level state that should survive signing out.
-      final reviewerMode = await _storage.read(key: AppConfig.reviewerModeKey);
-      final welcomeSetupSeen = await _storage.read(
-        key: 'openwalla_welcome_setup_seen',
-      );
-      await _storage.deleteAll();
-      if (reviewerMode != null) {
-        await _storage.write(
-          key: AppConfig.reviewerModeKey,
-          value: reviewerMode,
-        );
-      }
-      if (welcomeSetupSeen != null) {
-        await _storage.write(
-          key: 'openwalla_welcome_setup_seen',
-          value: welcomeSetupSeen,
-        );
+      for (final key in const [
+        'ipAddress',
+        'username',
+        'password',
+        'useHttps',
+      ]) {
+        await _storage.delete(key: key);
       }
     } catch (e, stack) {
       Logger.exception('Failed to clear credentials', e, stack);
