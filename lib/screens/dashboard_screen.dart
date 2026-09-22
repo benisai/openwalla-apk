@@ -55,6 +55,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
   bool _summaryRefreshInFlight = false;
   final PageController _shortcutPageController = PageController();
   int _shortcutPanelPage = 0;
+  Map<String, bool> _shortcutAvailability = const {};
 
   @override
   void initState() {
@@ -62,9 +63,72 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_loadDashboardAndWarmStatistics());
+      unawaited(_refreshShortcutAvailability());
       _startSummaryRefreshTimer();
     });
   }
+
+  Future<void> _refreshShortcutAvailability() async {
+    final appState = ref.read(appStateProvider);
+
+    Future<bool> openwrtFeature(OpenwrtFeature feature) async {
+      try {
+        final status = await appState.getOpenwrtFeatureStatus(
+          feature,
+          forceRefresh: true,
+          context: mounted ? context : null,
+        );
+        return status.installed;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    Future<bool> parental() async {
+      try {
+        return await appState.hasParentalControlsSupport(
+          context: mounted ? context : null,
+        );
+      } catch (_) {
+        return false;
+      }
+    }
+
+    Future<bool> ddns() async {
+      try {
+        final overview = await appState.fetchDdnsOverview(
+          context: mounted ? context : null,
+        );
+        return overview.isInstalled;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    final results = await Future.wait([
+      openwrtFeature(OpenwrtFeature.sqm),
+      openwrtFeature(OpenwrtFeature.adblock),
+      openwrtFeature(OpenwrtFeature.wireguard),
+      parental(),
+      ddns(),
+      openwrtFeature(OpenwrtFeature.tor),
+      openwrtFeature(OpenwrtFeature.tailscale),
+    ]);
+    if (!mounted) return;
+    setState(() {
+      _shortcutAvailability = {
+        'smart_queue': results[0],
+        'adblock': results[1],
+        'vpn': results[2],
+        'parental': results[3],
+        'ddns': results[4],
+        'tor': results[5],
+        'tailscale': results[6],
+      };
+    });
+  }
+
+  bool _shortcutIsAvailable(String id) => _shortcutAvailability[id] == true;
 
   Future<void> _loadDashboardAndWarmStatistics({bool force = false}) async {
     final appState = ref.read(appStateProvider);
@@ -86,6 +150,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
     if (state == AppLifecycleState.resumed) {
       _startSummaryRefreshTimer();
       _refreshSummaryCounts();
+      unawaited(_refreshShortcutAvailability());
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.detached ||
@@ -1213,7 +1278,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
               );
             },
           ),
-          if (preferences.showSmartQueueShortcut)
+          if (preferences.showSmartQueueShortcut &&
+              _shortcutIsAvailable('smart_queue'))
             _DashboardShortcutData(
               id: 'smart_queue',
               label: 'Smart Queue',
@@ -1227,7 +1293,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                 );
               },
             ),
-          if (preferences.showAdblockShortcut)
+          if (preferences.showAdblockShortcut &&
+              _shortcutIsAvailable('adblock'))
             _DashboardShortcutData(
               id: 'adblock',
               label: 'AdBlock',
@@ -1252,7 +1319,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
               );
             },
           ),
-          if (preferences.showVpnShortcut)
+          if (preferences.showVpnShortcut && _shortcutIsAvailable('vpn'))
             _DashboardShortcutData(
               id: 'vpn',
               label: 'VPN',
@@ -1264,7 +1331,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                 );
               },
             ),
-          if (preferences.showParentalShortcut)
+          if (preferences.showParentalShortcut &&
+              _shortcutIsAvailable('parental'))
             _DashboardShortcutData(
               id: 'parental',
               label: 'Parental',
@@ -1292,7 +1360,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                 );
               },
             ),
-          if (preferences.showDdnsShortcut)
+          if (preferences.showDdnsShortcut && _shortcutIsAvailable('ddns'))
             _DashboardShortcutData(
               id: 'ddns',
               label: 'DDNS',
@@ -1304,7 +1372,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                 );
               },
             ),
-          if (preferences.showTorShortcut)
+          if (preferences.showTorShortcut && _shortcutIsAvailable('tor'))
             _DashboardShortcutData(
               id: 'tor',
               label: 'Tor',
@@ -1316,7 +1384,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                 );
               },
             ),
-          if (preferences.showTailscaleShortcut)
+          if (preferences.showTailscaleShortcut &&
+              _shortcutIsAvailable('tailscale'))
             _DashboardShortcutData(
               id: 'tailscale',
               label: 'Tailscale',
