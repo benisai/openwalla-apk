@@ -476,6 +476,7 @@ class _DdnsEditorSheetState extends ConsumerState<_DdnsEditorSheet> {
   var _serviceName = kDdnsProviderPresets.first.serviceName;
   var _enabled = true;
   var _saving = false;
+  var _obscurePassword = true;
 
   @override
   void initState() {
@@ -558,118 +559,371 @@ class _DdnsEditorSheetState extends ConsumerState<_DdnsEditorSheet> {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-    return Padding(
-      padding: EdgeInsets.fromLTRB(20, 8, 20, 20 + bottomInset),
+    final isEditing = widget.instance != null;
+    return FractionallySizedBox(
+      heightFactor: 0.92,
       child: Form(
         key: _formKey,
-        child: SingleChildScrollView(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 10, 12),
+              child: Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: colorScheme.primary.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      Icons.cloud_sync_rounded,
+                      color: colorScheme.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          isEditing ? 'Edit DDNS' : 'Add DDNS',
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(fontWeight: FontWeight.w900),
+                        ),
+                        Text(
+                          'Keep a hostname pointed at your router.',
+                          style: LuciTextStyles.cardSubtitle(context),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Close',
+                    onPressed: _saving
+                        ? null
+                        : () => Navigator.of(context).pop(false),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: ListView(
+                padding: EdgeInsets.fromLTRB(20, 18, 20, bottomInset + 20),
+                children: [
+                  _DdnsSectionLabel(
+                    icon: Icons.tune_rounded,
+                    title: 'Service',
+                    subtitle: 'Name the job and choose its DDNS provider.',
+                  ),
+                  const SizedBox(height: 10),
+                  _DdnsFormGroup(
+                    child: Column(
+                      children: [
+                        TextFormField(
+                          controller: _nameController,
+                          decoration: const InputDecoration(
+                            labelText: 'Entry Name',
+                            prefixIcon: Icon(Icons.label_outline_rounded),
+                          ),
+                          validator: _required,
+                          textInputAction: TextInputAction.next,
+                        ),
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          initialValue: _serviceName,
+                          decoration: const InputDecoration(
+                            labelText: 'Provider',
+                            prefixIcon: Icon(Icons.dns_outlined),
+                          ),
+                          items: kDdnsProviderPresets
+                              .map(
+                                (preset) => DropdownMenuItem(
+                                  value: preset.serviceName,
+                                  child: Text(
+                                    preset.label,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (value) {
+                            if (value == null) return;
+                            setState(() => _serviceName = value);
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        SwitchListTile.adaptive(
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 4,
+                          ),
+                          title: const Text('Active'),
+                          subtitle: const Text('Run this DDNS update job'),
+                          secondary: Icon(
+                            _enabled
+                                ? Icons.play_circle_outline_rounded
+                                : Icons.pause_circle_outline_rounded,
+                            color: _enabled
+                                ? colorScheme.primary
+                                : colorScheme.onSurfaceVariant,
+                          ),
+                          value: _enabled,
+                          onChanged: (value) =>
+                              setState(() => _enabled = value),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  _DdnsSectionLabel(
+                    icon: Icons.language_rounded,
+                    title: 'Hostname',
+                    subtitle: 'Set the public name this job will maintain.',
+                  ),
+                  const SizedBox(height: 10),
+                  _DdnsFormGroup(
+                    child: Column(
+                      children: [
+                        TextFormField(
+                          controller: _lookupController,
+                          decoration: InputDecoration(
+                            labelText: 'Lookup Hostname',
+                            hintText: _preset.lookupHostHint,
+                            prefixIcon: const Icon(Icons.search_rounded),
+                          ),
+                          validator: _required,
+                          keyboardType: TextInputType.url,
+                          textInputAction: TextInputAction.next,
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: _domainController,
+                          decoration: InputDecoration(
+                            labelText: 'Domain',
+                            hintText: _preset.domainHint,
+                            prefixIcon: const Icon(Icons.public_rounded),
+                          ),
+                          validator: _required,
+                          keyboardType: TextInputType.url,
+                          textInputAction: TextInputAction.next,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  _DdnsSectionLabel(
+                    icon: Icons.key_rounded,
+                    title: 'Credentials',
+                    subtitle: 'Enter the account or token for this provider.',
+                  ),
+                  const SizedBox(height: 10),
+                  _DdnsFormGroup(
+                    child: Column(
+                      children: [
+                        TextFormField(
+                          controller: _usernameController,
+                          decoration: InputDecoration(
+                            labelText: 'Username',
+                            hintText: _preset.usernameHint,
+                            prefixIcon: const Icon(
+                              Icons.person_outline_rounded,
+                            ),
+                          ),
+                          textInputAction: TextInputAction.next,
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: _passwordController,
+                          decoration: InputDecoration(
+                            labelText: 'Password or Token',
+                            hintText: _preset.passwordHint,
+                            prefixIcon: const Icon(Icons.password_rounded),
+                            suffixIcon: IconButton(
+                              tooltip: _obscurePassword
+                                  ? 'Show password'
+                                  : 'Hide password',
+                              onPressed: () => setState(
+                                () => _obscurePassword = !_obscurePassword,
+                              ),
+                              icon: Icon(
+                                _obscurePassword
+                                    ? Icons.visibility_outlined
+                                    : Icons.visibility_off_outlined,
+                              ),
+                            ),
+                          ),
+                          obscureText: _obscurePassword,
+                          textInputAction: TextInputAction.next,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  _DdnsSectionLabel(
+                    icon: Icons.settings_ethernet_rounded,
+                    title: 'Connection',
+                    subtitle: 'Choose the source interface and IP service.',
+                  ),
+                  const SizedBox(height: 10),
+                  _DdnsFormGroup(
+                    child: Column(
+                      children: [
+                        TextFormField(
+                          controller: _interfaceController,
+                          decoration: const InputDecoration(
+                            labelText: 'Interface',
+                            prefixIcon: Icon(Icons.hub_outlined),
+                          ),
+                          textInputAction: TextInputAction.next,
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: _ipUrlController,
+                          decoration: const InputDecoration(
+                            labelText: 'Public IP URL',
+                            prefixIcon: Icon(Icons.link_rounded),
+                          ),
+                          keyboardType: TextInputType.url,
+                          textInputAction: _preset.requiresCustomUrl
+                              ? TextInputAction.next
+                              : TextInputAction.done,
+                          onFieldSubmitted: _preset.requiresCustomUrl
+                              ? null
+                              : (_) => _save(),
+                        ),
+                        if (_preset.requiresCustomUrl) ...[
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: _updateUrlController,
+                            decoration: const InputDecoration(
+                              labelText: 'Update URL',
+                              prefixIcon: Icon(Icons.sync_alt_rounded),
+                            ),
+                            validator: _required,
+                            keyboardType: TextInputType.url,
+                            textInputAction: TextInputAction.done,
+                            onFieldSubmitted: (_) => _save(),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.info_outline_rounded,
+                        size: 17,
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Provider package: ${_preset.requiredPackage}',
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: colorScheme.onSurfaceVariant,
+                                fontWeight: FontWeight.w700,
+                              ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+              child: Row(
+                children: [
+                  TextButton(
+                    onPressed: _saving
+                        ? null
+                        : () => Navigator.of(context).pop(false),
+                    child: const Text('Cancel'),
+                  ),
+                  const Spacer(),
+                  FilledButton.icon(
+                    onPressed: _saving ? null : _save,
+                    icon: _saving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.save_rounded),
+                    label: Text(_saving ? 'Saving' : 'Save DDNS'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DdnsSectionLabel extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  const _DdnsSectionLabel({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 20, color: colors.primary),
+        const SizedBox(width: 10),
+        Expanded(
           child: Column(
-            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                widget.instance == null ? 'Add DDNS' : 'Edit DDNS',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
-              ),
-              const SizedBox(height: 16),
-              SwitchListTile.adaptive(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Enable this entry'),
-                value: _enabled,
-                onChanged: (value) => setState(() => _enabled = value),
-              ),
-              DropdownButtonFormField<String>(
-                initialValue: _serviceName,
-                decoration: const InputDecoration(labelText: 'Provider'),
-                items: kDdnsProviderPresets
-                    .map(
-                      (preset) => DropdownMenuItem(
-                        value: preset.serviceName,
-                        child: Text(preset.label),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (value) {
-                  if (value == null) return;
-                  setState(() => _serviceName = value);
-                },
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _nameController,
-                decoration: const InputDecoration(labelText: 'Entry name'),
-                validator: _required,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _lookupController,
-                decoration: InputDecoration(labelText: _preset.lookupHostHint),
-                validator: _required,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _domainController,
-                decoration: InputDecoration(labelText: _preset.domainHint),
-                validator: _required,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _usernameController,
-                decoration: InputDecoration(labelText: _preset.usernameHint),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _passwordController,
-                decoration: InputDecoration(labelText: _preset.passwordHint),
-                obscureText: true,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _interfaceController,
-                decoration: const InputDecoration(labelText: 'Interface'),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _ipUrlController,
-                decoration: const InputDecoration(labelText: 'Public IP URL'),
-              ),
-              if (_preset.requiresCustomUrl) ...[
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _updateUrlController,
-                  decoration: const InputDecoration(labelText: 'Update URL'),
-                  validator: _required,
-                ),
-              ],
-              const SizedBox(height: 18),
-              Text(
-                'Install ${_preset.requiredPackage} if this provider is not available on your router.',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w700,
+                title,
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  color: colors.onSurface,
+                  fontWeight: FontWeight.w900,
                 ),
               ),
-              const SizedBox(height: 18),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: _saving ? null : _save,
-                  icon: _saving
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.save_rounded),
-                  label: Text(_saving ? 'Saving' : 'Save DDNS'),
-                ),
-              ),
+              const SizedBox(height: 2),
+              Text(subtitle, style: LuciTextStyles.cardSubtitle(context)),
             ],
           ),
         ),
+      ],
+    );
+  }
+}
+
+class _DdnsFormGroup extends StatelessWidget {
+  final Widget child;
+
+  const _DdnsFormGroup({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerHighest.withValues(alpha: 0.32),
+        borderRadius: BorderRadius.circular(8),
       ),
+      child: child,
     );
   }
 }
