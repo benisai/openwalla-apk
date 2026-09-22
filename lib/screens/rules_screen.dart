@@ -16,6 +16,7 @@ class RulesScreen extends ConsumerStatefulWidget {
 class _RulesScreenState extends ConsumerState<RulesScreen> {
   final PageController _pageController = PageController();
   List<OpenwrtFirewallRule> _rules = const [];
+  List<OpenwrtPortForward> _portForwards = const [];
   int _panelIndex = 0;
   bool _isLoading = true;
   String? _error;
@@ -41,10 +42,14 @@ class _RulesScreenState extends ConsumerState<RulesScreen> {
 
     try {
       final appState = ref.read(appStateProvider);
-      final rules = await appState.fetchFirewallRules(context: context);
+      final results = await Future.wait([
+        appState.fetchFirewallRules(context: context),
+        appState.fetchPortForwards(context: context),
+      ]);
       if (!mounted) return;
       setState(() {
-        _rules = rules;
+        _rules = results[0] as List<OpenwrtFirewallRule>;
+        _portForwards = results[1] as List<OpenwrtPortForward>;
         _isLoading = false;
       });
       await appState.refreshDashboardSummaryCounts();
@@ -137,6 +142,15 @@ class _RulesScreenState extends ConsumerState<RulesScreen> {
     );
   }
 
+  void _showPortForwardDetails(OpenwrtPortForward forward) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => _PortForwardDetailsSheet(forward: forward),
+    );
+  }
+
   String _formatCount(int value) {
     final text = value.toString();
     final buffer = StringBuffer();
@@ -168,7 +182,7 @@ class _RulesScreenState extends ConsumerState<RulesScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Firewall Rules',
+                    'Router Rules',
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
                       color: colorScheme.onSurfaceVariant,
                       fontWeight: FontWeight.w800,
@@ -176,7 +190,7 @@ class _RulesScreenState extends ConsumerState<RulesScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    _formatCount(_rules.length),
+                    _formatCount(_rules.length + _portForwards.length),
                     style: Theme.of(context).textTheme.displaySmall?.copyWith(
                       color: colorScheme.onSurface,
                       fontWeight: FontWeight.w900,
@@ -209,10 +223,11 @@ class _RulesScreenState extends ConsumerState<RulesScreen> {
                     rules: openwrtRules,
                     emptyMessage: 'No default OpenWrt rules found.',
                   ),
+                  _buildPortForwardPanel(),
                 ],
               ),
             ),
-            _RulesPanelDots(count: 2, currentIndex: _panelIndex),
+            _RulesPanelDots(count: 3, currentIndex: _panelIndex),
             const SizedBox(height: 12),
           ],
         ),
@@ -282,6 +297,48 @@ class _RulesScreenState extends ConsumerState<RulesScreen> {
       ),
     );
   }
+
+  Widget _buildPortForwardPanel() {
+    return RefreshIndicator(
+      onRefresh: _loadRules,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        children: [
+          _RuleGroupHeader(title: 'Port Forwards', count: _portForwards.length),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(2, 0, 2, 10),
+            child: Text(
+              'Firewall redirects configured on this router.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0,
+              ),
+            ),
+          ),
+          if (_isLoading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 44),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_error != null)
+            _RulesEmptyCard(message: _error!, action: _loadRules)
+          else if (_portForwards.isEmpty)
+            _RulesEmptyCard(
+              message: 'No port forwarding rules found.',
+              action: _loadRules,
+            )
+          else
+            ..._portForwards.map(
+              (forward) => _PortForwardRuleCard(
+                forward: forward,
+                onTap: () => _showPortForwardDetails(forward),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 class _RulesPanelSwitcher extends StatelessWidget {
@@ -296,7 +353,7 @@ class _RulesPanelSwitcher extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    const tabs = ['Openwalla', 'Default'];
+    const tabs = ['Openwalla', 'Default', 'Port Forwards'];
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 10),
       padding: const EdgeInsets.all(4),
@@ -569,6 +626,104 @@ class _RuleCompactLine extends StatelessWidget {
   }
 }
 
+class _PortForwardRuleCard extends StatelessWidget {
+  final OpenwrtPortForward forward;
+  final VoidCallback onTap;
+
+  const _PortForwardRuleCard({required this.forward, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final statusColor = forward.enabled
+        ? const Color(0xFF20CF70)
+        : colorScheme.onSurfaceVariant;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        decoration: BoxDecoration(
+          color: colorScheme.surface,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: colorScheme.outlineVariant.withValues(alpha: 0.42),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    forward.name,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      color: colorScheme.onSurface,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                _RuleBadge(
+                  label: forward.enabled ? 'ENABLED' : 'DISABLED',
+                  color: statusColor,
+                ),
+                const SizedBox(width: 6),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${forward.source.toUpperCase()} :${forward.wanPort}',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Icon(
+                  Icons.arrow_forward_rounded,
+                  size: 14,
+                  color: colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '${forward.destinationIp}:${forward.destinationPort}',
+                    textAlign: TextAlign.right,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurface,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _RuleBadge extends StatelessWidget {
   final String label;
   final Color color;
@@ -753,6 +908,95 @@ class _RuleDetailsSheet extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PortForwardDetailsSheet extends StatelessWidget {
+  final OpenwrtPortForward forward;
+
+  const _PortForwardDetailsSheet({required this.forward});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final statusColor = forward.enabled
+        ? const Color(0xFF20CF70)
+        : colorScheme.onSurfaceVariant;
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              forward.name,
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                color: colorScheme.onSurface,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _RuleBadge(label: 'PORT FORWARD', color: colorScheme.primary),
+                _RuleBadge(
+                  label: forward.enabled ? 'Enabled' : 'Disabled',
+                  color: statusColor,
+                  filled: false,
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Container(
+              decoration: BoxDecoration(
+                color: colorScheme.surface,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: colorScheme.outlineVariant.withValues(alpha: 0.42),
+                ),
+              ),
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                children: [
+                  _RuleDetailRow(label: 'Source Zone', value: forward.source),
+                  _RuleDetailRow(
+                    label: 'External Port',
+                    value: forward.wanPort,
+                  ),
+                  _RuleDetailRow(label: 'Protocol', value: forward.protocol),
+                  _RuleDetailRow(
+                    label: 'Destination',
+                    value: forward.destinationZone,
+                  ),
+                  _RuleDetailRow(
+                    label: 'Destination IP',
+                    value: forward.destinationIp,
+                  ),
+                  _RuleDetailRow(
+                    label: 'Internal Port',
+                    value: forward.destinationPort,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Manage this rule from Network > Port Forwarding.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0,
+              ),
             ),
           ],
         ),

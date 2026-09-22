@@ -2951,7 +2951,8 @@ class AppState extends ChangeNotifier {
           'netifyFlowCount': flowSummary.count,
           'notificationCount': 2,
           'deviceCount': _countRouterDevices(processedDhcpData, associatedMacs),
-          'rulesCount': _mockFirewallRules().length,
+          'rulesCount':
+              _mockFirewallRules().length + _mockPortForwards().length,
           '_lastUpdated':
               DateTime.now().millisecondsSinceEpoch, // Force UI updates
         };
@@ -4831,9 +4832,14 @@ done | sort -t "|" -k1,1nr | head -n ''' +
   }
 
   Future<int> fetchFirewallRuleCount({BuildContext? context}) async {
-    if (_reviewerModeEnabled) return _mockFirewallRules().length;
-    final rules = await fetchFirewallRules(context: context);
-    return rules.length;
+    if (_reviewerModeEnabled) {
+      return _mockFirewallRules().length + _mockPortForwards().length;
+    }
+    final results = await Future.wait([
+      fetchFirewallRules(context: context),
+      fetchPortForwards(context: context),
+    ]);
+    return results[0].length + results[1].length;
   }
 
   List<OpenwrtPortForward> _mockPortForwards() {
@@ -6476,7 +6482,8 @@ done | sort -t "|" -k1,1nr | head -n ''' +
         _dashboardData = {
           ..._dashboardData!,
           'notificationCount': 2,
-          'rulesCount': _mockFirewallRules().length,
+          'rulesCount':
+              _mockFirewallRules().length + _mockPortForwards().length,
           '_lastUpdated': DateTime.now().millisecondsSinceEpoch,
         };
         notifyListeners();
