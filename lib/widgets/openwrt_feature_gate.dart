@@ -34,7 +34,7 @@ class _OpenwrtFeatureGateState extends ConsumerState<OpenwrtFeatureGate> {
   @override
   void initState() {
     super.initState();
-    _statusFuture = _loadStatus();
+    _statusFuture = _loadStatus(force: true);
   }
 
   Future<OpenwrtFeatureStatus> _loadStatus({bool force = false}) {

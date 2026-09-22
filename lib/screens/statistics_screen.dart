@@ -285,7 +285,9 @@ class _StatisticsScreenState extends ConsumerState<StatisticsScreen> {
           .installOpenwallaSetupFeatures(
             const ['usage', 'bandwidth'],
             postInstallCheck:
-                'if command -v vnstat >/dev/null 2>&1 || command -v nlbw >/dev/null 2>&1 || command -v nlbwmon >/dev/null 2>&1; then echo OK; else exit 1; fi',
+                'if command -v vnstat >/dev/null 2>&1 && '
+                '(command -v nlbw >/dev/null 2>&1 || command -v nlbwmon >/dev/null 2>&1); '
+                'then echo OK; else exit 1; fi',
             onOutput: (chunk) {
               outputBuffer.write(chunk);
               console.setOutput(outputBuffer.toString().trimRight());

@@ -1980,6 +1980,7 @@ class AppState extends ChangeNotifier {
           .then((data) {
             if (_statisticsPreloadFutureRouterId == routerId) {
               _statisticsPreloadData = data;
+              notifyListeners();
             }
           })
           .catchError((Object e, StackTrace stack) {
@@ -2183,14 +2184,12 @@ class AppState extends ChangeNotifier {
 
   Future<bool> hasStatisticsSupport({BuildContext? context}) async {
     if (_reviewerModeEnabled) return true;
-    final hasInstalledCommand = await _routerCommandSucceeds(
-      'if command -v vnstat >/dev/null 2>&1 || command -v nlbw >/dev/null 2>&1 || command -v nlbwmon >/dev/null 2>&1; then echo OK; else exit 1; fi',
+    return _routerCommandSucceeds(
+      'if command -v vnstat >/dev/null 2>&1 && '
+      '(command -v nlbw >/dev/null 2>&1 || command -v nlbwmon >/dev/null 2>&1); '
+      'then echo OK; else exit 1; fi',
       context: context,
     );
-    if (hasInstalledCommand) return true;
-
-    final vnstatInterfaces = await fetchVnstatInterfaceNames();
-    return vnstatInterfaces.isNotEmpty;
   }
 
   Future<bool> hasParentalControlsSupport({BuildContext? context}) async {
