@@ -24,6 +24,10 @@ class _VpnScreenState extends ConsumerState<VpnScreen> {
   bool _isLoading = true;
   bool _isSaving = false;
   bool _hasStartedLoad = false;
+  bool _fileImportExpanded = true;
+  bool _pasteConfigExpanded = false;
+  bool _configFieldsExpanded = false;
+  String? _importedFileName;
   String? _error;
 
   final _portController = TextEditingController(text: '51820');
@@ -224,6 +228,7 @@ class _VpnScreenState extends ConsumerState<VpnScreen> {
       if (bytes == null) return;
       final configText = utf8.decode(bytes, allowMalformed: true);
       _clientConfigController.text = configText;
+      setState(() => _importedFileName = file?.name);
       _importClientConfig(configText);
     } catch (e) {
       _showSnack('Unable to read WireGuard config: $e');
@@ -271,6 +276,7 @@ class _VpnScreenState extends ConsumerState<VpnScreen> {
             int.tryParse(_clientKeepaliveController.text) ?? 25,
         routeAllowedIps: _clientSettings.routeAllowedIps,
       );
+      _configFieldsExpanded = true;
     });
     _showSnack('WireGuard config imported. Review and save to apply.');
   }
@@ -572,219 +578,494 @@ class _VpnScreenState extends ConsumerState<VpnScreen> {
 
   Widget _buildClientPanel() {
     final colorScheme = Theme.of(context).colorScheme;
-    return _VpnPanelCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _VpnPanelCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Text(
-                  'WireGuard Client',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0,
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'WireGuard Client',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0,
+                      ),
+                    ),
                   ),
+                  _StatusPill(
+                    label: _clientSettings.configured
+                        ? 'Configured'
+                        : 'Not configured',
+                    color: _clientSettings.configured
+                        ? const Color(0xFF20CF70)
+                        : colorScheme.onSurfaceVariant,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Import a provider configuration or enter the tunnel details manually.',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
-              _StatusPill(
-                label: _clientSettings.configured
-                    ? 'Configured'
-                    : 'Not configured',
-                color: _clientSettings.configured
-                    ? const Color(0xFF20CF70)
-                    : colorScheme.onSurfaceVariant,
-              ),
+              if (!_clientSettings.installed) ...[
+                const SizedBox(height: 14),
+                _WarningBox(
+                  message:
+                      'wireguard-tools is not installed. Install WireGuard from Router Setup or opkg before saving.',
+                ),
+              ],
             ],
           ),
-          const SizedBox(height: 14),
-          if (!_clientSettings.installed)
-            _WarningBox(
-              message:
-                  'wireguard-tools is not installed. Install WireGuard from Router Setup or opkg before saving.',
-            ),
-          SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Enable Client'),
-            subtitle: Text(
-              _clientSettings.interfaceName == 'owrt_wg_client'
-                  ? _clientSettings.interfaceName
-                  : 'Detected existing client: ${_clientSettings.interfaceName}',
-            ),
-            value: _clientSettings.enabled,
-            onChanged: _isSaving ? null : _updateClientEnabled,
+        ),
+        const SizedBox(height: 12),
+        _CollapsibleVpnSection(
+          title: 'Import Config File',
+          subtitle: _importedFileName ?? 'Upload a .conf or .txt file',
+          icon: Icons.upload_file_rounded,
+          expanded: _fileImportExpanded,
+          onToggle: () =>
+              setState(() => _fileImportExpanded = !_fileImportExpanded),
+          child: _WireGuardUploadTarget(
+            fileName: _importedFileName,
+            enabled: !_isSaving,
+            onTap: _pickClientConfig,
           ),
-          SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Route Allowed IPs'),
-            subtitle: const Text(
-              'Use the AllowedIPs from the config as router routes.',
-            ),
-            value: _clientSettings.routeAllowedIps,
-            onChanged: _isSaving ? null : _updateClientRouteAllowed,
-          ),
-          const SizedBox(height: 12),
-          OutlinedButton.icon(
-            onPressed: _isSaving ? null : _pickClientConfig,
-            icon: const Icon(Icons.upload_file_rounded),
-            label: const Text('Upload Config File'),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _clientConfigController,
-            decoration: InputDecoration(
-              labelText: 'Paste WireGuard Config',
-              helperText: 'Optional fallback for .conf files.',
-              prefixIcon: const Icon(Icons.description_rounded),
-              suffixIcon: IconButton(
-                tooltip: 'Import pasted config',
+        ),
+        const SizedBox(height: 12),
+        _CollapsibleVpnSection(
+          title: 'Paste WireGuard Config',
+          subtitle: 'Paste the contents of a client configuration',
+          icon: Icons.content_paste_rounded,
+          expanded: _pasteConfigExpanded,
+          onToggle: () =>
+              setState(() => _pasteConfigExpanded = !_pasteConfigExpanded),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextField(
+                controller: _clientConfigController,
+                decoration: const InputDecoration(
+                  labelText: 'WireGuard configuration',
+                  alignLabelWithHint: true,
+                  prefixIcon: Icon(Icons.description_rounded),
+                  border: OutlineInputBorder(),
+                ),
+                minLines: 6,
+                maxLines: 12,
+                enabled: !_isSaving,
+                autocorrect: false,
+                enableSuggestions: false,
+              ),
+              const SizedBox(height: 12),
+              FilledButton.icon(
                 onPressed: _isSaving ? null : () => _importClientConfig(),
                 icon: const Icon(Icons.input_rounded),
-              ),
-              border: const OutlineInputBorder(),
-            ),
-            minLines: 4,
-            maxLines: 8,
-            enabled: !_isSaving,
-          ),
-          const SizedBox(height: 16),
-          _VpnSectionLabel(label: 'Interface'),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _clientAddressController,
-            decoration: const InputDecoration(
-              labelText: 'Address',
-              helperText: 'Client tunnel address, for example 10.64.0.2/32.',
-              prefixIcon: Icon(Icons.tag_rounded),
-              border: OutlineInputBorder(),
-            ),
-            enabled: !_isSaving,
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _clientDnsController,
-            decoration: const InputDecoration(
-              labelText: 'DNS Servers',
-              helperText: 'Comma-separated DNS servers from the config.',
-              prefixIcon: Icon(Icons.dns_rounded),
-              border: OutlineInputBorder(),
-            ),
-            enabled: !_isSaving,
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _clientPrivateKeyController,
-            decoration: const InputDecoration(
-              labelText: 'Private Key',
-              prefixIcon: Icon(Icons.key_rounded),
-              border: OutlineInputBorder(),
-            ),
-            obscureText: true,
-            enableSuggestions: false,
-            autocorrect: false,
-            enabled: !_isSaving,
-          ),
-          const SizedBox(height: 16),
-          _VpnSectionLabel(label: 'Peer'),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _clientPeerPublicKeyController,
-            decoration: const InputDecoration(
-              labelText: 'Public Key',
-              prefixIcon: Icon(Icons.vpn_key_rounded),
-              border: OutlineInputBorder(),
-            ),
-            enabled: !_isSaving,
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _clientPresharedKeyController,
-            decoration: const InputDecoration(
-              labelText: 'Preshared Key',
-              prefixIcon: Icon(Icons.lock_rounded),
-              border: OutlineInputBorder(),
-            ),
-            obscureText: true,
-            enableSuggestions: false,
-            autocorrect: false,
-            enabled: !_isSaving,
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                flex: 3,
-                child: TextField(
-                  controller: _clientEndpointHostController,
-                  decoration: const InputDecoration(
-                    labelText: 'Endpoint Host',
-                    prefixIcon: Icon(Icons.public_rounded),
-                    border: OutlineInputBorder(),
-                  ),
-                  enabled: !_isSaving,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: TextField(
-                  controller: _clientEndpointPortController,
-                  decoration: const InputDecoration(
-                    labelText: 'Port',
-                    border: OutlineInputBorder(),
-                  ),
-                  keyboardType: TextInputType.number,
-                  enabled: !_isSaving,
-                ),
+                label: const Text('Import Pasted Config'),
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _clientAllowedIpsController,
-            decoration: const InputDecoration(
-              labelText: 'Allowed IPs',
-              helperText: 'Common full tunnel: 0.0.0.0/0, ::/0.',
-              prefixIcon: Icon(Icons.route_rounded),
-              border: OutlineInputBorder(),
-            ),
-            enabled: !_isSaving,
+        ),
+        const SizedBox(height: 12),
+        _CollapsibleVpnSection(
+          title: 'Configuration Fields',
+          subtitle: 'Review or enter the interface and peer settings',
+          icon: Icons.tune_rounded,
+          expanded: _configFieldsExpanded,
+          onToggle: () =>
+              setState(() => _configFieldsExpanded = !_configFieldsExpanded),
+          child: _buildClientConfigFields(),
+        ),
+        const SizedBox(height: 14),
+        _WarningBox(
+          message:
+              'Saving places the Openwalla WireGuard client interface in the WAN firewall zone and does not modify LAN or WAN interfaces.',
+        ),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: _isSaving ? null : _saveClient,
+            icon: _isSaving
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.save_rounded),
+            label: Text(_isSaving ? 'Saving' : 'Save Client'),
           ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _clientKeepaliveController,
-            decoration: const InputDecoration(
-              labelText: 'Persistent Keepalive',
-              helperText: 'Usually 25 for provider VPN clients.',
-              prefixIcon: Icon(Icons.timer_rounded),
-              border: OutlineInputBorder(),
-            ),
-            keyboardType: TextInputType.number,
-            enabled: !_isSaving,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildClientConfigFields() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SwitchListTile.adaptive(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Enable Client'),
+          subtitle: Text(
+            _clientSettings.interfaceName == 'owrt_wg_client'
+                ? _clientSettings.interfaceName
+                : 'Detected existing client: ${_clientSettings.interfaceName}',
           ),
-          const SizedBox(height: 14),
-          _WarningBox(
-            message:
-                'Saving places the Openwalla WireGuard client interface in the WAN firewall zone and does not modify LAN or WAN interfaces.',
+          value: _clientSettings.enabled,
+          onChanged: _isSaving ? null : _updateClientEnabled,
+        ),
+        SwitchListTile.adaptive(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Route Allowed IPs'),
+          subtitle: const Text('Use AllowedIPs from the config as routes.'),
+          value: _clientSettings.routeAllowedIps,
+          onChanged: _isSaving ? null : _updateClientRouteAllowed,
+        ),
+        const Divider(height: 28),
+        const _VpnSectionLabel(label: 'Interface'),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _clientAddressController,
+          decoration: const InputDecoration(
+            labelText: 'Address',
+            helperText: 'Client tunnel address, for example 10.64.0.2/32.',
+            prefixIcon: Icon(Icons.tag_rounded),
+            border: OutlineInputBorder(),
           ),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: _isSaving ? null : _saveClient,
-              icon: _isSaving
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.save_rounded),
-              label: Text(_isSaving ? 'Saving' : 'Save Client'),
+          enabled: !_isSaving,
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _clientDnsController,
+          decoration: const InputDecoration(
+            labelText: 'DNS Servers',
+            prefixIcon: Icon(Icons.dns_rounded),
+            border: OutlineInputBorder(),
+          ),
+          enabled: !_isSaving,
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _clientPrivateKeyController,
+          decoration: const InputDecoration(
+            labelText: 'Private Key',
+            prefixIcon: Icon(Icons.key_rounded),
+            border: OutlineInputBorder(),
+          ),
+          obscureText: true,
+          enableSuggestions: false,
+          autocorrect: false,
+          enabled: !_isSaving,
+        ),
+        const Divider(height: 32),
+        const _VpnSectionLabel(label: 'Peer'),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _clientPeerPublicKeyController,
+          decoration: const InputDecoration(
+            labelText: 'Public Key',
+            prefixIcon: Icon(Icons.vpn_key_rounded),
+            border: OutlineInputBorder(),
+          ),
+          enabled: !_isSaving,
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _clientPresharedKeyController,
+          decoration: const InputDecoration(
+            labelText: 'Preshared Key',
+            prefixIcon: Icon(Icons.lock_rounded),
+            border: OutlineInputBorder(),
+          ),
+          obscureText: true,
+          enableSuggestions: false,
+          autocorrect: false,
+          enabled: !_isSaving,
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              flex: 3,
+              child: TextField(
+                controller: _clientEndpointHostController,
+                decoration: const InputDecoration(
+                  labelText: 'Endpoint Host',
+                  prefixIcon: Icon(Icons.public_rounded),
+                  border: OutlineInputBorder(),
+                ),
+                enabled: !_isSaving,
+              ),
             ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: TextField(
+                controller: _clientEndpointPortController,
+                decoration: const InputDecoration(
+                  labelText: 'Port',
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.number,
+                enabled: !_isSaving,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _clientAllowedIpsController,
+          decoration: const InputDecoration(
+            labelText: 'Allowed IPs',
+            helperText: 'Common full tunnel: 0.0.0.0/0, ::/0.',
+            prefixIcon: Icon(Icons.route_rounded),
+            border: OutlineInputBorder(),
+          ),
+          enabled: !_isSaving,
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _clientKeepaliveController,
+          decoration: const InputDecoration(
+            labelText: 'Persistent Keepalive',
+            helperText: 'Usually 25 for provider VPN clients.',
+            prefixIcon: Icon(Icons.timer_rounded),
+            border: OutlineInputBorder(),
+          ),
+          keyboardType: TextInputType.number,
+          enabled: !_isSaving,
+        ),
+      ],
+    );
+  }
+}
+
+class _CollapsibleVpnSection extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final bool expanded;
+  final VoidCallback onToggle;
+  final Widget child;
+
+  const _CollapsibleVpnSection({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.expanded,
+    required this.onToggle,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: colors.outlineVariant.withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        children: [
+          InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: onToggle,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: colors.primary.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(icon, color: colors.primary, size: 21),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: Theme.of(context).textTheme.titleSmall
+                              ?.copyWith(fontWeight: FontWeight.w900),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: colors.onSurfaceVariant,
+                                fontWeight: FontWeight.w700,
+                              ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  AnimatedRotation(
+                    turns: expanded ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 180),
+                    child: const Icon(Icons.keyboard_arrow_down_rounded),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOutCubic,
+            child: expanded
+                ? Column(
+                    children: [
+                      Divider(
+                        height: 1,
+                        color: colors.outlineVariant.withValues(alpha: 0.45),
+                      ),
+                      Padding(padding: const EdgeInsets.all(16), child: child),
+                    ],
+                  )
+                : const SizedBox(width: double.infinity),
           ),
         ],
       ),
     );
   }
+}
+
+class _WireGuardUploadTarget extends StatelessWidget {
+  final String? fileName;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  const _WireGuardUploadTarget({
+    required this.fileName,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Semantics(
+      button: true,
+      label: 'Select a WireGuard config file',
+      child: CustomPaint(
+        painter: _DashedRoundedBorderPainter(
+          color: enabled ? colors.primary : colors.outline,
+          radius: 8,
+        ),
+        child: Material(
+          color: colors.primary.withValues(alpha: enabled ? 0.05 : 0.02),
+          borderRadius: BorderRadius.circular(8),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: enabled ? onTap : null,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 154),
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 52,
+                      height: 52,
+                      decoration: BoxDecoration(
+                        color: colors.primary.withValues(alpha: 0.14),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        fileName == null
+                            ? Icons.file_upload_outlined
+                            : Icons.check_rounded,
+                        color: colors.primary,
+                        size: 30,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      fileName ?? 'Select a WireGuard config file',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: colors.primary,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      fileName == null
+                          ? 'Supported file types: .conf, .txt'
+                          : 'Imported. Tap to choose a different file.',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: colors.onSurfaceVariant,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DashedRoundedBorderPainter extends CustomPainter {
+  final Color color;
+  final double radius;
+
+  const _DashedRoundedBorderPainter({
+    required this.color,
+    required this.radius,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const dashLength = 7.0;
+    const gapLength = 5.0;
+    final path = Path()
+      ..addRRect(
+        RRect.fromRectAndRadius(Offset.zero & size, Radius.circular(radius)),
+      );
+    final paint = Paint()
+      ..color = color.withValues(alpha: 0.72)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.6;
+    for (final metric in path.computeMetrics()) {
+      var distance = 0.0;
+      while (distance < metric.length) {
+        canvas.drawPath(
+          metric.extractPath(
+            distance,
+            (distance + dashLength).clamp(0, metric.length),
+          ),
+          paint,
+        );
+        distance += dashLength + gapLength;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DashedRoundedBorderPainter oldDelegate) =>
+      oldDelegate.color != color || oldDelegate.radius != radius;
 }
 
 class _ParsedWireGuardConfig {
