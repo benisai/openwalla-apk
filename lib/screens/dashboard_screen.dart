@@ -48,6 +48,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
   static const Color _shortcutYellow = Color(0xFFEAB308);
   static const Color _shortcutPurple = Color(0xFF8B5CF6);
   static const Color _shortcutRed = Color(0xFFFF4D4F);
+  static const Color _shortcutRose = Color(0xFFD9468F);
   static const Color _openwallaCardBorder = Color(0xFF313C52);
   static const double _openwallaRadius = 8;
   Timer? _summaryRefreshTimer;
@@ -1268,7 +1269,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
               id: 'parental',
               label: 'Parental',
               icon: Icons.family_restroom_rounded,
-              color: _openwallaGreen,
+              color: _shortcutRose,
               onTap: () {
                 Navigator.of(context).push(
                   MaterialPageRoute(
