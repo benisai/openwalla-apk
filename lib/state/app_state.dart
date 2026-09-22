@@ -9370,9 +9370,28 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     notifyListeners();
 
     try {
-      final resetAccepted = await executeRouterCommand('firstboot', const [
-        '-y',
-      ], context: context);
+      final router = _routerService!.selectedRouter!;
+      final sysauth = _authService!.sysauth!;
+      const resetCommand =
+          '/sbin/firstboot -y && sync && '
+          '( (sleep 3; /sbin/reboot -f) >/dev/null 2>&1 & ) && '
+          'echo OPENWALLA_FACTORY_RESET_STARTED';
+      final result = await _apiService!.call(
+        router.ipAddress,
+        sysauth,
+        router.useHttps,
+        object: 'file',
+        method: 'exec',
+        params: {
+          'command': '/bin/sh',
+          'params': ['-c', resetCommand],
+          'args': ['-c', resetCommand],
+        },
+        context: context,
+      );
+      final resetAccepted =
+          _isSuccessfulRouterCommand(result) &&
+          _commandOutput(result).contains('OPENWALLA_FACTORY_RESET_STARTED');
       if (!resetAccepted) {
         _isRebooting = false;
         notifyListeners();
@@ -9381,9 +9400,8 @@ done | sort -t "|" -k1,1nr | head -n ''' +
 
       // Do not call reboot(), because normal reboots intentionally save
       // Openwalla state first. A factory reset must leave nothing to restore.
-      // The router may disconnect before returning a response, so reboot is
-      // intentionally best effort after firstboot has been accepted.
-      await executeRouterCommand('reboot', const []);
+      // The delayed reboot above runs only after firstboot and sync complete,
+      // avoiding firmware-specific races that can leave overlay settings.
       return true;
     } catch (e, stack) {
       Logger.exception('Router factory reset failed', e, stack);
