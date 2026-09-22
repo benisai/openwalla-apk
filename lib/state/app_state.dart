@@ -5021,6 +5021,36 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     notifyListeners();
   }
 
+  Future<void> deletePortForward(OpenwrtPortForward forward) async {
+    if (_reviewerModeEnabled) {
+      notifyListeners();
+      return;
+    }
+
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) {
+      throw StateError('No selected router connection is available');
+    }
+
+    await _apiService!.call(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      object: 'uci',
+      method: 'delete',
+      params: {'config': 'firewall', 'section': forward.section},
+    );
+    await _apiService!.uciCommit(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      config: 'firewall',
+    );
+    await _reloadFirewall(router, sysauth);
+    notifyListeners();
+  }
+
   List<OpenwrtFirewallZone> _mockFirewallZones() {
     return const [
       OpenwrtFirewallZone(

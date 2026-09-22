@@ -147,8 +147,60 @@ class _RulesScreenState extends ConsumerState<RulesScreen> {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (context) => _PortForwardDetailsSheet(forward: forward),
+      builder: (sheetContext) => _PortForwardDetailsSheet(
+        forward: forward,
+        onDelete: () {
+          Navigator.of(sheetContext).pop();
+          _deletePortForward(forward);
+        },
+      ),
     );
+  }
+
+  Future<void> _deletePortForward(OpenwrtPortForward forward) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        icon: Icon(
+          Icons.delete_outline_rounded,
+          color: Theme.of(context).colorScheme.error,
+        ),
+        title: const Text('Delete Port Forward?'),
+        content: Text(
+          'Delete "${forward.name}" from the router? This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref.read(appStateProvider).deletePortForward(forward);
+      if (!mounted) return;
+      await _loadRules();
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Port forward deleted.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text('Failed to delete port forward: $e')),
+      );
+    }
   }
 
   String _formatCount(int value) {
@@ -918,8 +970,12 @@ class _RuleDetailsSheet extends StatelessWidget {
 
 class _PortForwardDetailsSheet extends StatelessWidget {
   final OpenwrtPortForward forward;
+  final VoidCallback onDelete;
 
-  const _PortForwardDetailsSheet({required this.forward});
+  const _PortForwardDetailsSheet({
+    required this.forward,
+    required this.onDelete,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -996,6 +1052,21 @@ class _PortForwardDetailsSheet extends StatelessWidget {
                 color: colorScheme.onSurfaceVariant,
                 fontWeight: FontWeight.w700,
                 letterSpacing: 0,
+              ),
+            ),
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: onDelete,
+                icon: const Icon(Icons.delete_outline_rounded),
+                label: const Text('Delete Port Forward'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: colorScheme.error,
+                  side: BorderSide(
+                    color: colorScheme.error.withValues(alpha: 0.65),
+                  ),
+                ),
               ),
             ),
           ],
