@@ -28,6 +28,7 @@ import 'package:luci_mobile/screens/services_screen.dart';
 import 'package:luci_mobile/screens/smart_queue_screen.dart';
 import 'package:luci_mobile/screens/system_resources_screen.dart';
 import 'package:luci_mobile/screens/tor_screen.dart';
+import 'package:luci_mobile/screens/tailscale_screen.dart';
 import 'package:luci_mobile/screens/vpn_screen.dart';
 import 'package:luci_mobile/models/router.dart' as model;
 
@@ -1311,6 +1312,20 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
               onTap: () {
                 Navigator.of(context).push(
                   MaterialPageRoute(builder: (context) => const TorScreen()),
+                );
+              },
+            ),
+          if (preferences.showTailscaleShortcut)
+            _DashboardShortcutData(
+              id: 'tailscale',
+              label: 'Tailscale',
+              icon: Icons.device_hub_rounded,
+              color: _openwallaCyan,
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const TailscaleScreen(),
+                  ),
                 );
               },
             ),

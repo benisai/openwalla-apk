@@ -899,6 +899,20 @@ class _RouterDashboardSettingsScreenState
                   _onPreferenceChanged();
                 },
               ),
+              _buildCardVisibilitySwitch(
+                title: 'Tailscale Shortcut',
+                subtitle: 'Show Tailscale mesh VPN controls',
+                icon: Icons.device_hub_rounded,
+                value: _preferences.showTailscaleShortcut,
+                onChanged: (value) {
+                  setState(() {
+                    _preferences = _preferences.copyWith(
+                      showTailscaleShortcut: value,
+                    );
+                  });
+                  _onPreferenceChanged();
+                },
+              ),
               const Divider(height: 1),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
@@ -965,6 +979,7 @@ class _RouterDashboardSettingsScreenState
       'scheduler' => 'Scheduler',
       'ddns' => 'DDNS',
       'tor' => 'Tor',
+      'tailscale' => 'Tailscale',
       _ => id,
     };
   }
@@ -983,6 +998,7 @@ class _RouterDashboardSettingsScreenState
       'scheduler' => Icons.schedule_rounded,
       'ddns' => Icons.cloud_sync_rounded,
       'tor' => Icons.hub_rounded,
+      'tailscale' => Icons.device_hub_rounded,
       _ => Icons.apps_rounded,
     };
   }

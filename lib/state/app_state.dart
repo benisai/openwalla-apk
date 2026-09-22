@@ -115,7 +115,7 @@ class OpenwallaStateBackupStatus {
   }
 }
 
-enum OpenwrtFeature { wireguard, adblock, sqm, tor }
+enum OpenwrtFeature { wireguard, adblock, sqm, tor, tailscale }
 
 enum TorRoutingMode { none, devices, lan }
 
@@ -131,6 +131,50 @@ class OpenwallaTorSettings {
     this.running = false,
     this.deviceMacs = const {},
   });
+}
+
+class OpenwallaTailscaleSettings {
+  final bool installed;
+  final bool running;
+  final String backendState;
+  final String ipAddress;
+  final String hostname;
+  final bool advertiseLan;
+  final String lanSubnet;
+  final bool acceptRoutes;
+  final bool advertiseExitNode;
+
+  const OpenwallaTailscaleSettings({
+    this.installed = false,
+    this.running = false,
+    this.backendState = 'Stopped',
+    this.ipAddress = '',
+    this.hostname = '',
+    this.advertiseLan = false,
+    this.lanSubnet = '',
+    this.acceptRoutes = false,
+    this.advertiseExitNode = false,
+  });
+
+  bool get authenticated =>
+      ipAddress.isNotEmpty || backendState.toLowerCase() == 'running';
+
+  OpenwallaTailscaleSettings copyWith({
+    bool? advertiseLan,
+    String? lanSubnet,
+    bool? acceptRoutes,
+    bool? advertiseExitNode,
+  }) => OpenwallaTailscaleSettings(
+    installed: installed,
+    running: running,
+    backendState: backendState,
+    ipAddress: ipAddress,
+    hostname: hostname,
+    advertiseLan: advertiseLan ?? this.advertiseLan,
+    lanSubnet: lanSubnet ?? this.lanSubnet,
+    acceptRoutes: acceptRoutes ?? this.acceptRoutes,
+    advertiseExitNode: advertiseExitNode ?? this.advertiseExitNode,
+  );
 }
 
 class OpenwrtFeatureStatus {
@@ -2327,6 +2371,7 @@ class AppState extends ChangeNotifier {
       OpenwrtFeature.adblock => 'AdBlock',
       OpenwrtFeature.sqm => 'SQM',
       OpenwrtFeature.tor => 'Tor',
+      OpenwrtFeature.tailscale => 'Tailscale',
     };
   }
 
@@ -2336,6 +2381,7 @@ class AppState extends ChangeNotifier {
       OpenwrtFeature.adblock => 'adblock',
       OpenwrtFeature.sqm => 'qos',
       OpenwrtFeature.tor => 'tor',
+      OpenwrtFeature.tailscale => 'tailscale',
     };
   }
 
@@ -2350,6 +2396,8 @@ class AppState extends ChangeNotifier {
         r'([ -x /etc/init.d/sqm ] || command -v sqm >/dev/null 2>&1 || [ -d /usr/lib/sqm ] || opkg list-installed 2>/dev/null | grep -Eq "^(sqm-scripts|luci-app-sqm) ") && echo OK',
       OpenwrtFeature.tor =>
         r'([ -x /usr/bin/openwalla-tor ] && command -v tor >/dev/null 2>&1) && echo OK',
+      OpenwrtFeature.tailscale =>
+        r'([ -x /usr/bin/openwalla-tailscale ] && command -v tailscale >/dev/null 2>&1) && echo OK',
     };
   }
 
@@ -2423,6 +2471,81 @@ class AppState extends ChangeNotifier {
       dnsViaTor: dnsViaTor,
       running: running,
       deviceMacs: macs,
+    );
+  }
+
+  Future<OpenwallaTailscaleSettings> fetchTailscaleSettings({
+    BuildContext? context,
+  }) async {
+    if (_reviewerModeEnabled) {
+      return const OpenwallaTailscaleSettings(
+        installed: true,
+        running: true,
+        backendState: 'Running',
+        ipAddress: '100.64.0.15',
+        hostname: 'openwalla-router',
+        lanSubnet: '192.168.8.0/24',
+      );
+    }
+    final output = await runRouterSetupCommand(
+      '/usr/bin/openwalla-tailscale status',
+      context: context,
+    );
+    final values = <String, String>{};
+    for (final line in output.split('\n')) {
+      final separator = line.indexOf('=');
+      if (separator <= 0) continue;
+      values[line.substring(0, separator).trim()] = line
+          .substring(separator + 1)
+          .trim();
+    }
+    return OpenwallaTailscaleSettings(
+      installed: values['INSTALLED'] == '1',
+      running: values['RUNNING'] == '1',
+      backendState: values['BACKEND'] ?? 'Stopped',
+      ipAddress: values['IP'] ?? '',
+      hostname: values['HOSTNAME'] ?? '',
+      advertiseLan: values['ADVERTISE_LAN'] == '1',
+      lanSubnet: values['LAN_SUBNET'] ?? '',
+      acceptRoutes: values['ACCEPT_ROUTES'] == '1',
+      advertiseExitNode: values['ADVERTISE_EXIT_NODE'] == '1',
+    );
+  }
+
+  Future<String> startTailscaleLogin({BuildContext? context}) {
+    return runRouterSetupCommand(
+      '/usr/bin/openwalla-tailscale login',
+      context: context,
+    );
+  }
+
+  Future<void> saveTailscaleSettings(
+    OpenwallaTailscaleSettings settings, {
+    BuildContext? context,
+  }) async {
+    if (_reviewerModeEnabled) return;
+    final subnet = settings.lanSubnet.trim();
+    if (settings.advertiseLan &&
+        !RegExp(r'^\d{1,3}(?:\.\d{1,3}){3}/\d{1,2}$').hasMatch(subnet)) {
+      throw StateError('Enter the LAN subnet in CIDR format');
+    }
+    final commands = [
+      'uci set openwalla.tailscale=tailscale',
+      'uci set openwalla.tailscale.advertise_lan=${settings.advertiseLan ? '1' : '0'}',
+      'uci set openwalla.tailscale.lan_subnet=${_shellQuote(subnet)}',
+      'uci set openwalla.tailscale.accept_routes=${settings.acceptRoutes ? '1' : '0'}',
+      'uci set openwalla.tailscale.advertise_exit_node=${settings.advertiseExitNode ? '1' : '0'}',
+      'uci commit openwalla',
+      '/usr/bin/openwalla-tailscale apply',
+    ];
+    await runRouterSetupCommand(commands.join('; '), context: context);
+  }
+
+  Future<void> disconnectTailscale({BuildContext? context}) async {
+    if (_reviewerModeEnabled) return;
+    await runRouterSetupCommand(
+      '/usr/bin/openwalla-tailscale down',
+      context: context,
     );
   }
 

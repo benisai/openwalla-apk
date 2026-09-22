@@ -68,6 +68,8 @@
 				"/etc/init.d/cron": ["exec"],
 				"/etc/init.d/sqm": ["exec"],
 				"/etc/init.d/firewall": ["exec"],
+				"/etc/init.d/tailscale": ["exec"],
+				"/usr/bin/openwalla-tailscale": ["exec"],
 				"/usr/bin/openwalla-netify-collector": ["exec"],
 				"/usr/bin/openwalla-connection-flow-collector": ["exec"],
 				"/usr/bin/openwalla-devices-collector": ["exec"],

@@ -7,13 +7,15 @@ import 'package:luci_mobile/models/router.dart';
 import 'package:luci_mobile/services/router_service.dart';
 
 void main() {
-  test('existing dashboard preferences gain the Tor shortcut', () {
+  test('existing dashboard preferences gain new VPN shortcuts', () {
     final preferences = DashboardPreferences.fromJson({
       'shortcutOrder': ['network', 'wifi'],
     });
 
     expect(preferences.showTorShortcut, isTrue);
     expect(preferences.shortcutOrder, contains('tor'));
+    expect(preferences.showTailscaleShortcut, isTrue);
+    expect(preferences.shortcutOrder, contains('tailscale'));
   });
 
   TestWidgetsFlutterBinding.ensureInitialized();

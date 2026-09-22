@@ -76,6 +76,7 @@ Individual features:
   pbr              OpenWrt PBR packages and config
   qos              Smart Queue/SQM packages
   tor              Tor transparent proxy support
+  tailscale        Tailscale mesh VPN and subnet routing support
 
 Compatibility options:
   --profile=1         Same as stack
@@ -146,6 +147,7 @@ feature_to_installer() {
 	pbr) echo "install-pbr.sh" ;;
 	qos) echo "install-qos-scripts.sh" ;;
 	tor) echo "install-tor.sh" ;;
+	tailscale) echo "install-tailscale.sh" ;;
 	*) return 1 ;;
 	esac
 }
@@ -173,6 +175,7 @@ canonical_feature() {
 	pbr) echo "pbr" ;;
 	qos|sqm|smart-queue|smartqueue) echo "qos" ;;
 	tor|onion) echo "tor" ;;
+	tailscale|tailnet|mesh-vpn) echo "tailscale" ;;
 	*) return 1 ;;
 	esac
 }
@@ -527,6 +530,18 @@ uninstall_feature() {
 		uci -q delete openwalla.features.sqm >/dev/null 2>&1 || true
 		remove_pkg_if_installed luci-app-sqm
 		remove_pkg_if_installed sqm-scripts
+		;;
+	tailscale)
+		stop_disable_service tailscale
+		rm -f /usr/bin/openwalla-tailscale
+		clear_openwalla_section tailscale
+		uci -q delete network.tailscale >/dev/null 2>&1 || true
+		uci -q delete firewall.tailscale >/dev/null 2>&1 || true
+		uci -q delete firewall.openwalla_tailscale_lan >/dev/null 2>&1 || true
+		uci -q delete firewall.openwalla_tailscale_wan >/dev/null 2>&1 || true
+		uci commit network
+		uci commit firewall
+		remove_pkg_if_installed tailscale
 		;;
 	tor)
 		[ -x /usr/bin/openwalla-tor ] && /usr/bin/openwalla-tor disable >/dev/null 2>&1 || true
