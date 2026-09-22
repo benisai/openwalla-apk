@@ -8,6 +8,38 @@ import 'package:luci_mobile/models/dashboard_preferences.dart';
 import 'package:luci_mobile/widgets/luci_app_bar.dart';
 import 'package:luci_mobile/widgets/ssh_console_sheet.dart';
 
+enum _SetupProfile { basic, standard, advanced, everything, remove }
+
+extension on _SetupProfile {
+  String get title => switch (this) {
+    _SetupProfile.basic => 'Basic Install',
+    _SetupProfile.standard => 'Standard Install',
+    _SetupProfile.advanced => 'Advanced Install',
+    _SetupProfile.everything => 'Everything',
+    _SetupProfile.remove => 'Remove Installed Apps',
+  };
+
+  String get description => switch (this) {
+    _SetupProfile.basic =>
+      'Core packages and helpers required for Openwalla to function.',
+    _SetupProfile.standard =>
+      'Basic plus AdBlock, Parental Controls, Smart Queue, and DDNS.',
+    _SetupProfile.advanced => 'Basic and Standard plus PBR.',
+    _SetupProfile.everything =>
+      'Basic, Standard, and Advanced plus Detailed and Simple Flows.',
+    _SetupProfile.remove =>
+      'Choose installed Openwalla components to remove from the router.',
+  };
+
+  IconData get icon => switch (this) {
+    _SetupProfile.basic => Icons.foundation_rounded,
+    _SetupProfile.standard => Icons.auto_awesome_rounded,
+    _SetupProfile.advanced => Icons.tune_rounded,
+    _SetupProfile.everything => Icons.apps_rounded,
+    _SetupProfile.remove => Icons.delete_sweep_outlined,
+  };
+}
+
 class RouterSetupScreen extends ConsumerStatefulWidget {
   final bool netifyOnly;
 
@@ -21,15 +53,18 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
   static const _rawSetupBase =
       'https://raw.githubusercontent.com/benisai/openwalla-apk/main/openwrt-setup';
 
-  static const _defaultFeatures = ['monitoring'];
+  static const _basicFeatures = ['monitoring'];
+  static const _standardFeatures = [
+    ..._basicFeatures,
+    'adblock',
+    'blocking',
+    'scheduler',
+    'qos',
+    'ddns',
+  ];
 
   int _wizardStep = 0;
-  bool _installAdblock = false;
-  bool _installQosScripts = false;
-  bool _installNetify = false;
-  bool _installSimpleFlows = false;
-  bool _installBanip = false;
-  bool _installPbr = false;
+  _SetupProfile? _selectedProfile;
   bool _isInstalling = false;
   bool _isUninstalling = false;
   bool _showDetails = false;
@@ -37,21 +72,20 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
   String? _lastOutput;
   final Set<String> _uninstallFeatures = {};
 
-  List<String> get _extraFeatures {
-    if (widget.netifyOnly) return const ['netify'];
-    return [
-      if (_installAdblock) 'adblock',
-      if (_installQosScripts) 'qos',
-      if (_installSimpleFlows) 'conntrack',
-      if (_installNetify) 'netify',
-      if (_installBanip) 'banip',
-      if (_installPbr) 'pbr',
-    ];
-  }
-
   List<String> get _selectedFeatures {
     if (widget.netifyOnly) return const ['netify'];
-    return [..._defaultFeatures, ..._extraFeatures];
+    return switch (_selectedProfile) {
+      _SetupProfile.basic => _basicFeatures,
+      _SetupProfile.standard => _standardFeatures,
+      _SetupProfile.advanced => [..._standardFeatures, 'pbr'],
+      _SetupProfile.everything => [
+        ..._standardFeatures,
+        'pbr',
+        'netify',
+        'conntrack',
+      ],
+      _ => const [],
+    };
   }
 
   String get _setupCommand {
@@ -237,11 +271,13 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
           )
         : appState.dashboardPreferences.copyWith(
             showNetworkPerformanceCard: true,
-            showFlowsCard: _installSimpleFlows || _installNetify,
+            showFlowsCard: _selectedFeatures.any(
+              (feature) => feature == 'conntrack' || feature == 'netify',
+            ),
             showStatisticsTab: true,
-            flowMode: _installNetify
+            flowMode: _selectedFeatures.contains('netify')
                 ? DashboardFlowMode.detailed
-                : _installSimpleFlows
+                : _selectedFeatures.contains('conntrack')
                 ? DashboardFlowMode.simple
                 : appState.dashboardPreferences.flowMode,
           );
@@ -258,20 +294,14 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
     );
   }
 
-  void _nextStep() {
-    if (_wizardStep < _lastWizardStep) setState(() => _wizardStep += 1);
-  }
-
   void _previousStep() {
     if (_wizardStep > 0) setState(() => _wizardStep -= 1);
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
     final command = _setupCommand;
-    final totalSteps = widget.netifyOnly ? 2 : 5;
+    final isRemovePage = _selectedProfile == _SetupProfile.remove;
 
     return Scaffold(
       appBar: const LuciAppBar(title: 'Router Setup', showBack: true),
@@ -280,57 +310,64 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
           children: [
-            _WizardProgress(currentStep: _wizardStep, totalSteps: totalSteps),
-            const SizedBox(height: 16),
+            if (_wizardStep > 0) ...[
+              _WizardProgress(currentStep: _wizardStep, totalSteps: 2),
+              const SizedBox(height: 16),
+            ],
             AnimatedSwitcher(
               duration: const Duration(milliseconds: 180),
               child: KeyedSubtree(
                 key: ValueKey(_wizardStep),
-                child: _buildWizardStep(theme, colorScheme),
+                child: _buildWizardStep(),
               ),
             ),
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                if (_wizardStep > 0)
+            if (widget.netifyOnly && _wizardStep == 0) ...[
+              const SizedBox(height: 18),
+              FilledButton.icon(
+                onPressed: _isInstalling
+                    ? null
+                    : () => setState(() => _wizardStep = 1),
+                icon: const Icon(Icons.arrow_forward_rounded),
+                label: const Text('Review Install'),
+              ),
+            ],
+            if (_wizardStep > 0) ...[
+              const SizedBox(height: 18),
+              Row(
+                children: [
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: _isInstalling ? null : _previousStep,
+                      onPressed: _isInstalling || _isUninstalling
+                          ? null
+                          : _previousStep,
                       icon: const Icon(Icons.arrow_back_rounded),
                       label: const Text('Back'),
                     ),
                   ),
-                if (_wizardStep > 0) const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: _isInstalling
-                        ? null
-                        : _wizardStep == _lastWizardStep
-                        ? _runSetup
-                        : _nextStep,
-                    icon: _isInstalling
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : Icon(
-                            _wizardStep == _lastWizardStep
-                                ? Icons.verified_user_outlined
-                                : Icons.arrow_forward_rounded,
-                          ),
-                    label: Text(
-                      _isInstalling
-                          ? 'Installing'
-                          : _wizardStep == _lastWizardStep
-                          ? 'Install via SSH'
-                          : 'Next',
+                  if (!isRemovePage) ...[
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: _isInstalling ? null : _runSetup,
+                        icon: _isInstalling
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.download_done_rounded),
+                        label: Text(
+                          _isInstalling ? 'Installing' : 'Install via SSH',
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-              ],
-            ),
-            if (_wizardStep == _lastWizardStep) ...[
+                  ],
+                ],
+              ),
+            ],
+            if (_wizardStep == _lastWizardStep && !isRemovePage) ...[
               const SizedBox(height: 10),
               Center(
                 child: TextButton.icon(
@@ -340,7 +377,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                 ),
               ),
             ],
-            if (_wizardStep == _lastWizardStep) ...[
+            if (_wizardStep == _lastWizardStep && !isRemovePage) ...[
               if (_setupComplete) ...[
                 const SizedBox(height: 16),
                 const _SetupCompleteBanner(),
@@ -370,30 +407,13 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                 ),
               ],
             ],
-            if (!widget.netifyOnly) ...[
-              const SizedBox(height: 20),
-              _UninstallComponentsCard(
-                selectedFeatures: _uninstallFeatures,
-                enabled: !_isInstalling && !_isUninstalling,
-                onChanged: (feature, selected) {
-                  setState(() {
-                    if (selected) {
-                      _uninstallFeatures.add(feature);
-                    } else {
-                      _uninstallFeatures.remove(feature);
-                    }
-                  });
-                },
-                onRun: _runUninstall,
-              ),
-            ],
           ],
         ),
       ),
     );
   }
 
-  Widget _buildWizardStep(ThemeData theme, ColorScheme colorScheme) {
+  Widget _buildWizardStep() {
     if (widget.netifyOnly) {
       return _wizardStep == 0
           ? _WizardIntroCard(
@@ -410,132 +430,168 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
             );
     }
 
-    switch (_wizardStep) {
-      case 0:
-        return _WizardIntroCard(
-          title: 'Welcome to Openwalla Router Setup',
-          subtitle:
-              'This wizard installs the OpenWrt packages and Openwalla helper scripts needed for dashboard monitoring, device inventory, usage, notifications, and router controls.',
-          icon: Icons.router_rounded,
-        );
-      case 1:
-        return _SetupFeatureCard(
-          icon: Icons.inventory_2_outlined,
-          title: 'Installing standard OpenWrt applications',
-          subtitle:
-              'uhttpd-mod-ubus, nlbwmon, vnstat2 when available, vnstat as a fallback, sqlite3-cli, conntrack, and qrencode.',
-          child: const _InstallerList(
-            items: [
-              'uhttpd-mod-ubus',
-              'Nlbwmon',
-              'Vnstat2 or Vnstat',
-              'sqlite3-cli',
-              'conntrack',
-              'qrencode',
-            ],
-          ),
-        );
-      case 2:
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'Would you like to install extra software?',
-              style: theme.textTheme.titleLarge?.copyWith(
-                color: colorScheme.onSurface,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 0,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Make a selection now. These are optional packages and can be installed later.',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 14),
-            _ExtraSoftwareTile(
-              icon: Icons.block_rounded,
-              title: 'AdBlock',
-              subtitle: 'DNS-based ad and tracker blocking.',
-              value: _installAdblock,
-              enabled: !_isInstalling,
-              onChanged: (value) => setState(() => _installAdblock = value),
-            ),
-            _ExtraSoftwareTile(
-              icon: Icons.speed_rounded,
-              title: 'Smart Queue (SQM)',
-              subtitle: 'Install sqm-scripts for traffic shaping.',
-              value: _installQosScripts,
-              enabled: !_isInstalling,
-              onChanged: (value) => setState(() => _installQosScripts = value),
-            ),
-            _ExtraSoftwareTile(
-              icon: Icons.account_tree_rounded,
-              title: 'netify',
-              subtitle:
-                  'Detailed flow data for stronger routers. 512 MB RAM and a 4-core CPU are recommended.',
-              value: _installNetify,
-              enabled: !_isInstalling,
-              onChanged: (value) => setState(() => _installNetify = value),
-            ),
-            _ExtraSoftwareTile(
-              icon: Icons.route_rounded,
-              title: 'Simple Flows',
-              subtitle:
-                  'Conntrack event flow history. 512 MB RAM and a 4-core CPU are recommended.',
-              value: _installSimpleFlows,
-              enabled: !_isInstalling,
-              onChanged: (value) => setState(() => _installSimpleFlows = value),
-            ),
-            if (_installNetify || _installSimpleFlows)
-              const _FlowInstallWarningCard(),
-            _ExtraSoftwareTile(
-              icon: Icons.shield_outlined,
-              title: 'banip',
-              subtitle: 'OpenWrt IP blocklist support.',
-              value: _installBanip,
-              enabled: !_isInstalling,
-              onChanged: (value) => setState(() => _installBanip = value),
-            ),
-            _ExtraSoftwareTile(
-              icon: Icons.alt_route_rounded,
-              title: 'pbr',
-              subtitle: 'Policy-based routing package support.',
-              value: _installPbr,
-              enabled: !_isInstalling,
-              onChanged: (value) => setState(() => _installPbr = value),
-            ),
-          ],
-        );
-      case 3:
-        return _SetupFeatureCard(
-          icon: Icons.monitor_heart_outlined,
-          title: 'Installing default Openwalla scripts',
-          subtitle:
-              'The app downloads the setup dispatcher with wget, then it fetches each selected feature bundle.',
-          child: const _InstallerList(
-            items: [
-              'Network, DNS, and speedtest monitors',
-              'Notifications and device inventory',
-              'Usage and per-device bandwidth helpers',
-              'Internet blocking and state sync helpers',
-            ],
-          ),
-        );
-      default:
-        return _SetupPermissionCard(
+    if (_wizardStep == 0) {
+      return _SetupProfilePicker(
+        enabled: !_isInstalling && !_isUninstalling,
+        onSelected: (profile) {
+          setState(() {
+            _selectedProfile = profile;
+            _wizardStep = 1;
+            _setupComplete = false;
+            _lastOutput = null;
+          });
+        },
+      );
+    }
+
+    if (_selectedProfile == _SetupProfile.remove) {
+      return _UninstallComponentsCard(
+        selectedFeatures: _uninstallFeatures,
+        enabled: !_isInstalling && !_isUninstalling,
+        onChanged: (feature, selected) {
+          setState(() {
+            if (selected) {
+              _uninstallFeatures.add(feature);
+            } else {
+              _uninstallFeatures.remove(feature);
+            }
+          });
+        },
+        onRun: _runUninstall,
+      );
+    }
+
+    final profile = _selectedProfile!;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _SetupFeatureCard(
+          icon: profile.icon,
+          title: profile.title,
+          subtitle: profile.description,
+          child: _InstallerList(items: _installLabels(profile)),
+        ),
+        if (profile == _SetupProfile.everything) ...[
+          const SizedBox(height: 12),
+          const _FlowInstallWarningCard(),
+        ],
+        const SizedBox(height: 12),
+        _SetupPermissionCard(
           isInstalling: _isInstalling,
-          extraSoftware: _extraFeatures.length,
+          extraSoftware: _selectedFeatures.length - _basicFeatures.length,
           featureCount: _selectedFeatures.length,
           onToggleDetails: () => setState(() => _showDetails = true),
-        );
-    }
+        ),
+      ],
+    );
   }
 
-  int get _lastWizardStep => widget.netifyOnly ? 1 : 4;
+  List<String> _installLabels(_SetupProfile profile) {
+    const basic = [
+      'OpenWrt RPC and command dependencies',
+      'Network, DNS, and speed monitoring',
+      'Statistics and device inventory',
+      'Notifications and persistent state',
+    ];
+    return switch (profile) {
+      _SetupProfile.basic => basic,
+      _SetupProfile.standard => [
+        ...basic,
+        'AdBlock',
+        'Parental Controls',
+        'Smart Queue (SQM)',
+        'Dynamic DNS (DDNS)',
+      ],
+      _SetupProfile.advanced => [
+        ..._installLabels(_SetupProfile.standard),
+        'Policy-Based Routing (PBR)',
+      ],
+      _SetupProfile.everything => [
+        ..._installLabels(_SetupProfile.advanced),
+        'Detailed Flows (Netify)',
+        'Simple Flows (Conntrack)',
+      ],
+      _SetupProfile.remove => const [],
+    };
+  }
+
+  int get _lastWizardStep => 1;
+}
+
+class _SetupProfilePicker extends StatelessWidget {
+  final bool enabled;
+  final ValueChanged<_SetupProfile> onSelected;
+
+  const _SetupProfilePicker({required this.enabled, required this.onSelected});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Choose a setup option',
+          style: theme.textTheme.headlineSmall?.copyWith(
+            fontWeight: FontWeight.w900,
+            letterSpacing: 0,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Review exactly what will be installed before making changes to the router.',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: colors.onSurfaceVariant,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 16),
+        ..._SetupProfile.values.map(
+          (profile) => Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Card(
+              margin: EdgeInsets.zero,
+              child: ListTile(
+                enabled: enabled,
+                contentPadding: const EdgeInsets.fromLTRB(16, 10, 12, 10),
+                leading: Container(
+                  width: 42,
+                  height: 42,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: profile == _SetupProfile.remove
+                        ? colors.error.withValues(alpha: 0.10)
+                        : colors.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    profile.icon,
+                    color: profile == _SetupProfile.remove
+                        ? colors.error
+                        : colors.primary,
+                  ),
+                ),
+                title: Text(
+                  profile.title,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0,
+                  ),
+                ),
+                subtitle: Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(profile.description),
+                ),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: enabled ? () => onSelected(profile) : null,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class _SetupPermissionCard extends StatelessWidget {
@@ -783,61 +839,6 @@ class _InstallerList extends StatelessWidget {
   }
 }
 
-class _ExtraSoftwareTile extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final bool value;
-  final bool enabled;
-  final ValueChanged<bool> onChanged;
-
-  const _ExtraSoftwareTile({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.value,
-    required this.enabled,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Card(
-      child: CheckboxListTile(
-        value: value,
-        onChanged: enabled ? (value) => onChanged(value ?? false) : null,
-        controlAffinity: ListTileControlAffinity.trailing,
-        secondary: Container(
-          width: 40,
-          height: 40,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: colorScheme.primary.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Icon(icon, color: colorScheme.primary),
-        ),
-        title: Text(
-          title,
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-            color: colorScheme.onSurface,
-            fontWeight: FontWeight.w900,
-            letterSpacing: 0,
-          ),
-        ),
-        subtitle: Text(
-          subtitle,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: colorScheme.onSurfaceVariant,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _FlowInstallWarningCard extends StatelessWidget {
   const _FlowInstallWarningCard();
 
@@ -985,16 +986,46 @@ class _UninstallComponentsCard extends StatelessWidget {
       icon: Icons.shield_rounded,
     ),
     (
+      feature: 'ddns',
+      title: 'Dynamic DNS',
+      subtitle: 'OpenWrt DDNS packages and service.',
+      icon: Icons.public_rounded,
+    ),
+    (
       feature: 'qos',
       title: 'Smart Queue',
       subtitle: 'SQM package support.',
       icon: Icons.tune_rounded,
     ),
     (
+      feature: 'pbr',
+      title: 'Policy-Based Routing',
+      subtitle: 'OpenWrt PBR package support.',
+      icon: Icons.alt_route_rounded,
+    ),
+    (
+      feature: 'banip',
+      title: 'banIP',
+      subtitle: 'OpenWrt IP blocklist support.',
+      icon: Icons.gpp_bad_outlined,
+    ),
+    (
       feature: 'wireguard',
       title: 'WireGuard',
       subtitle: 'WireGuard package support.',
       icon: Icons.vpn_key_rounded,
+    ),
+    (
+      feature: 'tor',
+      title: 'Tor',
+      subtitle: 'Tor transparent proxy support.',
+      icon: Icons.security_rounded,
+    ),
+    (
+      feature: 'tailscale',
+      title: 'Tailscale',
+      subtitle: 'Tailscale mesh VPN support.',
+      icon: Icons.hub_rounded,
     ),
   ];
 

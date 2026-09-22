@@ -50,7 +50,7 @@ Feature groups:
   stack        Standard Openwrt apps plus Openwalla monitoring, usage,
                notifications, devices, blocking, state sync, and quarantine.
   monitoring   Standard apps plus usage, network, DNS, speedtest, notifications,
-               devices, device bandwidth, blocking, and state sync.
+               devices, device bandwidth, and state sync.
   flows        Simple Conntrack flows plus detailed Netify flows.
   all          Everything in stack plus AdBlock, PBR, Netify, banIP, and SQM.
 
@@ -72,6 +72,7 @@ Individual features:
   state-sync       Openwalla state backup/sync helper
   wireguard        WireGuard packages and LuCI protocol support
   adblock          OpenWrt adblock packages and config
+  ddns             OpenWrt dynamic DNS packages and service
   banip            OpenWrt banIP packages and config
   pbr              OpenWrt PBR packages and config
   qos              Smart Queue/SQM packages
@@ -143,6 +144,7 @@ feature_to_installer() {
 	state-sync) echo "install-state-sync.sh" ;;
 	wireguard) echo "install-wireguard.sh" ;;
 	adblock) echo "install-adblock.sh" ;;
+	ddns) echo "install-ddns.sh" ;;
 	banip) echo "install-banip.sh" ;;
 	pbr) echo "install-pbr.sh" ;;
 	qos) echo "install-qos-scripts.sh" ;;
@@ -171,6 +173,7 @@ canonical_feature() {
 	state-sync|state|backup|sync) echo "state-sync" ;;
 	wireguard|wg|vpn) echo "wireguard" ;;
 	adblock|ad-block) echo "adblock" ;;
+	ddns|dynamic-dns) echo "ddns" ;;
 	banip|ban-ip) echo "banip" ;;
 	pbr) echo "pbr" ;;
 	qos|sqm|smart-queue|smartqueue) echo "qos" ;;
@@ -189,13 +192,13 @@ append_monitoring_features() {
 	append_feature notifications
 	append_feature devices
 	append_feature bandwidth
-	append_feature blocking
-	append_feature scheduler
 	append_feature state-sync
 }
 
 append_stack_features() {
 	append_monitoring_features
+	append_feature blocking
+	append_feature scheduler
 	append_feature quarantine
 }
 
@@ -511,6 +514,13 @@ uninstall_feature() {
 		uci -q delete openwalla.features.adblock >/dev/null 2>&1 || true
 		remove_pkg_if_installed luci-app-adblock
 		remove_pkg_if_installed adblock
+		;;
+	ddns)
+		stop_disable_service ddns
+		uci -q delete openwalla.features.ddns >/dev/null 2>&1 || true
+		remove_pkg_if_installed luci-app-ddns
+		remove_pkg_if_installed ddns-scripts-services
+		remove_pkg_if_installed ddns-scripts
 		;;
 	banip)
 		stop_disable_service banip
