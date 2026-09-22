@@ -789,11 +789,12 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
         showBack: true,
         actions: widget.wirelessOnly
             ? [
-                IconButton(
-                  tooltip: 'Join Wi-Fi as WAN',
-                  icon: const Icon(Icons.wifi_find_rounded),
-                  onPressed: _showJoinWifiSheet,
-                ),
+                if (_wirelessPanelIndex == 1)
+                  IconButton(
+                    tooltip: 'Join Wi-Fi as WAN',
+                    icon: const Icon(Icons.wifi_find_rounded),
+                    onPressed: _showJoinWifiSheet,
+                  ),
                 IconButton(
                   tooltip: 'Wi-Fi display settings',
                   icon: const Icon(Icons.settings_rounded),
