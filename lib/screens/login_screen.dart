@@ -10,9 +10,11 @@ import 'package:url_launcher/url_launcher_string.dart';
 import 'package:luci_mobile/config/app_config.dart';
 import 'package:luci_mobile/models/router.dart' as model;
 import 'package:luci_mobile/services/secure_storage_service.dart';
+import 'package:luci_mobile/services/ssh_service.dart';
 import 'package:luci_mobile/state/app_state.dart';
 import 'package:luci_mobile/utils/gateway_utils.dart';
 import 'package:luci_mobile/utils/url_parser.dart';
+import 'package:luci_mobile/widgets/ssh_console_sheet.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -369,8 +371,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     }
   }
 
-  Future<void> _openGitHubIssues() async {
-    final url = AppConfig.githubIssuesUrl;
+  Future<void> _openGitHubRepository() async {
+    final url = AppConfig.githubRepositoryUrl;
     final success = await launchUrlString(
       url,
       mode: LaunchMode.externalApplication,
@@ -378,10 +380,103 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     if (!success && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Could not open GitHub issues'),
+          content: const Text('Could not open Openwalla on GitHub'),
           backgroundColor: Theme.of(context).colorScheme.error,
         ),
       );
+    }
+  }
+
+  Future<void> _showLoginHelp() async {
+    final parsed = UrlParser.parse(_ipController.text.trim());
+    final request = await showModalBottomSheet<_LuciSshInstallRequest>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      builder: (context) => _LoginHelpSheet(
+        initialHost: parsed.isValid ? parsed.host : _ipController.text.trim(),
+        initialUsername: _usernameController.text.trim().isEmpty
+            ? 'root'
+            : _usernameController.text.trim(),
+        initialPassword: _passwordController.text,
+        onOpenGitHub: _openGitHubRepository,
+      ),
+    );
+    if (request == null || !mounted) return;
+    await _installLuciViaSsh(request);
+  }
+
+  Future<void> _installLuciViaSsh(_LuciSshInstallRequest request) async {
+    final console = SshConsoleController(
+      initialOutput:
+          'Connecting to ${request.username}@${request.host}:${request.port}...\n'
+          'Installing LuCI and RPC support...\n\n',
+      running: true,
+    );
+    unawaited(
+      showSshConsoleSheet(
+        context: context,
+        controller: console,
+        title: 'LuCI SSH Installer',
+      ).whenComplete(console.dispose),
+    );
+
+    const command = r'''
+set -e
+echo "[openwalla-luci] Detecting package manager..."
+if command -v apk >/dev/null 2>&1; then
+  echo "[openwalla-luci] Updating APK packages..."
+  apk update
+  apk add luci luci-mod-rpc rpcd-mod-file || apk add luci luci-mod-rpc
+elif command -v opkg >/dev/null 2>&1; then
+  echo "[openwalla-luci] Updating OPKG packages..."
+  opkg update
+  opkg install luci luci-mod-rpc rpcd-mod-file || opkg install luci luci-mod-rpc
+else
+  echo "[openwalla-luci] No supported package manager was found."
+  exit 1
+fi
+for service in rpcd uhttpd; do
+  if [ -x "/etc/init.d/$service" ]; then
+    "/etc/init.d/$service" enable || true
+    "/etc/init.d/$service" restart || true
+  fi
+done
+echo "[openwalla-luci] Install complete. Return to Openwalla and connect again."
+''';
+
+    final output = StringBuffer();
+    try {
+      final result = await SshService().runCommand(
+        host: request.host,
+        port: request.port,
+        username: request.username,
+        password: request.password,
+        command: command,
+        onOutput: (chunk) {
+          output.write(chunk);
+          console.setOutput(output.toString());
+        },
+      );
+      if (result.exitCode != null && result.exitCode != 0) {
+        console.setOutput(
+          '${result.output.trimRight()}\n\nInstallation failed with exit code ${result.exitCode}.',
+        );
+      } else {
+        console.setOutput(
+          result.output.trim().isEmpty
+              ? 'LuCI installation completed. Return to Openwalla and connect again.'
+              : result.output.trimRight(),
+        );
+      }
+    } catch (error) {
+      console.setOutput(
+        '${output.toString().trimRight()}\n\nSSH installation failed. Verify that SSH is enabled and the root credentials are correct.\n\n$error',
+      );
+    } finally {
+      console.complete();
     }
   }
 
@@ -1015,9 +1110,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                           ),
                           const SizedBox(height: 16),
                           Tooltip(
-                            message: 'Open GitHub issues for support',
+                            message: 'Login and router setup help',
                             child: TextButton(
-                              onPressed: _openGitHubIssues,
+                              onPressed: _showLoginHelp,
                               style: TextButton.styleFrom(
                                 foregroundColor: colorScheme.primary,
                               ),
@@ -1052,6 +1147,309 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _LuciSshInstallRequest {
+  final String host;
+  final int port;
+  final String username;
+  final String password;
+
+  const _LuciSshInstallRequest({
+    required this.host,
+    required this.port,
+    required this.username,
+    required this.password,
+  });
+}
+
+class _LoginHelpSheet extends StatefulWidget {
+  final String initialHost;
+  final String initialUsername;
+  final String initialPassword;
+  final Future<void> Function() onOpenGitHub;
+
+  const _LoginHelpSheet({
+    required this.initialHost,
+    required this.initialUsername,
+    required this.initialPassword,
+    required this.onOpenGitHub,
+  });
+
+  @override
+  State<_LoginHelpSheet> createState() => _LoginHelpSheetState();
+}
+
+class _LoginHelpSheetState extends State<_LoginHelpSheet> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _hostController;
+  late final TextEditingController _portController;
+  late final TextEditingController _usernameController;
+  late final TextEditingController _passwordController;
+  bool _showInstaller = false;
+  bool _showPassword = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _hostController = TextEditingController(text: widget.initialHost);
+    _portController = TextEditingController(text: '22');
+    _usernameController = TextEditingController(text: widget.initialUsername);
+    _passwordController = TextEditingController(text: widget.initialPassword);
+  }
+
+  @override
+  void dispose() {
+    _hostController.dispose();
+    _portController.dispose();
+    _usernameController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  String? _required(String? value) {
+    return value == null || value.trim().isEmpty ? 'Required' : null;
+  }
+
+  String? _validatePort(String? value) {
+    final port = int.tryParse(value?.trim() ?? '');
+    if (port == null || port < 1 || port > 65535) {
+      return 'Use a port from 1 to 65535';
+    }
+    return null;
+  }
+
+  void _install() {
+    if (!_formKey.currentState!.validate()) return;
+    Navigator.of(context).pop(
+      _LuciSshInstallRequest(
+        host: _hostController.text.trim(),
+        port: int.parse(_portController.text.trim()),
+        username: _usernameController.text.trim(),
+        password: _passwordController.text,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    return FractionallySizedBox(
+      heightFactor: 0.88,
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 10, 14),
+            child: Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: colors.primary.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.help_outline_rounded,
+                    color: colors.primary,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Connect to Openwalla',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Close',
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: ListView(
+              padding: EdgeInsets.fromLTRB(20, 18, 20, bottomInset + 20),
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: colors.primary.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: colors.primary.withValues(alpha: 0.24),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Missing LuCI support?',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w900),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Some newer GL.iNet routers do not include LuCI and LuCI RPC support. Openwalla needs these router packages to connect and manage settings.',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: colors.onSurfaceVariant,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                OutlinedButton.icon(
+                  onPressed: widget.onOpenGitHub,
+                  icon: const Icon(Icons.open_in_new_rounded),
+                  label: const Text('Open Openwalla on GitHub'),
+                ),
+                const SizedBox(height: 18),
+                InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () => setState(() => _showInstaller = !_showInstaller),
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: colors.surfaceContainerHighest.withValues(
+                        alpha: 0.34,
+                      ),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.terminal_rounded, color: colors.primary),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Install LuCI via SSH',
+                                style: TextStyle(fontWeight: FontWeight.w900),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                'Use root SSH access to add required packages',
+                              ),
+                            ],
+                          ),
+                        ),
+                        Icon(
+                          _showInstaller
+                              ? Icons.expand_less_rounded
+                              : Icons.expand_more_rounded,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                AnimatedCrossFade(
+                  duration: const Duration(milliseconds: 180),
+                  crossFadeState: _showInstaller
+                      ? CrossFadeState.showSecond
+                      : CrossFadeState.showFirst,
+                  firstChild: const SizedBox.shrink(),
+                  secondChild: Form(
+                    key: _formKey,
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 14),
+                      child: Column(
+                        children: [
+                          TextFormField(
+                            controller: _hostController,
+                            decoration: const InputDecoration(
+                              labelText: 'Router Address',
+                              prefixIcon: Icon(Icons.router_outlined),
+                            ),
+                            validator: _required,
+                            textInputAction: TextInputAction.next,
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                flex: 2,
+                                child: TextFormField(
+                                  controller: _usernameController,
+                                  decoration: const InputDecoration(
+                                    labelText: 'SSH User',
+                                    prefixIcon: Icon(
+                                      Icons.person_outline_rounded,
+                                    ),
+                                  ),
+                                  validator: _required,
+                                  textInputAction: TextInputAction.next,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: TextFormField(
+                                  controller: _portController,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Port',
+                                  ),
+                                  validator: _validatePort,
+                                  keyboardType: TextInputType.number,
+                                  textInputAction: TextInputAction.next,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: _passwordController,
+                            obscureText: !_showPassword,
+                            decoration: InputDecoration(
+                              labelText: 'SSH Password',
+                              prefixIcon: const Icon(Icons.password_rounded),
+                              suffixIcon: IconButton(
+                                tooltip: _showPassword
+                                    ? 'Hide password'
+                                    : 'Show password',
+                                onPressed: () => setState(
+                                  () => _showPassword = !_showPassword,
+                                ),
+                                icon: Icon(
+                                  _showPassword
+                                      ? Icons.visibility_off_outlined
+                                      : Icons.visibility_outlined,
+                                ),
+                              ),
+                            ),
+                            validator: _required,
+                            textInputAction: TextInputAction.done,
+                            onFieldSubmitted: (_) => _install(),
+                          ),
+                          const SizedBox(height: 16),
+                          SizedBox(
+                            width: double.infinity,
+                            child: FilledButton.icon(
+                              onPressed: _install,
+                              icon: const Icon(Icons.download_rounded),
+                              label: const Text('Install Required Packages'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
