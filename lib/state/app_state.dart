@@ -9262,6 +9262,71 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     }
   }
 
+  Future<bool> executeRouterCommand(
+    String command,
+    List<String> args, {
+    BuildContext? context,
+  }) async {
+    if (_reviewerModeEnabled) return true;
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) return false;
+
+    final executable = switch (command) {
+      'firstboot' => '/sbin/firstboot',
+      'reboot' => '/sbin/reboot',
+      _ => command,
+    };
+    final commandLine = ([executable, ...args]).join(' ');
+    final attempts = <Map<String, dynamic>>[
+      {'command': executable, 'params': args, 'args': args},
+      {
+        'command': '/bin/sh',
+        'params': ['-c', commandLine],
+        'args': ['-c', commandLine],
+      },
+      {
+        'command': 'sh',
+        'params': ['-c', commandLine],
+        'args': ['-c', commandLine],
+      },
+    ];
+
+    for (final params in attempts) {
+      try {
+        final result = await _apiService!.call(
+          router.ipAddress,
+          sysauth,
+          router.useHttps,
+          object: 'file',
+          method: 'exec',
+          params: params,
+          context: context,
+        );
+        if (_isSuccessfulRouterCommand(result)) return true;
+      } catch (e, stack) {
+        Logger.debug('Router command attempt failed: $e');
+        Logger.debug('Router command attempt stack: $stack');
+      }
+    }
+    return false;
+  }
+
+  bool _isSuccessfulRouterCommand(dynamic result) {
+    if (result is List) {
+      if (result.isEmpty) return false;
+      final status = result.first;
+      return status == 0 || status == '0';
+    }
+    if (result is Map) {
+      final status = result['code'] ?? result['status'];
+      if (status == 0 || status == '0') return true;
+      final nested = result['result'];
+      return nested != null && _isSuccessfulRouterCommand(nested);
+    }
+    return result == true || result == 0 || result == '0';
+  }
+
   Future<bool> factoryReset({BuildContext? context}) async {
     if (_reviewerModeEnabled) {
       await Future.delayed(const Duration(milliseconds: 700));
@@ -9276,15 +9341,9 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     notifyListeners();
 
     try {
-      final result = await _apiService!.systemExec(
-        _authService!.ipAddress!,
-        _authService!.sysauth!,
-        _authService!.useHttps,
-        command: '/sbin/firstboot -y',
-        context: context,
-      );
-      final resetAccepted =
-          result is List && result.isNotEmpty && result.first == 0;
+      final resetAccepted = await executeRouterCommand('firstboot', const [
+        '-y',
+      ], context: context);
       if (!resetAccepted) {
         _isRebooting = false;
         notifyListeners();
@@ -9293,11 +9352,9 @@ done | sort -t "|" -k1,1nr | head -n ''' +
 
       // Do not call reboot(), because normal reboots intentionally save
       // Openwalla state first. A factory reset must leave nothing to restore.
-      await _apiService!.reboot(
-        _authService!.ipAddress!,
-        _authService!.sysauth!,
-        _authService!.useHttps,
-      );
+      // The router may disconnect before returning a response, so reboot is
+      // intentionally best effort after firstboot has been accepted.
+      await executeRouterCommand('reboot', const []);
       return true;
     } catch (e, stack) {
       Logger.exception('Router factory reset failed', e, stack);
