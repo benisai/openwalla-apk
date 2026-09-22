@@ -44,5 +44,18 @@ void main() {
       expect(notification.effectiveSeverity, 'warning');
       expect(notification.effectiveCategory, 'interface');
     });
+
+    test('recognizes WireGuard peer activity as a VPN event', () {
+      final notification = OpenwallaNotification.fromSqliteRow(
+        '10|1789849887|wireguard-monitor|Alice became active on wg0.|0|0|'
+        'vpn|resolved|WireGuard client connected|'
+        'Alice became active on wg0.|interface=wg0;peer=public-key',
+      );
+
+      expect(notification, isNotNull);
+      expect(notification!.displayTitle, 'WireGuard client connected');
+      expect(notification.effectiveSeverity, 'resolved');
+      expect(notification.effectiveCategory, 'vpn');
+    });
   });
 }

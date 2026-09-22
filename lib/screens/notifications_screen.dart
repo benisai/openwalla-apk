@@ -312,6 +312,9 @@ class _NotificationCard extends StatelessWidget {
     if (notification.effectiveCategory == 'interface') {
       return Icons.settings_ethernet_rounded;
     }
+    if (notification.effectiveCategory == 'vpn') {
+      return Icons.vpn_key_rounded;
+    }
     return Icons.notifications_rounded;
   }
 

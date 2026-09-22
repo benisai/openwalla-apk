@@ -243,6 +243,10 @@ class OpenwallaNotification {
         message.toLowerCase().contains('ethernet')) {
       return 'interface';
     }
+    if (app.toLowerCase().contains('wireguard') ||
+        message.toLowerCase().contains('wireguard')) {
+      return 'vpn';
+    }
     if (app.toLowerCase().contains('quarantine')) return 'device';
     return 'system';
   }

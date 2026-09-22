@@ -17,6 +17,8 @@ DEFAULT_OUTAGE_FAILURES="2"
 DEFAULT_RESTORE_SUCCESSES="2"
 DEFAULT_ALERT_COOLDOWN="1800"
 DEFAULT_INTERFACE_STATE_FILE="/tmp/openwalla-interface-monitor.state"
+DEFAULT_WIREGUARD_STATE_FILE="/tmp/openwalla-wireguard-monitor.state"
+DEFAULT_WIREGUARD_ACTIVE_WINDOW="180"
 
 PING_TARGET="$DEFAULT_TARGET"
 PING_INTERVAL="$DEFAULT_INTERVAL"
@@ -30,6 +32,8 @@ OUTAGE_FAILURES="$DEFAULT_OUTAGE_FAILURES"
 RESTORE_SUCCESSES="$DEFAULT_RESTORE_SUCCESSES"
 ALERT_COOLDOWN="$DEFAULT_ALERT_COOLDOWN"
 INTERFACE_STATE_FILE="$DEFAULT_INTERFACE_STATE_FILE"
+WIREGUARD_STATE_FILE="$DEFAULT_WIREGUARD_STATE_FILE"
+WIREGUARD_ACTIVE_WINDOW="$DEFAULT_WIREGUARD_ACTIVE_WINDOW"
 SQLITE_BIN=""
 
 log() {
@@ -72,6 +76,12 @@ load_config() {
 		value="$(uci -q get openwalla.ping_monitor.interface_state_file 2>/dev/null || true)"
 		[ -n "$value" ] && INTERFACE_STATE_FILE="$value"
 
+		value="$(uci -q get openwalla.ping_monitor.wireguard_state_file 2>/dev/null || true)"
+		[ -n "$value" ] && WIREGUARD_STATE_FILE="$value"
+
+		value="$(uci -q get openwalla.ping_monitor.wireguard_active_window 2>/dev/null || true)"
+		[ -n "$value" ] && WIREGUARD_ACTIVE_WINDOW="$value"
+
 		value="$(uci -q get openwalla.notifications.db_path 2>/dev/null || true)"
 		[ -n "$value" ] && NOTIFICATIONS_DB="$value"
 	fi
@@ -86,6 +96,7 @@ refresh_runtime_config() {
 	OUTAGE_FAILURES="$(sanitize_int "$OUTAGE_FAILURES" "$DEFAULT_OUTAGE_FAILURES")"
 	RESTORE_SUCCESSES="$(sanitize_int "$RESTORE_SUCCESSES" "$DEFAULT_RESTORE_SUCCESSES")"
 	ALERT_COOLDOWN="$(sanitize_int "$ALERT_COOLDOWN" "$DEFAULT_ALERT_COOLDOWN")"
+	WIREGUARD_ACTIVE_WINDOW="$(sanitize_int "$WIREGUARD_ACTIVE_WINDOW" "$DEFAULT_WIREGUARD_ACTIVE_WINDOW")"
 	ensure_output_file
 	detect_sqlite
 }
@@ -139,6 +150,7 @@ write_notification() {
 	local category="${5:-network_health}"
 	local app_name="network-monitor"
 	[ "$category" = "interface" ] && app_name="interface-monitor"
+	[ "$category" = "vpn" ] && app_name="wireguard-monitor"
 	notification_db_ready || return 0
 
 	local esc_title esc_details esc_metadata
@@ -258,6 +270,66 @@ monitor_interfaces() {
 	mv "$temp_state" "$INTERFACE_STATE_FILE"
 }
 
+wireguard_peer_name() {
+	local interface="$1" public_key="$2" section key name
+	command -v uci >/dev/null 2>&1 || return 0
+	for section in $(uci -q show network 2>/dev/null | sed -n "s/^network\.\([^=]*\)=['\"]\{0,1\}wireguard_${interface}['\"]\{0,1\}$/\1/p"); do
+		key="$(uci -q get "network.$section.public_key" 2>/dev/null || true)"
+		[ "$key" = "$public_key" ] || continue
+		name="$(uci -q get "network.$section.description" 2>/dev/null || true)"
+		[ -n "$name" ] || name="$(uci -q get "network.$section.name" 2>/dev/null || true)"
+		[ -n "$name" ] || name="$section"
+		printf '%s\n' "$name"
+		return 0
+	done
+}
+
+wireguard_state_value() {
+	local interface="$1" public_key="$2" field="$3" state_file="$4"
+	awk -F '|' -v interface="$interface" -v public_key="$public_key" -v field="$field" \
+		'$1 == interface && $2 == public_key { print $field; exit }' "$state_file" 2>/dev/null
+}
+
+monitor_wireguard() {
+	local previous_state temp_state now interface public_key handshake age active old_active peer_name short_key
+	command -v wg >/dev/null 2>&1 || return 0
+	previous_state="$WIREGUARD_STATE_FILE"
+	temp_state="${WIREGUARD_STATE_FILE}.tmp"
+	now="$(date +%s)"
+	mkdir -p "$(dirname "$WIREGUARD_STATE_FILE")"
+	: >"$temp_state"
+
+	wg show all latest-handshakes 2>/dev/null | while read -r interface public_key handshake; do
+		[ -n "${interface:-}" ] && [ -n "${public_key:-}" ] || continue
+		handshake="$(sanitize_int "${handshake:-}" "0")"
+		active="0"
+		if [ "$handshake" -gt 0 ]; then
+			age=$((now - handshake))
+			[ "$age" -le "$WIREGUARD_ACTIVE_WINDOW" ] && active="1"
+		fi
+		printf '%s|%s|%s|%s\n' "$interface" "$public_key" "$active" "$handshake" >>"$temp_state"
+
+		[ -f "$previous_state" ] || continue
+		old_active="$(wireguard_state_value "$interface" "$public_key" 3 "$previous_state")"
+		[ -n "$old_active" ] || continue
+		[ "$old_active" != "$active" ] || continue
+		peer_name="$(wireguard_peer_name "$interface" "$public_key")"
+		short_key="$(printf '%s' "$public_key" | cut -c 1-8)"
+		[ -n "$peer_name" ] || peer_name="Peer $short_key"
+		if [ "$active" = "1" ]; then
+			write_notification "resolved" "WireGuard client connected" \
+				"$peer_name became active on $interface." \
+				"interface=$interface;peer=$public_key;handshake=$handshake" "vpn"
+		else
+			write_notification "info" "WireGuard client disconnected" \
+				"$peer_name is no longer active on $interface." \
+				"interface=$interface;peer=$public_key;last_handshake=$handshake" "vpn"
+		fi
+	done
+
+	mv "$temp_state" "$WIREGUARD_STATE_FILE"
+}
+
 sanitize_int() {
 	case "${1:-}" in
 		'' | *[!0-9]*)
@@ -360,6 +432,7 @@ run_ping_once() {
 
 	save_state
 	monitor_interfaces
+	monitor_wireguard
 	prune_file
 }
 
