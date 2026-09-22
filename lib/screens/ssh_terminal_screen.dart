@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:luci_mobile/main.dart';
 import 'package:luci_mobile/services/ssh_service.dart';
@@ -27,6 +28,9 @@ class _SshTerminalScreenState extends ConsumerState<SshTerminalScreen> {
   StreamSubscription<String>? _stderrSubscription;
   bool _connecting = true;
   bool _connected = false;
+  bool _keyboardVisible = false;
+  bool _ctrlActive = false;
+  bool _altActive = false;
   String _keyboardValue = '';
   String? _error;
 
@@ -106,6 +110,7 @@ class _SshTerminalScreenState extends ConsumerState<SshTerminalScreen> {
           setState(() {
             _connected = false;
             _connecting = false;
+            _keyboardVisible = false;
             _output.writeln('\nConnection closed.');
           });
           _scrollToBottom();
@@ -115,6 +120,7 @@ class _SshTerminalScreenState extends ConsumerState<SshTerminalScreen> {
         _connecting = false;
         _connected = true;
       });
+      _showKeyboard();
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -147,13 +153,13 @@ class _SshTerminalScreenState extends ConsumerState<SshTerminalScreen> {
     if (!_connected) return;
     final previous = _keyboardValue;
     if (value.length > previous.length && value.startsWith(previous)) {
-      _connection?.write(value.substring(previous.length));
+      _writeText(value.substring(previous.length));
     } else if (value.length < previous.length && previous.startsWith(value)) {
       _connection?.write(
         List.filled(previous.length - value.length, '\x7f').join(),
       );
     } else if (value.isNotEmpty) {
-      _connection?.write(value);
+      _writeText(value);
     }
     _keyboardValue = value;
   }
@@ -163,7 +169,56 @@ class _SshTerminalScreenState extends ConsumerState<SshTerminalScreen> {
     _connection?.write('\r');
     _keyboardValue = '';
     _keyboardController.clear();
+    _showKeyboard();
+  }
+
+  void _writeText(String value) {
+    if (!_connected || value.isEmpty) return;
+    var output = value;
+    if (_ctrlActive) {
+      final first = value.codeUnitAt(0);
+      if (first >= 64 && first <= 127) {
+        output = String.fromCharCode(first & 0x1f) + value.substring(1);
+      }
+    }
+    if (_altActive) output = '\x1b$output';
+    _connection?.write(output);
+    if (_ctrlActive || _altActive) {
+      setState(() {
+        _ctrlActive = false;
+        _altActive = false;
+      });
+    }
+  }
+
+  void _sendSequence(String sequence) {
+    if (!_connected) return;
+    _connection?.write(sequence);
+  }
+
+  void _showKeyboard() {
+    if (!_connected) return;
     _terminalFocusNode.requestFocus();
+    setState(() => _keyboardVisible = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_connected) return;
+      _terminalFocusNode.requestFocus();
+      SystemChannels.textInput.invokeMethod<void>('TextInput.show');
+    });
+  }
+
+  void _hideKeyboard() {
+    setState(() => _keyboardVisible = false);
+    _terminalFocusNode.unfocus();
+    SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+  }
+
+  void _toggleKeyboard() {
+    if (_keyboardVisible) {
+      _hideKeyboard();
+    } else {
+      _showKeyboard();
+    }
   }
 
   Future<void> _disconnect({bool updateState = true}) async {
@@ -178,6 +233,9 @@ class _SshTerminalScreenState extends ConsumerState<SshTerminalScreen> {
       setState(() {
         _connected = false;
         _connecting = false;
+        _keyboardVisible = false;
+        _ctrlActive = false;
+        _altActive = false;
       });
     }
   }
@@ -247,9 +305,7 @@ class _SshTerminalScreenState extends ConsumerState<SshTerminalScreen> {
               Expanded(
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: _connected
-                      ? () => _terminalFocusNode.requestFocus()
-                      : null,
+                  onTap: _connected ? _showKeyboard : null,
                   child: Stack(
                     children: [
                       AnimatedBuilder(
@@ -284,12 +340,12 @@ class _SshTerminalScreenState extends ConsumerState<SshTerminalScreen> {
                         ),
                       ),
                       Positioned(
-                        left: 0,
-                        bottom: 0,
-                        width: 1,
-                        height: 1,
+                        left: 8,
+                        right: 8,
+                        bottom: 8,
+                        height: 36,
                         child: Opacity(
-                          opacity: 0.01,
+                          opacity: 0.02,
                           child: TextField(
                             controller: _keyboardController,
                             focusNode: _terminalFocusNode,
@@ -303,20 +359,20 @@ class _SshTerminalScreenState extends ConsumerState<SshTerminalScreen> {
                           ),
                         ),
                       ),
-                      Positioned(
-                        right: 8,
-                        bottom: 8,
-                        child: IconButton.filledTonal(
-                          tooltip: 'Send Ctrl+C',
-                          onPressed: _connected
-                              ? () => _connection?.write('\x03')
-                              : null,
-                          icon: const Icon(Icons.stop_rounded),
-                        ),
-                      ),
                     ],
                   ),
                 ),
+              ),
+              const SizedBox(height: 8),
+              _TerminalShortcutBar(
+                enabled: _connected,
+                keyboardVisible: _keyboardVisible,
+                ctrlActive: _ctrlActive,
+                altActive: _altActive,
+                onKeyboard: _toggleKeyboard,
+                onSequence: _sendSequence,
+                onCtrl: () => setState(() => _ctrlActive = !_ctrlActive),
+                onAlt: () => setState(() => _altActive = !_altActive),
               ),
               if (_error != null) ...[
                 const SizedBox(height: 8),
@@ -331,6 +387,228 @@ class _SshTerminalScreenState extends ConsumerState<SshTerminalScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _TerminalShortcutBar extends StatelessWidget {
+  final bool enabled;
+  final bool keyboardVisible;
+  final bool ctrlActive;
+  final bool altActive;
+  final VoidCallback onKeyboard;
+  final ValueChanged<String> onSequence;
+  final VoidCallback onCtrl;
+  final VoidCallback onAlt;
+
+  const _TerminalShortcutBar({
+    required this.enabled,
+    required this.keyboardVisible,
+    required this.ctrlActive,
+    required this.altActive,
+    required this.onKeyboard,
+    required this.onSequence,
+    required this.onCtrl,
+    required this.onAlt,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerHighest.withValues(alpha: 0.42),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: colors.outlineVariant.withValues(alpha: 0.32),
+        ),
+      ),
+      child: Column(
+        children: [
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: Row(
+              children: [
+                _TerminalKeyButton(
+                  label: 'ESC',
+                  enabled: enabled,
+                  onTap: () => onSequence('\x1b'),
+                ),
+                _TerminalKeyButton(
+                  label: '/',
+                  enabled: enabled,
+                  onTap: () => onSequence('/'),
+                ),
+                _TerminalKeyButton(
+                  label: '|',
+                  enabled: enabled,
+                  onTap: () => onSequence('|'),
+                ),
+                _TerminalKeyButton(
+                  label: '-',
+                  enabled: enabled,
+                  onTap: () => onSequence('-'),
+                ),
+                _TerminalKeyButton(
+                  label: 'HOME',
+                  enabled: enabled,
+                  onTap: () => onSequence('\x1b[H'),
+                ),
+                _TerminalKeyButton(
+                  icon: Icons.arrow_upward_rounded,
+                  tooltip: 'Up',
+                  enabled: enabled,
+                  onTap: () => onSequence('\x1b[A'),
+                ),
+                _TerminalKeyButton(
+                  label: 'END',
+                  enabled: enabled,
+                  onTap: () => onSequence('\x1b[F'),
+                ),
+                _TerminalKeyButton(
+                  label: 'PGUP',
+                  enabled: enabled,
+                  onTap: () => onSequence('\x1b[5~'),
+                ),
+                _TerminalKeyButton(
+                  label: '^C',
+                  tooltip: 'Ctrl+C',
+                  enabled: enabled,
+                  onTap: () => onSequence('\x03'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: Row(
+              children: [
+                _TerminalKeyButton(
+                  label: 'TAB',
+                  enabled: enabled,
+                  onTap: () => onSequence('\t'),
+                ),
+                _TerminalKeyButton(
+                  label: 'CTRL',
+                  enabled: enabled,
+                  selected: ctrlActive,
+                  onTap: onCtrl,
+                ),
+                _TerminalKeyButton(
+                  label: 'ALT',
+                  enabled: enabled,
+                  selected: altActive,
+                  onTap: onAlt,
+                ),
+                _TerminalKeyButton(
+                  icon: Icons.arrow_back_rounded,
+                  tooltip: 'Left',
+                  enabled: enabled,
+                  onTap: () => onSequence('\x1b[D'),
+                ),
+                _TerminalKeyButton(
+                  icon: Icons.arrow_downward_rounded,
+                  tooltip: 'Down',
+                  enabled: enabled,
+                  onTap: () => onSequence('\x1b[B'),
+                ),
+                _TerminalKeyButton(
+                  icon: Icons.arrow_forward_rounded,
+                  tooltip: 'Right',
+                  enabled: enabled,
+                  onTap: () => onSequence('\x1b[C'),
+                ),
+                _TerminalKeyButton(
+                  label: 'PGDN',
+                  enabled: enabled,
+                  onTap: () => onSequence('\x1b[6~'),
+                ),
+                _TerminalKeyButton(
+                  icon: keyboardVisible
+                      ? Icons.keyboard_hide_rounded
+                      : Icons.keyboard_rounded,
+                  tooltip: keyboardVisible ? 'Hide keyboard' : 'Show keyboard',
+                  enabled: enabled,
+                  selected: keyboardVisible,
+                  onTap: onKeyboard,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TerminalKeyButton extends StatelessWidget {
+  final String? label;
+  final IconData? icon;
+  final String? tooltip;
+  final bool enabled;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _TerminalKeyButton({
+    this.label,
+    this.icon,
+    this.tooltip,
+    required this.enabled,
+    this.selected = false,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final button = SizedBox(
+      width: label != null && label!.length > 3 ? 60 : 48,
+      height: 38,
+      child: Material(
+        color: selected
+            ? colors.primary.withValues(alpha: 0.18)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(6),
+        child: InkWell(
+          onTap: enabled ? onTap : null,
+          borderRadius: BorderRadius.circular(6),
+          child: Center(
+            child: icon != null
+                ? Icon(
+                    icon,
+                    size: 19,
+                    color: enabled
+                        ? selected
+                              ? colors.primary
+                              : colors.onSurface
+                        : colors.onSurfaceVariant.withValues(alpha: 0.4),
+                  )
+                : Text(
+                    label!,
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: enabled
+                          ? selected
+                                ? colors.primary
+                                : colors.onSurface
+                          : colors.onSurfaceVariant.withValues(alpha: 0.4),
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0,
+                    ),
+                  ),
+          ),
+        ),
+      ),
+    );
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      child: tooltip == null
+          ? button
+          : Tooltip(message: tooltip!, child: button),
     );
   }
 }
