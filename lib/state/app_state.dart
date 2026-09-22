@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:luci_mobile/services/secure_storage_service.dart';
@@ -8249,6 +8250,57 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       return action == 'restore' ? 'Restore completed.' : 'Backup completed.';
     }
     return output;
+  }
+
+  Future<Uint8List> createOpenwrtConfigurationBackup() async {
+    if (_reviewerModeEnabled) {
+      return Uint8List.fromList([0x1f, 0x8b, ...List<int>.filled(510, 0)]);
+    }
+    const archive = '/tmp/openwalla-config-backup.tar.gz';
+    final output = await runRouterSetupCommandViaSsh(
+      'rm -f $archive; sysupgrade -b $archive >/dev/null && base64 $archive; status=\$?; rm -f $archive; exit \$status',
+    );
+    final encoded = output.replaceAll(RegExp(r'\s+'), '');
+    try {
+      final bytes = base64Decode(encoded);
+      if (bytes.length < 2 || bytes[0] != 0x1f || bytes[1] != 0x8b) {
+        throw const FormatException('Backup is not a gzip archive');
+      }
+      return bytes;
+    } on FormatException catch (error) {
+      throw StateError(
+        'Router returned an invalid configuration backup: $error',
+      );
+    }
+  }
+
+  Future<void> restoreOpenwrtConfigurationBackup(
+    Uint8List bytes, {
+    void Function(double progress)? onProgress,
+  }) async {
+    if (bytes.length < 2 || bytes[0] != 0x1f || bytes[1] != 0x8b) {
+      throw StateError('Choose a valid OpenWrt gzip backup archive');
+    }
+    if (_reviewerModeEnabled) {
+      onProgress?.call(1);
+      return;
+    }
+    const archive = '/tmp/openwalla-restore.tar.gz';
+    const encodedArchive = '/tmp/openwalla-restore.tar.gz.b64';
+    final encoded = base64Encode(bytes);
+    await runRouterSetupCommand('rm -f $archive $encodedArchive');
+    const chunkSize = 8000;
+    for (var offset = 0; offset < encoded.length; offset += chunkSize) {
+      final end = (offset + chunkSize).clamp(0, encoded.length);
+      final chunk = encoded.substring(offset, end);
+      await runRouterSetupCommand(
+        'printf %s ${_shellQuote(chunk)} >> $encodedArchive',
+      );
+      onProgress?.call(end / encoded.length);
+    }
+    await runRouterSetupCommandViaSsh(
+      'base64 -d $encodedArchive > $archive && rm -f $encodedArchive && sysupgrade -r $archive; status=\$?; rm -f $archive $encodedArchive; exit \$status',
+    );
   }
 
   OpenwallaServiceStatus? _parseServiceStatusLine(String line) {

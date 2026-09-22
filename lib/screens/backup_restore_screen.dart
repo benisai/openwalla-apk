@@ -1,8 +1,12 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:luci_mobile/design/luci_design_system.dart';
 import 'package:luci_mobile/main.dart';
 import 'package:luci_mobile/screens/router_setup_screen.dart';
+import 'package:luci_mobile/screens/reboot_countdown_screen.dart';
 import 'package:luci_mobile/state/app_state.dart';
 import 'package:luci_mobile/widgets/luci_app_bar.dart';
 
@@ -17,6 +21,7 @@ class BackupRestoreScreen extends ConsumerStatefulWidget {
 class _BackupRestoreScreenState extends ConsumerState<BackupRestoreScreen> {
   Future<OpenwallaStateBackupStatus>? _statusFuture;
   String? _busyAction;
+  double? _routerProgress;
 
   @override
   void initState() {
@@ -83,84 +88,309 @@ class _BackupRestoreScreenState extends ConsumerState<BackupRestoreScreen> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: LuciAppBar(
-        title: 'Backup & Restore',
-        showBack: true,
+  Future<void> _downloadRouterBackup() async {
+    setState(() => _busyAction = 'router-backup');
+    try {
+      final bytes = await ref
+          .read(appStateProvider)
+          .createOpenwrtConfigurationBackup();
+      final now = DateTime.now();
+      final stamp =
+          '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}-${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}';
+      final path = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save OpenWrt configuration backup',
+        fileName: 'openwrt-backup-$stamp.tar.gz',
+        type: FileType.custom,
+        allowedExtensions: const ['gz'],
+        bytes: bytes,
+      );
+      if (!mounted || path == null) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Router configuration backup saved.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Router backup failed: $error')));
+    } finally {
+      if (mounted) setState(() => _busyAction = null);
+    }
+  }
+
+  Future<void> _restoreRouterBackup() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['gz', 'tgz'],
+      withData: true,
+    );
+    if (result == null || result.files.isEmpty) return;
+    final file = result.files.single;
+    final bytes =
+        file.bytes ??
+        (file.path == null ? null : await File(file.path!).readAsBytes());
+    if (bytes == null ||
+        bytes.length < 2 ||
+        bytes[0] != 0x1f ||
+        bytes[1] != 0x8b) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Choose a valid OpenWrt gzip backup.')),
+      );
+      return;
+    }
+    if (!mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Restore Router Configuration?'),
+        content: Text(
+          'Restore ${file.name} to this router? Current OpenWrt configuration files will be replaced. A backup from another router or firmware version may break network access.',
+        ),
         actions: [
-          IconButton(
-            tooltip: 'Refresh backup status',
-            icon: const Icon(Icons.refresh_rounded),
-            onPressed: _refresh,
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Upload & Restore'),
           ),
         ],
       ),
-      body: FutureBuilder<OpenwallaStateBackupStatus>(
-        future: _statusFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting &&
-              !snapshot.hasData) {
-            return const LuciLoadingWidget();
-          }
+    );
+    if (confirmed != true || !mounted) return;
 
-          final status =
-              snapshot.data ??
-              OpenwallaStateBackupStatus.notInstalled(
-                snapshot.error?.toString() ?? '',
-              );
+    setState(() {
+      _busyAction = 'router-restore';
+      _routerProgress = 0;
+    });
+    try {
+      await ref
+          .read(appStateProvider)
+          .restoreOpenwrtConfigurationBackup(
+            bytes,
+            onProgress: (progress) {
+              if (mounted) setState(() => _routerProgress = progress);
+            },
+          );
+      if (!mounted) return;
+      setState(() {
+        _busyAction = null;
+        _routerProgress = null;
+      });
+      final reboot = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Restore Complete'),
+          content: const Text(
+            'The OpenWrt configuration was restored. Reboot now to load every restored network and service setting?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Later'),
+            ),
+            FilledButton.icon(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              icon: const Icon(Icons.restart_alt_rounded),
+              label: const Text('Reboot Now'),
+            ),
+          ],
+        ),
+      );
+      if (reboot == true && mounted) {
+        await showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => const RebootCountdownDialog(
+            duration: 60,
+            maxAttempts: 2,
+            sendRebootCommand: true,
+          ),
+        );
+      }
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Router restore failed: $error')));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busyAction = null;
+          _routerProgress = null;
+        });
+      }
+    }
+  }
 
-          return RefreshIndicator(
-            onRefresh: _refresh,
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(22, 18, 22, 28),
-              children: [
-                Text(
-                  'Openwalla State',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: Theme.of(context).colorScheme.onSurface,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Keep router runtime databases, monitor logs, app config, and usage history available after a reboot.',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: 22),
-                if (!status.installed)
-                  _MissingStateSyncCard(
-                    message: status.message,
-                    onSetup: () async {
-                      await Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (context) => const RouterSetupScreen(),
-                        ),
-                      );
-                      if (!mounted) return;
-                      await _refresh();
-                    },
-                    onRefresh: _refresh,
-                  )
-                else ...[
-                  _StatusCard(status: status),
-                  const SizedBox(height: 16),
-                  _ActionsCard(
-                    busyAction: _busyAction,
-                    onBackup: () => _runAction('backup'),
-                    onRestore: () => _runAction('restore'),
-                  ),
-                  const SizedBox(height: 16),
-                  const _IncludedDataCard(),
-                ],
+  @override
+  Widget build(BuildContext context) {
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: LuciAppBar(title: 'Backup & Restore', showBack: true),
+        body: Column(
+          children: [
+            const TabBar(
+              tabs: [
+                Tab(text: 'Openwalla'),
+                Tab(text: 'Router'),
               ],
             ),
-          );
-        },
+            Expanded(
+              child: TabBarView(
+                children: [_buildOpenwallaTab(), _buildRouterTab()],
+              ),
+            ),
+          ],
+        ),
       ),
+    );
+  }
+
+  Widget _buildOpenwallaTab() {
+    return FutureBuilder<OpenwallaStateBackupStatus>(
+      future: _statusFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
+          return const LuciLoadingWidget();
+        }
+
+        final status =
+            snapshot.data ??
+            OpenwallaStateBackupStatus.notInstalled(
+              snapshot.error?.toString() ?? '',
+            );
+
+        return RefreshIndicator(
+          onRefresh: _refresh,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(22, 18, 22, 28),
+            children: [
+              Text(
+                'Openwalla State',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Keep router runtime databases, monitor logs, app config, and usage history available after a reboot.',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 22),
+              if (!status.installed)
+                _MissingStateSyncCard(
+                  message: status.message,
+                  onSetup: () async {
+                    await Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => const RouterSetupScreen(),
+                      ),
+                    );
+                    if (!mounted) return;
+                    await _refresh();
+                  },
+                  onRefresh: _refresh,
+                )
+              else ...[
+                _StatusCard(status: status),
+                const SizedBox(height: 16),
+                _ActionsCard(
+                  busyAction: _busyAction,
+                  onBackup: () => _runAction('backup'),
+                  onRestore: () => _runAction('restore'),
+                ),
+                const SizedBox(height: 16),
+                const _IncludedDataCard(),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildRouterTab() {
+    final colors = Theme.of(context).colorScheme;
+    final busy = _busyAction?.startsWith('router-') == true;
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(22, 18, 22, 28),
+      children: [
+        Text(
+          'OpenWrt Configuration',
+          style: Theme.of(
+            context,
+          ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Download or restore the router configuration archive created by OpenWrt sysupgrade.',
+          style: TextStyle(color: colors.onSurfaceVariant),
+        ),
+        const SizedBox(height: 22),
+        Container(
+          padding: const EdgeInsets.all(18),
+          decoration: LuciCardStyles.standardCard(context, isElevated: true),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const _IconBadge(
+                icon: Icons.archive_outlined,
+                color: Color(0xFF20CF70),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'Configuration Archive',
+                style: LuciTextStyles.cardTitle(context),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Includes OpenWrt configuration, passwords, keys, and files preserved by sysupgrade.',
+                style: LuciTextStyles.cardSubtitle(context),
+              ),
+              if (_routerProgress != null) ...[
+                const SizedBox(height: 16),
+                LinearProgressIndicator(value: _routerProgress),
+                const SizedBox(height: 6),
+                Text(
+                  '${(_routerProgress! * 100).round()}% uploaded',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+              const SizedBox(height: 18),
+              FilledButton.icon(
+                onPressed: busy ? null : _downloadRouterBackup,
+                icon: _busyAction == 'router-backup'
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.download_rounded),
+                label: const Text('Download Backup'),
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: busy ? null : _restoreRouterBackup,
+                icon: _busyAction == 'router-restore'
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.upload_file_rounded),
+                label: const Text('Upload & Restore'),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

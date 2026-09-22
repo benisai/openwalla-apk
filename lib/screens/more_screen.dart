@@ -6,7 +6,7 @@ import 'package:luci_mobile/main.dart';
 import 'package:luci_mobile/screens/backup_restore_screen.dart';
 import 'package:luci_mobile/screens/login_screen.dart';
 import 'package:luci_mobile/screens/reboot_countdown_screen.dart';
-import 'package:luci_mobile/screens/router_management_screen.dart';
+import 'package:luci_mobile/screens/reset_router_screen.dart';
 import 'package:luci_mobile/screens/settings_screen.dart';
 import 'package:luci_mobile/screens/ssh_terminal_screen.dart';
 import 'package:luci_mobile/screens/router_setup_screen.dart';
@@ -218,21 +218,6 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
                   tiles: [
                     _buildMoreTile(
                       context,
-                      icon: Icons.router_outlined,
-                      iconColor: Theme.of(context).colorScheme.primary,
-                      title: 'Router Management',
-                      subtitle: 'View, restart, back up, or reset this router',
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (context) =>
-                                const RouterManagementScreen(),
-                          ),
-                        );
-                      },
-                    ),
-                    _buildMoreTile(
-                      context,
                       icon: Icons.restart_alt,
                       iconColor: Theme.of(context).colorScheme.primary,
                       title: 'Reboot Router',
@@ -262,11 +247,26 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
                       icon: Icons.backup_rounded,
                       iconColor: const Color(0xFF20CF70),
                       title: 'Backup & Restore',
-                      subtitle: 'Restore Openwalla state after reboot',
+                      subtitle: 'Openwalla state and OpenWrt configuration',
                       onTap: () {
                         Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (context) => const BackupRestoreScreen(),
+                          ),
+                        );
+                      },
+                    ),
+                    _buildMoreTile(
+                      context,
+                      icon: Icons.settings_backup_restore_rounded,
+                      iconColor: Theme.of(context).colorScheme.error,
+                      title: 'Reset Router',
+                      subtitle: 'Restore OpenWrt firmware defaults',
+                      titleColor: Theme.of(context).colorScheme.error,
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => const ResetRouterScreen(),
                           ),
                         );
                       },
