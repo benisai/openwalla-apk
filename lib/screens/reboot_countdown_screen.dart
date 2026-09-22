@@ -13,11 +13,13 @@ class RebootCountdownDialog extends ConsumerStatefulWidget {
     this.duration = 60,
     this.maxAttempts = 2,
     this.sendRebootCommand = false,
+    this.returnToLoginAfterRecovery = false,
   });
 
   final int duration;
   final int maxAttempts;
   final bool sendRebootCommand;
+  final bool returnToLoginAfterRecovery;
 
   @override
   ConsumerState<RebootCountdownDialog> createState() =>
@@ -95,6 +97,16 @@ class _RebootCountdownDialogState extends ConsumerState<RebootCountdownDialog>
     });
 
     final appState = ref.read(appStateProvider);
+    if (widget.returnToLoginAfterRecovery) {
+      if (_attempt < widget.maxAttempts) {
+        _attempt++;
+        _restartCountdown();
+        return;
+      }
+      await _returnToLogin();
+      return;
+    }
+
     await appState.retryDashboardConnection();
     if (!mounted) return;
 
@@ -115,6 +127,11 @@ class _RebootCountdownDialogState extends ConsumerState<RebootCountdownDialog>
       return;
     }
 
+    await _returnToLogin();
+  }
+
+  Future<void> _returnToLogin() async {
+    final appState = ref.read(appStateProvider);
     appState.finishRebootRecovery();
     await appState.logout();
     if (!mounted) return;
