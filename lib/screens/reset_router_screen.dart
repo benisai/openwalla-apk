@@ -57,8 +57,8 @@ class _ResetRouterScreenState extends ConsumerState<ResetRouterScreen> {
       context: context,
       barrierDismissible: false,
       builder: (_) => const RebootCountdownDialog(
-        duration: 60,
-        maxAttempts: 2,
+        duration: 120,
+        maxAttempts: 1,
         returnToLoginAfterRecovery: true,
       ),
     );

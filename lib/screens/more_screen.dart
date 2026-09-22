@@ -165,8 +165,8 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
                   context: context,
                   barrierDismissible: false,
                   builder: (context) => const RebootCountdownDialog(
-                    duration: 60,
-                    maxAttempts: 2,
+                    duration: 120,
+                    maxAttempts: 1,
                     sendRebootCommand: true,
                   ),
                 );

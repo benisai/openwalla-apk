@@ -10,8 +10,8 @@ import 'package:luci_mobile/screens/login_screen.dart';
 class RebootCountdownDialog extends ConsumerStatefulWidget {
   const RebootCountdownDialog({
     super.key,
-    this.duration = 60,
-    this.maxAttempts = 2,
+    this.duration = 120,
+    this.maxAttempts = 1,
     this.sendRebootCommand = false,
     this.returnToLoginAfterRecovery = false,
   });
@@ -272,8 +272,10 @@ class _RebootCountdownDialogState extends ConsumerState<RebootCountdownDialog>
                     children: [
                       Expanded(
                         child: _CountdownStat(
-                          label: 'Attempt',
-                          value: '$_attempt / ${widget.maxAttempts}',
+                          label: 'Recovery',
+                          value: widget.maxAttempts == 1
+                              ? '1 pass'
+                              : '$_attempt / ${widget.maxAttempts}',
                         ),
                       ),
                       Expanded(
