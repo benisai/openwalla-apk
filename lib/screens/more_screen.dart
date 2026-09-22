@@ -3,13 +3,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:luci_mobile/main.dart';
-import 'package:luci_mobile/screens/backup_restore_screen.dart';
+import 'package:luci_mobile/screens/about_screen.dart';
 import 'package:luci_mobile/screens/login_screen.dart';
+import 'package:luci_mobile/screens/manage_device_screen.dart';
 import 'package:luci_mobile/screens/reboot_countdown_screen.dart';
-import 'package:luci_mobile/screens/reset_router_screen.dart';
 import 'package:luci_mobile/screens/settings_screen.dart';
-import 'package:luci_mobile/screens/ssh_terminal_screen.dart';
-import 'package:luci_mobile/screens/router_setup_screen.dart';
 import 'package:luci_mobile/widgets/luci_app_bar.dart';
 import 'package:luci_mobile/design/luci_design_system.dart';
 import 'package:luci_mobile/utils/http_client_manager.dart';
@@ -189,6 +187,44 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            const LuciSectionHeader('Router'),
+            Builder(
+              builder: (context) {
+                final isRebooting = ref.watch(
+                  appStateProvider.select((state) => state.isRebooting),
+                );
+                return _MoreScreenSection(
+                  tiles: [
+                    _buildMoreTile(
+                      context,
+                      icon: Icons.router_outlined,
+                      iconColor: Theme.of(context).colorScheme.primary,
+                      title: 'Manage Device',
+                      subtitle: 'Backup, terminal, setup, and reset',
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const ManageDeviceScreen(),
+                          ),
+                        );
+                      },
+                    ),
+                    _buildMoreTile(
+                      context,
+                      icon: Icons.restart_alt,
+                      iconColor: Theme.of(context).colorScheme.primary,
+                      title: 'Reboot',
+                      subtitle: 'Perform a system restart',
+                      onTap: isRebooting
+                          ? null
+                          : () => _showRebootDialog(context),
+                      enabled: !isRebooting,
+                      showSpinner: isRebooting,
+                    ),
+                  ],
+                );
+              },
+            ),
             const LuciSectionHeader('Application'),
             _MoreScreenSection(
               tiles: [
@@ -200,109 +236,30 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
                   subtitle: 'Configure app preferences',
                   onTap: () {
                     Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (context) => const SettingsScreen(),
-                      ),
+                      MaterialPageRoute(builder: (_) => const SettingsScreen()),
                     );
                   },
                 ),
-              ],
-            ),
-            const LuciSectionHeader('Device Management'),
-            Builder(
-              builder: (context) {
-                final isRebooting = ref.watch(
-                  appStateProvider.select((state) => state.isRebooting),
-                );
-                return _MoreScreenSection(
-                  tiles: [
-                    _buildMoreTile(
-                      context,
-                      icon: Icons.restart_alt,
-                      iconColor: Theme.of(context).colorScheme.primary,
-                      title: 'Reboot Router',
-                      subtitle: 'Perform a system restart',
-                      onTap: isRebooting
-                          ? null
-                          : () => _showRebootDialog(context),
-                      enabled: !isRebooting,
-                      showSpinner: isRebooting,
-                    ),
-                    _buildMoreTile(
-                      context,
-                      icon: Icons.terminal_rounded,
-                      iconColor: Theme.of(context).colorScheme.primary,
-                      title: 'SSH Terminal',
-                      subtitle: 'Open a shell using saved router credentials',
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (context) => const SshTerminalScreen(),
-                          ),
-                        );
-                      },
-                    ),
-                    _buildMoreTile(
-                      context,
-                      icon: Icons.backup_rounded,
-                      iconColor: const Color(0xFF20CF70),
-                      title: 'Backup & Restore',
-                      subtitle: 'Openwalla state and OpenWrt configuration',
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (context) => const BackupRestoreScreen(),
-                          ),
-                        );
-                      },
-                    ),
-                    _buildMoreTile(
-                      context,
-                      icon: Icons.settings_backup_restore_rounded,
-                      iconColor: Theme.of(context).colorScheme.error,
-                      title: 'Reset Router',
-                      subtitle: 'Restore OpenWrt firmware defaults',
-                      titleColor: Theme.of(context).colorScheme.error,
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (context) => const ResetRouterScreen(),
-                          ),
-                        );
-                      },
-                    ),
-                    _buildMoreTile(
-                      context,
-                      icon: Icons.logout,
-                      iconColor: Theme.of(context).colorScheme.error,
-                      title: 'Logout',
-                      subtitle: 'End your session and sign out',
-                      titleColor: Theme.of(context).colorScheme.error,
-                      subtitleColor: Theme.of(
-                        context,
-                      ).colorScheme.error.withValues(alpha: 0.7),
-                      onTap: () => _showLogoutDialog(context),
-                    ),
-                  ],
-                );
-              },
-            ),
-            const LuciSectionHeader('Router Setup'),
-            _MoreScreenSection(
-              tiles: [
                 _buildMoreTile(
                   context,
-                  icon: Icons.construction_rounded,
+                  icon: Icons.info_outline_rounded,
                   iconColor: Theme.of(context).colorScheme.primary,
-                  title: 'Router Setup',
-                  subtitle: 'Install Openwalla helpers on this router',
+                  title: 'About',
+                  subtitle: 'App version and information',
                   onTap: () {
                     Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (context) => const RouterSetupScreen(),
-                      ),
+                      MaterialPageRoute(builder: (_) => const AboutScreen()),
                     );
                   },
+                ),
+                _buildMoreTile(
+                  context,
+                  icon: Icons.logout_rounded,
+                  iconColor: const Color(0xFFD9798E),
+                  title: 'Logout',
+                  subtitle: 'End your session and sign out',
+                  titleColor: const Color(0xFFD9798E),
+                  onTap: () => _showLogoutDialog(context),
                 ),
               ],
             ),
