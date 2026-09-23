@@ -1597,7 +1597,7 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
                 ),
               )
             else if (isSta)
-              OutlinedButton.icon(
+              OutlinedButton(
                 onPressed: section.isEmpty
                     ? null
                     : () => _setWirelessInterfaceEnabled(
@@ -1605,20 +1605,41 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
                         section,
                         !isInterfaceEnabled,
                       ),
-                icon: Icon(
-                  isInterfaceEnabled
-                      ? Icons.check_circle_outline_rounded
-                      : Icons.power_settings_new_rounded,
-                  size: 17,
-                ),
-                label: Text(isInterfaceEnabled ? 'Enabled' : 'Disabled'),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: isInterfaceEnabled
+                      ? const Color(0xFFE85D8E)
+                      : const Color(0xFF18A999),
+                  side: BorderSide(
+                    color:
+                        (isInterfaceEnabled
+                                ? const Color(0xFFE85D8E)
+                                : const Color(0xFF18A999))
+                            .withValues(alpha: 0.65),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
+                  visualDensity: VisualDensity.compact,
+                ),
+                child: Text(isInterfaceEnabled ? 'Disconnect' : 'Connect'),
+              )
+            else
+              OutlinedButton(
+                onPressed: radioName.toString().isEmpty
+                    ? null
+                    : () => _setWirelessRadioEnabled(
+                        context,
+                        radioName,
+                        !isRadioEnabled,
+                      ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: isRadioEnabled
                       ? const Color(0xFF18A999)
                       : Theme.of(context).colorScheme.onSurfaceVariant,
                   side: BorderSide(
                     color:
-                        (isInterfaceEnabled
+                        (isRadioEnabled
                                 ? const Color(0xFF18A999)
                                 : Theme.of(context).colorScheme.outlineVariant)
                             .withValues(alpha: 0.65),
@@ -1629,12 +1650,7 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
                   ),
                   visualDensity: VisualDensity.compact,
                 ),
-              )
-            else
-              Switch(
-                value: isRadioEnabled,
-                onChanged: (enabled) =>
-                    _setWirelessRadioEnabled(context, radioName, enabled),
+                child: Text(isRadioEnabled ? 'Enabled' : 'Disabled'),
               ),
           ],
         ),
