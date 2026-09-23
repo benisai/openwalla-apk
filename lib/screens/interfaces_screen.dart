@@ -3208,17 +3208,88 @@ class _AddPortForwardSheetState extends ConsumerState<_AddPortForwardSheet> {
     }
   }
 
+  List<String> _zones(String selected, {bool includeRouter = false}) {
+    return <String>{
+      'wan',
+      'lan',
+      if (includeRouter) 'router',
+      selected,
+    }.where((zone) => zone.trim().isNotEmpty).toList();
+  }
+
+  String _zoneLabel(String zone) {
+    return zone == 'router' ? 'Router' : zone.toUpperCase();
+  }
+
   List<DropdownMenuItem<String>> _zoneItems(
+    BuildContext context,
     String selected, {
     bool includeRouter = false,
   }) {
-    final zones = <String>{'wan', 'lan', if (includeRouter) 'router', selected};
-    return zones
-        .where((zone) => zone.trim().isNotEmpty)
+    final colors = Theme.of(context).colorScheme;
+    return _zones(selected, includeRouter: includeRouter)
         .map(
           (zone) => DropdownMenuItem(
             value: zone,
-            child: Text(zone == 'router' ? 'Router' : zone.toUpperCase()),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 140),
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: zone == selected
+                    ? colors.primaryContainer
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+                border: zone == selected
+                    ? Border.all(color: colors.primary.withValues(alpha: 0.5))
+                    : null,
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _zoneLabel(zone),
+                      style: TextStyle(
+                        color: zone == selected
+                            ? colors.onPrimaryContainer
+                            : colors.onSurface,
+                        fontWeight: zone == selected
+                            ? FontWeight.w800
+                            : FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  if (zone == selected)
+                    Icon(
+                      Icons.check_circle_rounded,
+                      size: 20,
+                      color: colors.primary,
+                    ),
+                ],
+              ),
+            ),
+          ),
+        )
+        .toList();
+  }
+
+  List<Widget> _selectedZoneItems(
+    BuildContext context,
+    String selected, {
+    bool includeRouter = false,
+  }) {
+    final colors = Theme.of(context).colorScheme;
+    return _zones(selected, includeRouter: includeRouter)
+        .map(
+          (zone) => Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              _zoneLabel(zone),
+              style: TextStyle(
+                color: colors.onSurface,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
           ),
         )
         .toList();
@@ -3319,11 +3390,16 @@ class _AddPortForwardSheetState extends ConsumerState<_AddPortForwardSheet> {
                             Expanded(
                               child: DropdownButtonFormField<String>(
                                 initialValue: _sourceZone,
+                                borderRadius: BorderRadius.circular(8),
+                                dropdownColor: colors.surfaceContainerHigh,
+                                iconEnabledColor: colors.primary,
                                 decoration: const InputDecoration(
                                   labelText: 'Source Zone',
                                   prefixIcon: Icon(Icons.shield_outlined),
                                 ),
-                                items: _zoneItems(_sourceZone),
+                                items: _zoneItems(context, _sourceZone),
+                                selectedItemBuilder: (context) =>
+                                    _selectedZoneItems(context, _sourceZone),
                                 onChanged: (value) => setState(
                                   () => _sourceZone = value ?? 'wan',
                                 ),
@@ -3397,11 +3473,20 @@ class _AddPortForwardSheetState extends ConsumerState<_AddPortForwardSheet> {
                       children: [
                         DropdownButtonFormField<String>(
                           initialValue: _destinationZone,
+                          borderRadius: BorderRadius.circular(8),
+                          dropdownColor: colors.surfaceContainerHigh,
+                          iconEnabledColor: colors.primary,
                           decoration: const InputDecoration(
                             labelText: 'Destination Zone',
                             prefixIcon: Icon(Icons.lan_outlined),
                           ),
                           items: _zoneItems(
+                            context,
+                            _destinationZone,
+                            includeRouter: true,
+                          ),
+                          selectedItemBuilder: (context) => _selectedZoneItems(
+                            context,
                             _destinationZone,
                             includeRouter: true,
                           ),
