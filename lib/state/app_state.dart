@@ -22,6 +22,12 @@ import 'package:luci_mobile/config/app_config.dart';
 import 'package:luci_mobile/utils/http_client_manager.dart';
 import 'package:luci_mobile/utils/logger.dart';
 
+typedef _WirelessConnection = ({
+  String band,
+  String interfaceName,
+  String ssid,
+});
+
 const int kOpenwallaPingTimelineSampleLimit = 420;
 
 enum OpenwallaThemeAccent {
@@ -9667,7 +9673,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
 
   Iterable<Client> _applyClientConnectionDetails(
     Iterable<Client> clients,
-    Map<String, ({String interfaceName, String ssid})> connections,
+    Map<String, _WirelessConnection> connections,
   ) sync* {
     for (final client in clients) {
       final mac = _normalizeMacAddress(client.macAddress);
@@ -9677,6 +9683,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
           connectionType: ConnectionType.wireless,
           ssid: connection.ssid,
           wirelessInterface: connection.interfaceName,
+          wirelessBand: connection.band,
         );
       } else if (client.isConnected) {
         yield client.copyWith(connectionType: ConnectionType.wired);
@@ -9686,13 +9693,12 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     }
   }
 
-  Future<Map<String, ({String interfaceName, String ssid})>>
-  _fetchWirelessConnectionsForRouter({
+  Future<Map<String, _WirelessConnection>> _fetchWirelessConnectionsForRouter({
     required model.Router router,
     required String sysauth,
     required bool useHttps,
   }) async {
-    final connections = <String, ({String interfaceName, String ssid})>{};
+    final connections = <String, _WirelessConnection>{};
     try {
       final result = await _apiService!.call(
         router.ipAddress,
@@ -9723,6 +9729,28 @@ done | sort -t "|" -k1,1nr | head -n ''' +
               (iwinfo['ssid'] ?? config['ssid'] ?? rawInterface['ssid'] ?? '')
                   .toString()
                   .trim();
+          final configuredBand =
+              (radioData['band'] ?? radioData['config']?['band'])
+                  ?.toString()
+                  .toLowerCase() ??
+              '';
+          final frequency = double.tryParse(
+            (iwinfo['frequency'] ?? radioData['frequency'])?.toString() ?? '',
+          );
+          final channel = int.tryParse(
+            (iwinfo['channel'] ?? radioData['channel'])?.toString() ?? '',
+          );
+          final band = switch (configuredBand) {
+            '2g' || '2.4g' => '2.4 GHz',
+            '5g' => '5 GHz',
+            '6g' => '6 GHz',
+            _ when frequency != null && frequency >= 5925 => '6 GHz',
+            _ when frequency != null && frequency >= 4900 => '5 GHz',
+            _ when frequency != null && frequency > 0 => '2.4 GHz',
+            _ when channel != null && channel >= 36 => '5 GHz',
+            _ when channel != null && channel > 0 => '2.4 GHz',
+            _ => '',
+          };
           final stations = await _apiService!
               .fetchAssociatedStationsWithContext(
                 ipAddress: router.ipAddress,
@@ -9732,6 +9760,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
               );
           for (final station in stations) {
             connections[_normalizeMacAddress(station)] = (
+              band: band,
               interfaceName: interfaceName,
               ssid: ssid,
             );
@@ -9745,14 +9774,15 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     return connections;
   }
 
-  Future<Map<String, ({String interfaceName, String ssid})>>
+  Future<Map<String, _WirelessConnection>>
   _fetchAggregatedWirelessConnections() async {
     if (_reviewerModeEnabled) {
-      final result = <String, ({String interfaceName, String ssid})>{};
+      final result = <String, _WirelessConnection>{};
       final stations = await _apiService!.fetchAssociatedStations();
       stations.forEach((interfaceName, macs) {
         for (final mac in macs) {
           result[_normalizeMacAddress(mac)] = (
+            band: '5 GHz',
             interfaceName: interfaceName,
             ssid: 'Openwalla',
           );
@@ -9762,35 +9792,34 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     }
 
     final routers = _routerService?.routers ?? const <model.Router>[];
-    final tasks = routers
-        .map<Future<Map<String, ({String interfaceName, String ssid})>>>((
-          router,
-        ) async {
-          try {
-            if (_apiService is! RealApiService) {
-              return <String, ({String interfaceName, String ssid})>{};
-            }
-            final login = await (_apiService as RealApiService)
-                .loginWithProtocolDetection(
-                  router.ipAddress,
-                  router.username,
-                  router.password,
-                  router.useHttps,
-                );
-            if (login.token == null) {
-              return <String, ({String interfaceName, String ssid})>{};
-            }
-            return await _fetchWirelessConnectionsForRouter(
-              router: router,
-              sysauth: login.token!,
-              useHttps: login.actualUseHttps,
+    final tasks = routers.map<Future<Map<String, _WirelessConnection>>>((
+      router,
+    ) async {
+      try {
+        if (_apiService is! RealApiService) {
+          return <String, _WirelessConnection>{};
+        }
+        final login = await (_apiService as RealApiService)
+            .loginWithProtocolDetection(
+              router.ipAddress,
+              router.username,
+              router.password,
+              router.useHttps,
             );
-          } catch (_) {
-            return <String, ({String interfaceName, String ssid})>{};
-          }
-        });
+        if (login.token == null) {
+          return <String, _WirelessConnection>{};
+        }
+        return await _fetchWirelessConnectionsForRouter(
+          router: router,
+          sysauth: login.token!,
+          useHttps: login.actualUseHttps,
+        );
+      } catch (_) {
+        return <String, _WirelessConnection>{};
+      }
+    });
     final maps = await Future.wait(tasks);
-    final combined = <String, ({String interfaceName, String ssid})>{};
+    final combined = <String, _WirelessConnection>{};
     for (final map in maps) {
       combined.addAll(map);
     }
@@ -9862,6 +9891,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
                 connectionType: ConnectionType.wireless,
                 ssid: wirelessConnections[macNorm]?.ssid,
                 wirelessInterface: wirelessConnections[macNorm]?.interfaceName,
+                wirelessBand: wirelessConnections[macNorm]?.band,
               )
             : client.copyWith(connectionType: ConnectionType.wired);
         // Prefer entries that have more info (hostname length as heuristic)
@@ -9880,6 +9910,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
           clients[mac] = Client.fromWirelessStation(mac).copyWith(
             ssid: connection?.ssid,
             wirelessInterface: connection?.interfaceName,
+            wirelessBand: connection?.band,
           );
         }
       }
@@ -10057,6 +10088,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
                 connectionType: ConnectionType.wireless,
                 ssid: wirelessConnections[macNorm]?.ssid,
                 wirelessInterface: wirelessConnections[macNorm]?.interfaceName,
+                wirelessBand: wirelessConnections[macNorm]?.band,
               )
             : c.copyWith(connectionType: ConnectionType.wired);
       }
@@ -10068,6 +10100,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
           clientMap[mac] = Client.fromWirelessStation(mac).copyWith(
             ssid: connection?.ssid,
             wirelessInterface: connection?.interfaceName,
+            wirelessBand: connection?.band,
           );
         }
       }

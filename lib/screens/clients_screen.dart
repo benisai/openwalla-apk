@@ -1330,53 +1330,62 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
                   ),
                   const SizedBox(width: 14),
                   Expanded(
-                    child: TextField(
-                      controller: _nameController,
-                      focusNode: _nameFocusNode,
-                      enabled: !_isSaving && !_isSavingName,
-                      readOnly: !_isEditingName,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        color: colorScheme.onSurface,
-                        fontWeight: FontWeight.w900,
-                      ),
-                      decoration: InputDecoration(
-                        border: InputBorder.none,
-                        contentPadding: EdgeInsets.zero,
-                        isDense: true,
-                        hintText: 'Device name',
-                        suffixIcon: IconButton(
-                          tooltip: _identityDirty
-                              ? 'Save device name'
-                              : 'Edit device name',
-                          onPressed: isIdentityBusy
-                              ? null
-                              : _identityDirty
-                              ? _saveNameOnly
-                              : _editName,
-                          icon: _isSavingName
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : Icon(
-                                  _identityDirty
-                                      ? Icons.save_rounded
-                                      : Icons.edit_rounded,
-                                ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextField(
+                          controller: _nameController,
+                          focusNode: _nameFocusNode,
+                          enabled: !_isSaving && !_isSavingName,
+                          readOnly: !_isEditingName,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: colorScheme.onSurface,
+                            fontWeight: FontWeight.w900,
+                          ),
+                          decoration: InputDecoration(
+                            border: InputBorder.none,
+                            contentPadding: EdgeInsets.zero,
+                            isDense: true,
+                            hintText: 'Device name',
+                            suffixIcon: IconButton(
+                              tooltip: _identityDirty
+                                  ? 'Save device name'
+                                  : 'Edit device name',
+                              onPressed: isIdentityBusy
+                                  ? null
+                                  : _identityDirty
+                                  ? _saveNameOnly
+                                  : _editName,
+                              icon: _isSavingName
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : Icon(
+                                      _identityDirty
+                                          ? Icons.save_rounded
+                                          : Icons.edit_rounded,
+                                    ),
+                            ),
+                            suffixIconConstraints: const BoxConstraints(
+                              minWidth: 28,
+                              minHeight: 28,
+                            ),
+                          ),
+                          onSubmitted: (_) {
+                            if (_identityDirty && !isIdentityBusy) {
+                              unawaited(_saveNameOnly());
+                            }
+                          },
                         ),
-                        suffixIconConstraints: const BoxConstraints(
-                          minWidth: 28,
-                          minHeight: 28,
-                        ),
-                      ),
-                      onSubmitted: (_) {
-                        if (_identityDirty && !isIdentityBusy) {
-                          unawaited(_saveNameOnly());
-                        }
-                      },
+                        if (widget.client.connectionType ==
+                            ConnectionType.wireless)
+                          _DeviceWirelessIdentity(client: widget.client),
+                      ],
                     ),
                   ),
                   IconButton(
@@ -1509,6 +1518,48 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
         side: BorderSide(color: color.withValues(alpha: 0.58)),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+    );
+  }
+}
+
+class _DeviceWirelessIdentity extends StatelessWidget {
+  final Client client;
+
+  const _DeviceWirelessIdentity({required this.client});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final ssid = client.ssid?.trim() ?? '';
+    final interfaceName = client.wirelessInterface?.trim() ?? '';
+    final band = client.wirelessBand?.trim() ?? '';
+    final parts = <String>[
+      'Wi-Fi',
+      if (ssid.isNotEmpty)
+        ssid
+      else if (interfaceName.isNotEmpty)
+        interfaceName,
+      if (band.isNotEmpty) band,
+    ];
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Row(
+        children: [
+          Icon(Icons.wifi_rounded, size: 13, color: colorScheme.primary),
+          const SizedBox(width: 5),
+          Expanded(
+            child: Text(
+              parts.join(' • '),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1975,11 +2026,6 @@ class _UnifiedClientCard extends StatelessWidget {
                       semanticsLabel:
                           'Client details: ${_buildMinimalClientSubtitle(client)}',
                     ),
-                    if (client.isConnected &&
-                        client.connectionType != ConnectionType.unknown) ...[
-                      const SizedBox(height: 7),
-                      _ClientConnectionBadge(client: client),
-                    ],
                   ],
                 ),
               ),
@@ -2019,63 +2065,5 @@ class _UnifiedClientCard extends StatelessWidget {
     } else {
       return shown;
     }
-  }
-}
-
-class _ClientConnectionBadge extends StatelessWidget {
-  final Client client;
-
-  const _ClientConnectionBadge({required this.client});
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final isWireless = client.connectionType == ConnectionType.wireless;
-    final ssid = client.ssid?.trim() ?? '';
-    final label = isWireless
-        ? (ssid.isEmpty ? 'Wi-Fi' : 'Wi-Fi • $ssid')
-        : 'Wired';
-    final background = isWireless
-        ? colors.primaryContainer.withValues(alpha: 0.72)
-        : colors.secondaryContainer.withValues(alpha: 0.72);
-    final foreground = isWireless
-        ? colors.onPrimaryContainer
-        : colors.onSecondaryContainer;
-    final border = isWireless ? colors.primary : colors.secondary;
-
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Container(
-        constraints: const BoxConstraints(maxWidth: 190),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: background,
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: border.withValues(alpha: 0.34)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              isWireless ? Icons.wifi_rounded : Icons.lan_rounded,
-              size: 13,
-              color: foreground,
-            ),
-            const SizedBox(width: 5),
-            Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: foreground,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }

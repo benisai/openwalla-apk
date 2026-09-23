@@ -14,6 +14,7 @@ class Client {
   final ConnectionType connectionType;
   final String? ssid;
   final String? wirelessInterface;
+  final String? wirelessBand;
   final List<String>? ipv6Addresses;
   final bool isBlocked;
   final int totalUploadBytes;
@@ -37,6 +38,7 @@ class Client {
     this.connectionType = ConnectionType.unknown,
     this.ssid,
     this.wirelessInterface,
+    this.wirelessBand,
     this.ipv6Addresses,
     this.isBlocked = false,
     this.totalUploadBytes = 0,
@@ -276,6 +278,7 @@ class Client {
     ConnectionType? connectionType,
     String? ssid,
     String? wirelessInterface,
+    String? wirelessBand,
     List<String>? ipv6Addresses,
     bool? isBlocked,
     int? totalUploadBytes,
@@ -299,6 +302,7 @@ class Client {
       connectionType: connectionType ?? this.connectionType,
       ssid: ssid ?? this.ssid,
       wirelessInterface: wirelessInterface ?? this.wirelessInterface,
+      wirelessBand: wirelessBand ?? this.wirelessBand,
       ipv6Addresses: ipv6Addresses ?? this.ipv6Addresses,
       isBlocked: isBlocked ?? this.isBlocked,
       totalUploadBytes: totalUploadBytes ?? this.totalUploadBytes,
