@@ -341,11 +341,10 @@ class _RouterDashboardSettingsScreenState
 
   Widget _buildThroughputSection() {
     final interfaces = _availableWiredInterfaces.toList()..sort();
-    return _buildSection(
+    return _buildStaticSection(
       title: 'Live Throughput Monitoring',
       subtitle: 'Choose which interfaces feed the Live Traffic dashboard card',
       icon: Icons.speed,
-      initiallyExpanded: true,
       children: [
         Container(
           decoration: BoxDecoration(
