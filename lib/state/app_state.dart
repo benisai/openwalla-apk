@@ -9603,6 +9603,14 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     }
   }
 
+  Future<bool> setWirelessInterfaceState(
+    String section,
+    bool enabled, {
+    BuildContext? context,
+  }) {
+    return setWirelessRadioState(section, enabled, context: context);
+  }
+
   Future<bool> tryAutoLogin({BuildContext? context}) async {
     if (_reviewerModeEnabled) {
       return await _authService!.tryAutoLogin(

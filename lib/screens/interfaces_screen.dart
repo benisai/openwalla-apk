@@ -58,6 +58,7 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
   int _wirelessPanelIndex = 0;
   bool _isLoadingNetworkPanels = false;
   final Set<String> _updatingWirelessRadios = <String>{};
+  final Set<String> _updatingWirelessInterfaces = <String>{};
   List<OpenwrtPortForward> _portForwards = const [];
   List<OpenwrtFirewallZone> _firewallZones = const [];
   OpenwrtFirewallDefaults _firewallDefaults = const OpenwrtFirewallDefaults(
@@ -115,6 +116,31 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
           success
               ? '$radioName turned ${enabled ? 'on' : 'off'}'
               : 'Could not update $radioName',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _setWirelessInterfaceEnabled(
+    BuildContext context,
+    String section,
+    bool enabled,
+  ) async {
+    if (section.isEmpty || _updatingWirelessInterfaces.contains(section)) {
+      return;
+    }
+    setState(() => _updatingWirelessInterfaces.add(section));
+    final success = await ref
+        .read(appStateProvider)
+        .setWirelessInterfaceState(section, enabled, context: context);
+    if (!mounted || !context.mounted) return;
+    setState(() => _updatingWirelessInterfaces.remove(section));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          success
+              ? 'Repeater ${enabled ? 'enabled' : 'disabled'}'
+              : 'Could not update repeater',
         ),
       ),
     );
@@ -1370,7 +1396,12 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
         .where((iface) => iface['isSta'] == true)
         .toList();
     final visibleDisabled = disabledInterfaces
-        .where((iface) => showInactive || iface['radioEnabled'] != true)
+        .where(
+          (iface) =>
+              iface['isSta'] == true ||
+              showInactive ||
+              iface['radioEnabled'] != true,
+        )
         .toList();
     final mainDisabled = visibleDisabled
         .where((iface) => iface['isSta'] != true)
@@ -1521,9 +1552,14 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
                 _normalizeInterfaceKey(_targetInterface!));
 
     final shouldExpand = isTargetInterface || _expandedInterface == keyStr;
+    final section = iface['section']?.toString() ?? '';
+    final isSta = iface['isSta'] == true;
+    final isInterfaceEnabled = iface['isEnabled'] == true;
     final isRadioEnabled = iface['radioEnabled'] == true;
     final clientCount = iface['clientCount'] as int? ?? 0;
-    final isUpdating = _updatingWirelessRadios.contains(radioName);
+    final isUpdating = isSta
+        ? _updatingWirelessInterfaces.contains(section)
+        : _updatingWirelessRadios.contains(radioName);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
       child: _UnifiedNetworkCard(
@@ -1535,27 +1571,63 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
         headerTrailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primaryContainer,
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text(
-                '$clientCount ${clientCount == 1 ? 'device' : 'devices'}',
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onPrimaryContainer,
-                  fontWeight: FontWeight.w700,
+            if (!isSta) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '$clientCount ${clientCount == 1 ? 'device' : 'devices'}',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onPrimaryContainer,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(width: 4),
+              const SizedBox(width: 4),
+            ],
             if (isUpdating)
               const SizedBox.square(
                 dimension: 36,
                 child: Padding(
                   padding: EdgeInsets.all(9),
                   child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              )
+            else if (isSta)
+              OutlinedButton.icon(
+                onPressed: section.isEmpty
+                    ? null
+                    : () => _setWirelessInterfaceEnabled(
+                        context,
+                        section,
+                        !isInterfaceEnabled,
+                      ),
+                icon: Icon(
+                  isInterfaceEnabled
+                      ? Icons.check_circle_outline_rounded
+                      : Icons.power_settings_new_rounded,
+                  size: 17,
+                ),
+                label: Text(isInterfaceEnabled ? 'Enabled' : 'Disabled'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: isInterfaceEnabled
+                      ? const Color(0xFF18A999)
+                      : Theme.of(context).colorScheme.onSurfaceVariant,
+                  side: BorderSide(
+                    color:
+                        (isInterfaceEnabled
+                                ? const Color(0xFF18A999)
+                                : Theme.of(context).colorScheme.outlineVariant)
+                            .withValues(alpha: 0.65),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
+                  visualDensity: VisualDensity.compact,
                 ),
               )
             else
@@ -1630,7 +1702,9 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
     final colorScheme = Theme.of(context).colorScheme;
     final section = iface['section']?.toString() ?? '';
     final password = iface['password']?.toString() ?? '';
+    final isSta = iface['isSta'] == true;
     final canShare =
+        !isSta &&
         iface['isEnabled'] == true &&
         (iface['ssid']?.toString().trim().isNotEmpty ?? false);
     final actions = <Widget>[
