@@ -10590,10 +10590,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       );
       if (!matchesOpenwallaBlock) continue;
       if ((rule['enabled']?.toString() ?? '1') == '0') continue;
-      final srcMac = rule['src_mac']?.toString() ?? '';
-      if (RegExp(r'^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$').hasMatch(srcMac)) {
-        macs.add(_normalizeMacAddress(srcMac));
-      }
+      macs.addAll(_firewallMacValues(rule['src_mac']));
     }
     return macs;
   }
@@ -10611,10 +10608,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       final name = rule['name']?.toString() ?? '';
       if (!name.startsWith(_openwallaPauseRulePrefix)) continue;
       if ((rule['enabled']?.toString() ?? '1') == '0') continue;
-      final srcMac = rule['src_mac']?.toString() ?? '';
-      if (RegExp(r'^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$').hasMatch(srcMac)) {
-        macs.add(_normalizeMacAddress(srcMac));
-      }
+      macs.addAll(_firewallMacValues(rule['src_mac']));
     }
     return macs;
   }
@@ -10718,14 +10712,27 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       mac,
       prefixes: const [_openwallaPauseRulePrefix],
     );
-    if (paused && sections.isEmpty) {
-      await _addClientFirewallRule(
-        router: router,
-        sysauth: sysauth,
-        mac: mac,
-        name: '$_openwallaPauseRulePrefix${mac.replaceAll(':', '')}',
-        destination: 'wan',
-      );
+    if (paused) {
+      if (sections.isEmpty) {
+        await _addClientFirewallRule(
+          router: router,
+          sysauth: sysauth,
+          mac: mac,
+          name: '$_openwallaPauseRulePrefix${mac.replaceAll(':', '')}',
+          destination: 'wan',
+        );
+      } else {
+        for (final rule in sections) {
+          await _configureClientFirewallRule(
+            router: router,
+            sysauth: sysauth,
+            section: rule.section,
+            mac: mac,
+            name: rule.name,
+            destination: 'wan',
+          );
+        }
+      }
     } else if (!paused) {
       await _deleteFirewallSections(
         router: router,
@@ -10734,6 +10741,14 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       );
     }
     await _commitAndReloadFirewall(router, sysauth);
+    if (paused) {
+      await _applyImmediateClientFirewallBlock(
+        router: router,
+        sysauth: sysauth,
+        mac: mac,
+        blockRouterAccess: false,
+      );
+    }
   }
 
   Future<List<ParentalProfile>?> fetchParentalProfiles({
@@ -11185,15 +11200,13 @@ uci commit dhcp
       params: {'config': 'firewall'},
     );
     final values = _extractUciValues(firewall);
-    final sectionsForMac = _blockedFirewallSectionsForMac(
+    final quarantineSections = _firewallSectionsForMac(
       values,
       normalizedMac,
+      prefixes: const ['openwalla_quarantine_'],
     );
 
     if (blocked) {
-      final quarantineSections = sectionsForMac
-          .where((entry) => entry.name.startsWith('openwalla_quarantine_'))
-          .toList();
       final baseName =
           'openwalla_quarantine_${normalizedMac.replaceAll(':', '').toLowerCase()}';
       final existingNames = quarantineSections
@@ -11217,6 +11230,29 @@ uci commit dhcp
           destination: 'wan',
         );
       }
+      if (!existingNames.contains('${baseName}_router')) {
+        await _addClientFirewallRule(
+          router: router,
+          sysauth: sysauth,
+          mac: normalizedMac,
+          name: '${baseName}_router',
+        );
+      }
+      for (final rule in quarantineSections) {
+        final destination = rule.name.endsWith('_router')
+            ? null
+            : rule.name.endsWith('_lan')
+            ? 'lan'
+            : 'wan';
+        await _configureClientFirewallRule(
+          router: router,
+          sysauth: sysauth,
+          section: rule.section,
+          mac: normalizedMac,
+          name: rule.name,
+          destination: destination,
+        );
+      }
       await _updateDeviceDbBlockedState(
         router: router,
         sysauth: sysauth,
@@ -11228,7 +11264,7 @@ uci commit dhcp
       await _deleteFirewallSections(
         router: router,
         sysauth: sysauth,
-        sections: sectionsForMac.map((entry) => entry.section),
+        sections: quarantineSections.map((entry) => entry.section),
       );
       await _updateDeviceDbBlockedState(
         router: router,
@@ -11240,6 +11276,14 @@ uci commit dhcp
     }
 
     await _commitAndReloadFirewall(router, sysauth);
+    if (blocked) {
+      await _applyImmediateClientFirewallBlock(
+        router: router,
+        sysauth: sysauth,
+        mac: normalizedMac,
+        blockRouterAccess: true,
+      );
+    }
     await _setWirelessClientDenied(
       router: router,
       sysauth: sysauth,
@@ -11744,15 +11788,6 @@ exit 0
     return values;
   }
 
-  List<({String section, String name})> _blockedFirewallSectionsForMac(
-    Map<String, Map<String, dynamic>> values,
-    String mac,
-  ) => _firewallSectionsForMac(
-    values,
-    mac,
-    prefixes: _blockedFirewallRulePrefixes,
-  );
-
   List<({String section, String name})> _firewallSectionsForMac(
     Map<String, Map<String, dynamic>> values,
     String mac, {
@@ -11763,10 +11798,13 @@ exit 0
       if (cfg['.type']?.toString() != 'rule') return;
       final name = cfg['name']?.toString().trim() ?? '';
       if (!prefixes.any(name.startsWith)) return;
-      final srcMac = _normalizeMacAddress(
-        cfg['src_mac']?.toString() ?? cfg['src_mac_address']?.toString() ?? '',
-      );
-      if (srcMac == mac) matches.add((section: section, name: name));
+      final sourceMacs = {
+        ..._firewallMacValues(cfg['src_mac']),
+        ..._firewallMacValues(cfg['src_mac_address']),
+      };
+      if (sourceMacs.contains(mac)) {
+        matches.add((section: section, name: name));
+      }
     });
     return matches;
   }
@@ -11776,7 +11814,7 @@ exit 0
     required String sysauth,
     required String mac,
     required String name,
-    required String destination,
+    String? destination,
   }) async {
     final addResult = await _apiService!.call(
       router.ipAddress,
@@ -11790,6 +11828,24 @@ exit 0
     if (section == null || section.isEmpty) {
       throw StateError('Unable to create firewall rule section');
     }
+    await _configureClientFirewallRule(
+      router: router,
+      sysauth: sysauth,
+      section: section,
+      mac: mac,
+      name: name,
+      destination: destination,
+    );
+  }
+
+  Future<void> _configureClientFirewallRule({
+    required model.Router router,
+    required String sysauth,
+    required String section,
+    required String mac,
+    required String name,
+    String? destination,
+  }) async {
     await _apiService!.uciSet(
       router.ipAddress,
       sysauth,
@@ -11798,14 +11854,60 @@ exit 0
       section: section,
       values: {
         'name': name,
-        'src': 'lan',
-        'dest': destination,
+        'src': '*',
+        if (destination != null) 'dest': destination,
         'src_mac': mac,
         'proto': 'all',
-        'target': 'REJECT',
+        'target': 'DROP',
         'family': 'any',
         'enabled': '1',
       },
+    );
+  }
+
+  Set<String> _firewallMacValues(dynamic raw) {
+    final values = raw is Iterable && raw is! String
+        ? raw
+        : raw == null
+        ? const []
+        : raw.toString().split(RegExp(r'\s+'));
+    return values
+        .map((value) => _normalizeMacAddress(value.toString()))
+        .where(
+          (value) => RegExp(r'^([0-9A-F]{2}:){5}[0-9A-F]{2}$').hasMatch(value),
+        )
+        .toSet();
+  }
+
+  Future<void> _applyImmediateClientFirewallBlock({
+    required model.Router router,
+    required String sysauth,
+    required String mac,
+    required bool blockRouterAccess,
+  }) async {
+    final quotedMac = _shellQuote(mac);
+    final inputRule = blockRouterAccess
+        ? 'nft insert rule inet fw4 input ether saddr "\$mac" drop >/dev/null 2>&1 || true\n'
+        : '';
+    final iptablesInput = blockRouterAccess
+        ? 'iptables -I INPUT -m mac --mac-source "\$mac" -j DROP >/dev/null 2>&1 || true\n'
+        : '';
+    final command =
+        '''
+mac=$quotedMac
+if command -v nft >/dev/null 2>&1 && nft list chain inet fw4 forward >/dev/null 2>&1; then
+  nft insert rule inet fw4 forward ether saddr "\$mac" drop >/dev/null 2>&1 || true
+  $inputRule
+else
+  iptables -I FORWARD -m mac --mac-source "\$mac" -j DROP >/dev/null 2>&1 || true
+  $iptablesInput
+fi
+''';
+    await _apiService!.systemExec(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      command: command,
     );
   }
 
