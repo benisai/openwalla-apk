@@ -214,91 +214,188 @@ class _SqmEditor extends StatelessWidget {
         ),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Enable this SQM instance'),
-            value: queue.enabled,
-            onChanged: isSaving
-                ? null
-                : (value) => onChanged(_copy(enabled: value)),
+          Container(
+            decoration: BoxDecoration(
+              color: queue.enabled
+                  ? colorScheme.primary.withValues(alpha: 0.09)
+                  : colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color:
+                    (queue.enabled
+                            ? colorScheme.primary
+                            : colorScheme.outlineVariant)
+                        .withValues(alpha: 0.3),
+              ),
+            ),
+            child: SwitchListTile.adaptive(
+              secondary: Icon(
+                Icons.speed_rounded,
+                color: queue.enabled
+                    ? colorScheme.primary
+                    : colorScheme.onSurfaceVariant,
+              ),
+              title: const Text('Smart Queue'),
+              subtitle: Text(queue.enabled ? 'Enabled' : 'Disabled'),
+              value: queue.enabled,
+              onChanged: isSaving
+                  ? null
+                  : (value) => onChanged(_copy(enabled: value)),
+            ),
           ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            initialValue: queue.interfaceName,
-            decoration: const InputDecoration(labelText: 'Interface name'),
-            items: interfaces
-                .map((name) => DropdownMenuItem(value: name, child: Text(name)))
-                .toList(),
-            onChanged: isSaving
-                ? null
-                : (value) => onChanged(_copy(interfaceName: value)),
+          const SizedBox(height: 20),
+          const _SqmSectionLabel(
+            icon: Icons.swap_vert_rounded,
+            title: 'Connection & Bandwidth',
+            subtitle: 'Select the WAN interface and available line speed.',
           ),
-          const SizedBox(height: 12),
-          _NumberField(
-            label: 'Download speed (ingress)',
-            value: queue.downloadKbps,
-            enabled: !isSaving,
-            onChanged: (value) => onChanged(_copy(downloadKbps: value)),
+          const SizedBox(height: 10),
+          _SqmFieldGroup(
+            child: Column(
+              children: [
+                DropdownButtonFormField<String>(
+                  initialValue: queue.interfaceName,
+                  borderRadius: BorderRadius.circular(8),
+                  dropdownColor: colorScheme.surfaceContainerHigh,
+                  iconEnabledColor: colorScheme.primary,
+                  decoration: const InputDecoration(
+                    labelText: 'Network Interface',
+                    prefixIcon: Icon(Icons.lan_outlined),
+                  ),
+                  items: interfaces
+                      .map(
+                        (name) =>
+                            DropdownMenuItem(value: name, child: Text(name)),
+                      )
+                      .toList(),
+                  onChanged: isSaving
+                      ? null
+                      : (value) => onChanged(_copy(interfaceName: value)),
+                ),
+                const SizedBox(height: 12),
+                _NumberField(
+                  label: 'Download Speed',
+                  icon: Icons.download_rounded,
+                  value: queue.downloadKbps,
+                  enabled: !isSaving,
+                  onChanged: (value) => onChanged(_copy(downloadKbps: value)),
+                ),
+                const SizedBox(height: 12),
+                _NumberField(
+                  label: 'Upload Speed',
+                  icon: Icons.upload_rounded,
+                  value: queue.uploadKbps,
+                  enabled: !isSaving,
+                  onChanged: (value) => onChanged(_copy(uploadKbps: value)),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 12),
-          _NumberField(
-            label: 'Upload speed (egress)',
-            value: queue.uploadKbps,
-            enabled: !isSaving,
-            onChanged: (value) => onChanged(_copy(uploadKbps: value)),
+          const SizedBox(height: 20),
+          const _SqmSectionLabel(
+            icon: Icons.tune_rounded,
+            title: 'Queue Behavior',
+            subtitle: 'Choose how traffic is classified and scheduled.',
           ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            initialValue: queue.qdisc,
-            decoration: const InputDecoration(labelText: 'Queueing discipline'),
-            items: const ['cake', 'fq_codel', 'codel', 'sfq', 'pie']
-                .map((name) => DropdownMenuItem(value: name, child: Text(name)))
-                .toList(),
-            onChanged: isSaving
-                ? null
-                : (value) => onChanged(_copy(qdisc: value)),
+          const SizedBox(height: 10),
+          _SqmFieldGroup(
+            child: Column(
+              children: [
+                DropdownButtonFormField<String>(
+                  initialValue: queue.qdisc,
+                  borderRadius: BorderRadius.circular(8),
+                  dropdownColor: colorScheme.surfaceContainerHigh,
+                  iconEnabledColor: colorScheme.primary,
+                  decoration: const InputDecoration(
+                    labelText: 'Queueing Discipline',
+                    prefixIcon: Icon(Icons.account_tree_outlined),
+                  ),
+                  items: const ['cake', 'fq_codel', 'codel', 'sfq', 'pie']
+                      .map(
+                        (name) =>
+                            DropdownMenuItem(value: name, child: Text(name)),
+                      )
+                      .toList(),
+                  onChanged: isSaving
+                      ? null
+                      : (value) => onChanged(_copy(qdisc: value)),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: queue.script,
+                  borderRadius: BorderRadius.circular(8),
+                  dropdownColor: colorScheme.surfaceContainerHigh,
+                  iconEnabledColor: colorScheme.primary,
+                  decoration: const InputDecoration(
+                    labelText: 'Queue Setup Script',
+                    prefixIcon: Icon(Icons.description_outlined),
+                  ),
+                  items:
+                      const [
+                            'piece_of_cake.qos',
+                            'layer_cake.qos',
+                            'simple.qos',
+                            'simplest.qos',
+                            'simplest_tbf.qos',
+                          ]
+                          .map(
+                            (name) => DropdownMenuItem(
+                              value: name,
+                              child: Text(name),
+                            ),
+                          )
+                          .toList(),
+                  onChanged: isSaving
+                      ? null
+                      : (value) => onChanged(_copy(script: value)),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            initialValue: queue.script,
-            decoration: const InputDecoration(labelText: 'Queue setup script'),
-            items:
-                const [
-                      'piece_of_cake.qos',
-                      'layer_cake.qos',
-                      'simple.qos',
-                      'simplest.qos',
-                      'simplest_tbf.qos',
-                    ]
-                    .map(
-                      (name) =>
-                          DropdownMenuItem(value: name, child: Text(name)),
-                    )
-                    .toList(),
-            onChanged: isSaving
-                ? null
-                : (value) => onChanged(_copy(script: value)),
+          const SizedBox(height: 20),
+          const _SqmSectionLabel(
+            icon: Icons.bug_report_outlined,
+            title: 'Diagnostics',
+            subtitle: 'Optional logging for troubleshooting SQM.',
           ),
-          const SizedBox(height: 12),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Enable debug logging'),
-            value: queue.debugLogging,
-            onChanged: isSaving
-                ? null
-                : (value) => onChanged(_copy(debugLogging: value)),
-          ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            initialValue: queue.verbosity,
-            decoration: const InputDecoration(labelText: 'Log verbosity'),
-            items: const ['0', '1', '2', '3', '4', '5', '6', '7', '8']
-                .map((name) => DropdownMenuItem(value: name, child: Text(name)))
-                .toList(),
-            onChanged: isSaving
-                ? null
-                : (value) => onChanged(_copy(verbosity: value)),
+          const SizedBox(height: 10),
+          _SqmFieldGroup(
+            child: Column(
+              children: [
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  secondary: const Icon(Icons.terminal_rounded),
+                  title: const Text('Debug Logging'),
+                  subtitle: const Text('Write detailed SQM events to the log'),
+                  value: queue.debugLogging,
+                  onChanged: isSaving
+                      ? null
+                      : (value) => onChanged(_copy(debugLogging: value)),
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  initialValue: queue.verbosity,
+                  borderRadius: BorderRadius.circular(8),
+                  dropdownColor: colorScheme.surfaceContainerHigh,
+                  iconEnabledColor: colorScheme.primary,
+                  decoration: const InputDecoration(
+                    labelText: 'Log Verbosity',
+                    prefixIcon: Icon(Icons.format_list_numbered_rounded),
+                  ),
+                  items: const ['0', '1', '2', '3', '4', '5', '6', '7', '8']
+                      .map(
+                        (name) =>
+                            DropdownMenuItem(value: name, child: Text(name)),
+                      )
+                      .toList(),
+                  onChanged: isSaving
+                      ? null
+                      : (value) => onChanged(_copy(verbosity: value)),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 18),
           SizedBox(
@@ -323,12 +420,14 @@ class _SqmEditor extends StatelessWidget {
 
 class _NumberField extends StatefulWidget {
   final String label;
+  final IconData icon;
   final int value;
   final bool enabled;
   final ValueChanged<int> onChanged;
 
   const _NumberField({
     required this.label,
+    required this.icon,
     required this.value,
     required this.enabled,
     required this.onChanged,
@@ -368,9 +467,72 @@ class _NumberFieldState extends State<_NumberField> {
       keyboardType: TextInputType.number,
       decoration: InputDecoration(
         labelText: widget.label,
+        prefixIcon: Icon(widget.icon),
         suffixText: 'kbit/s',
       ),
       onChanged: (value) => widget.onChanged(int.tryParse(value) ?? 0),
+    );
+  }
+}
+
+class _SqmSectionLabel extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  const _SqmSectionLabel({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 22, color: colors.primary),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              Text(
+                subtitle,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SqmFieldGroup extends StatelessWidget {
+  final Widget child;
+
+  const _SqmFieldGroup({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerHighest.withValues(alpha: 0.32),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: child,
     );
   }
 }

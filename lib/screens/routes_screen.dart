@@ -274,6 +274,7 @@ class _AddRouteSheet extends ConsumerStatefulWidget {
 }
 
 class _AddRouteSheetState extends ConsumerState<_AddRouteSheet> {
+  final _formKey = GlobalKey<FormState>();
   final _targetController = TextEditingController();
   final _gatewayController = TextEditingController();
   final _metricController = TextEditingController();
@@ -299,8 +300,8 @@ class _AddRouteSheetState extends ConsumerState<_AddRouteSheet> {
   }
 
   Future<void> _save() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
     final target = _targetController.text.trim();
-    if (target.isEmpty) return;
     setState(() => _isSaving = true);
     try {
       await ref
@@ -325,106 +326,277 @@ class _AddRouteSheetState extends ConsumerState<_AddRouteSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          18,
-          0,
-          18,
-          MediaQuery.of(context).viewInsets.bottom + 18,
-        ),
+    final colors = Theme.of(context).colorScheme;
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return FractionallySizedBox(
+      heightFactor: 0.88,
+      child: Form(
+        key: _formKey,
         child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Add Route',
-              style: Theme.of(
-                context,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              initialValue: _interfaceName,
-              decoration: const InputDecoration(labelText: 'Interface'),
-              items: _interfaces
-                  .map(
-                    (name) => DropdownMenuItem(value: name, child: Text(name)),
-                  )
-                  .toList(),
-              onChanged: _isSaving
-                  ? null
-                  : (value) => setState(
-                      () => _interfaceName = value ?? _interfaceName,
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 10, 12),
+              child: Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: colors.primary.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
                     ),
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              initialValue: _routeType,
-              decoration: const InputDecoration(labelText: 'Route type'),
-              items: const ['unicast', 'blackhole', 'unreachable', 'prohibit']
-                  .map(
-                    (type) => DropdownMenuItem(value: type, child: Text(type)),
-                  )
-                  .toList(),
-              onChanged: _isSaving
-                  ? null
-                  : (value) => setState(() => _routeType = value ?? _routeType),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _targetController,
-              enabled: !_isSaving,
-              decoration: const InputDecoration(
-                labelText: 'Target',
-                hintText: '0.0.0.0/0',
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _gatewayController,
-              enabled: !_isSaving,
-              decoration: const InputDecoration(
-                labelText: 'Gateway',
-                hintText: '192.168.0.1',
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _metricController,
-              enabled: !_isSaving,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Metric'),
-            ),
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
+                    child: Icon(Icons.route_rounded, color: colors.primary),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'New Static Route',
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(fontWeight: FontWeight.w900),
+                        ),
+                        Text(
+                          'Send traffic for a destination through a gateway.',
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: colors.onSurfaceVariant,
+                                fontWeight: FontWeight.w600,
+                              ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Close',
                     onPressed: _isSaving
                         ? null
                         : () => Navigator.of(context).pop(false),
-                    child: const Text('Dismiss'),
+                    icon: const Icon(Icons.close_rounded),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton(
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: ListView(
+                padding: EdgeInsets.fromLTRB(20, 18, 20, bottomInset + 20),
+                children: [
+                  const _RouteSectionLabel(
+                    icon: Icons.alt_route_rounded,
+                    title: 'Route Destination',
+                    subtitle: 'Define the network and route behavior.',
+                  ),
+                  const SizedBox(height: 10),
+                  _RouteFieldGroup(
+                    child: Column(
+                      children: [
+                        TextFormField(
+                          controller: _targetController,
+                          enabled: !_isSaving,
+                          decoration: const InputDecoration(
+                            labelText: 'Target Network',
+                            hintText: '0.0.0.0/0',
+                            prefixIcon: Icon(Icons.my_location_rounded),
+                          ),
+                          validator: (value) => value?.trim().isEmpty == true
+                              ? 'Target network is required'
+                              : null,
+                          textInputAction: TextInputAction.next,
+                        ),
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          initialValue: _routeType,
+                          borderRadius: BorderRadius.circular(8),
+                          dropdownColor: colors.surfaceContainerHigh,
+                          iconEnabledColor: colors.primary,
+                          decoration: const InputDecoration(
+                            labelText: 'Route Type',
+                            prefixIcon: Icon(Icons.signpost_rounded),
+                          ),
+                          items:
+                              const [
+                                    'unicast',
+                                    'blackhole',
+                                    'unreachable',
+                                    'prohibit',
+                                  ]
+                                  .map(
+                                    (type) => DropdownMenuItem(
+                                      value: type,
+                                      child: Text(type),
+                                    ),
+                                  )
+                                  .toList(),
+                          onChanged: _isSaving
+                              ? null
+                              : (value) => setState(
+                                  () => _routeType = value ?? _routeType,
+                                ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  const _RouteSectionLabel(
+                    icon: Icons.router_rounded,
+                    title: 'Next Hop',
+                    subtitle: 'Choose the outgoing interface and gateway.',
+                  ),
+                  const SizedBox(height: 10),
+                  _RouteFieldGroup(
+                    child: Column(
+                      children: [
+                        DropdownButtonFormField<String>(
+                          initialValue: _interfaceName,
+                          borderRadius: BorderRadius.circular(8),
+                          dropdownColor: colors.surfaceContainerHigh,
+                          iconEnabledColor: colors.primary,
+                          decoration: const InputDecoration(
+                            labelText: 'Interface',
+                            prefixIcon: Icon(Icons.lan_outlined),
+                          ),
+                          items: _interfaces
+                              .map(
+                                (name) => DropdownMenuItem(
+                                  value: name,
+                                  child: Text(name),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: _isSaving
+                              ? null
+                              : (value) => setState(
+                                  () =>
+                                      _interfaceName = value ?? _interfaceName,
+                                ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _gatewayController,
+                          enabled: !_isSaving,
+                          decoration: const InputDecoration(
+                            labelText: 'Gateway',
+                            hintText: '192.168.0.1',
+                            prefixIcon: Icon(Icons.hub_outlined),
+                            helperText:
+                                'Optional for directly connected routes',
+                          ),
+                          textInputAction: TextInputAction.next,
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _metricController,
+                          enabled: !_isSaving,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                            labelText: 'Metric',
+                            hintText: '0',
+                            prefixIcon: Icon(Icons.low_priority_rounded),
+                            helperText: 'Lower values are preferred',
+                          ),
+                          textInputAction: TextInputAction.done,
+                          onSubmitted: (_) => _save(),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+              child: Row(
+                children: [
+                  TextButton(
+                    onPressed: _isSaving
+                        ? null
+                        : () => Navigator.of(context).pop(false),
+                    child: const Text('Cancel'),
+                  ),
+                  const Spacer(),
+                  FilledButton.icon(
                     onPressed: _isSaving ? null : _save,
-                    child: _isSaving
+                    icon: _isSaving
                         ? const SizedBox(
                             height: 18,
                             width: 18,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Text('Save'),
+                        : const Icon(Icons.add_rounded),
+                    label: Text(_isSaving ? 'Creating' : 'Create Route'),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _RouteSectionLabel extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  const _RouteSectionLabel({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 22, color: colors.primary),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              Text(
+                subtitle,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _RouteFieldGroup extends StatelessWidget {
+  final Widget child;
+
+  const _RouteFieldGroup({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerHighest.withValues(alpha: 0.32),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: child,
     );
   }
 }
