@@ -1535,11 +1535,37 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
     BuildContext context,
     Map<String, dynamic> iface,
   ) {
+    final colorScheme = Theme.of(context).colorScheme;
     final section = iface['section']?.toString() ?? '';
     final password = iface['password']?.toString() ?? '';
     final canShare =
         iface['isEnabled'] == true &&
         (iface['ssid']?.toString().trim().isNotEmpty ?? false);
+    final actions = <Widget>[
+      if (section.isNotEmpty)
+        _WirelessActionButton(
+          label: 'Edit Wi-Fi',
+          icon: Icons.tune_rounded,
+          backgroundColor: const Color(0xFFFFE3EB),
+          foregroundColor: const Color(0xFF9D294F),
+          onPressed: () => _showEditWirelessSheet(section),
+        ),
+      _WirelessActionButton(
+        label: 'Info',
+        icon: Icons.info_outline_rounded,
+        backgroundColor: const Color(0xFFD9F3EE),
+        foregroundColor: const Color(0xFF08766A),
+        onPressed: () => _showWirelessInfoSheet(iface),
+      ),
+      if (canShare)
+        _WirelessActionButton(
+          label: 'Share Wi-Fi',
+          icon: Icons.qr_code_rounded,
+          backgroundColor: colorScheme.primaryContainer,
+          foregroundColor: colorScheme.onPrimaryContainer,
+          onPressed: () => _showShareWifiDialog(iface),
+        ),
+    ];
     return Column(
       children: [
         _buildDetailRow(context, 'SSID', iface['ssid']?.toString() ?? 'N/A'),
@@ -1555,55 +1581,12 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
         const SizedBox(height: 12),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Wrap(
-            alignment: WrapAlignment.center,
-            spacing: 10,
-            runSpacing: 10,
+          child: Row(
             children: [
-              if (section.isNotEmpty)
-                FilledButton.tonalIcon(
-                  onPressed: () => _showEditWirelessSheet(section),
-                  icon: const Icon(Icons.tune_rounded, size: 18),
-                  label: const Text('Edit Wi-Fi'),
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 18,
-                      vertical: 12,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                  ),
-                ),
-              FilledButton.tonalIcon(
-                onPressed: () => _showWirelessInfoSheet(iface),
-                icon: const Icon(Icons.info_outline_rounded, size: 18),
-                label: const Text('Info'),
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 18,
-                    vertical: 12,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                ),
-              ),
-              if (canShare)
-                FilledButton.icon(
-                  onPressed: () => _showShareWifiDialog(iface),
-                  icon: const Icon(Icons.qr_code_rounded, size: 18),
-                  label: const Text('Share Wi-Fi'),
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 18,
-                      vertical: 12,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                  ),
-                ),
+              for (var index = 0; index < actions.length; index++) ...[
+                if (index > 0) const SizedBox(width: 8),
+                Expanded(child: actions[index]),
+              ],
             ],
           ),
         ),
@@ -4878,6 +4861,46 @@ class _FormPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: children,
+      ),
+    );
+  }
+}
+
+class _WirelessActionButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color backgroundColor;
+  final Color foregroundColor;
+  final VoidCallback onPressed;
+
+  const _WirelessActionButton({
+    required this.label,
+    required this.icon,
+    required this.backgroundColor,
+    required this.foregroundColor,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon, size: 17),
+      label: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.fade,
+        softWrap: false,
+      ),
+      style: FilledButton.styleFrom(
+        minimumSize: const Size(0, 44),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        backgroundColor: backgroundColor,
+        foregroundColor: foregroundColor,
+        textStyle: Theme.of(
+          context,
+        ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w800),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
     );
   }
