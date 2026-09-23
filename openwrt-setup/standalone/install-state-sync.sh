@@ -26,9 +26,11 @@ set_uci openwalla.state_backup.backup_time "720"
 set_uci openwalla.state_backup.state_dir "/overlay/openwalla-state"
 uci commit openwalla
 
-/usr/bin/openwalla-state-sync restore || true
-/usr/bin/openwalla-state-sync sync-cron || true
+# Preserve the current runtime state before restarting the sync service. A
+# restore here can overwrite newer /tmp data with an older checkpoint during
+# a routine reinstall; boot-time restore remains handled by the init service.
 /usr/bin/openwalla-state-sync save || true
+/usr/bin/openwalla-state-sync sync-cron || true
 
 if [ -f /etc/rc.local ]; then
 	if ! grep -q '/usr/bin/openwalla-state-sync restore' /etc/rc.local 2>/dev/null; then
