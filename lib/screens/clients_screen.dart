@@ -11,6 +11,7 @@ import 'package:luci_mobile/widgets/luci_loading_states.dart';
 import 'package:luci_mobile/widgets/openwalla_toast.dart';
 import 'package:luci_mobile/widgets/luci_refresh_components.dart';
 import 'package:luci_mobile/widgets/luci_animation_system.dart';
+import 'package:luci_mobile/utils/self_device_guard.dart';
 
 class ClientsScreen extends ConsumerStatefulWidget {
   const ClientsScreen({super.key});
@@ -406,6 +407,8 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
                                           client: client,
                                           onOpenSettings: () =>
                                               _showDeviceSettingsSheet(client),
+                                          onLongPress: () =>
+                                              _showDeleteDeviceSheet(client),
                                         ),
                                       ),
                                     );
@@ -611,6 +614,16 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
       ),
       builder: (context) => _DeviceSettingsSheet(
         client: client,
+        onToggleInternetPause: (paused) async {
+          final success = await ref
+              .read(appStateProvider)
+              .pauseClientInternet(
+                client.macAddress,
+                pause: paused,
+                context: context,
+              );
+          if (!success) throw StateError('Unable to update internet access');
+        },
         onToggleInternetBlock: (blocked) =>
             _setClientInternetBlocked(client, blocked),
       ),
@@ -619,6 +632,126 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
       setState(() {
         _computeClientsFuture();
       });
+    }
+  }
+
+  Future<void> _showDeleteDeviceSheet(Client client) async {
+    final shouldDelete = await showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      useSafeArea: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) {
+        final colors = Theme.of(sheetContext).colorScheme;
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: colors.errorContainer,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      Icons.delete_outline_rounded,
+                      color: colors.onErrorContainer,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Remove ${client.displayName}?',
+                          style: Theme.of(sheetContext).textTheme.titleLarge
+                              ?.copyWith(fontWeight: FontWeight.w900),
+                        ),
+                        Text(
+                          client.macAddress,
+                          style: TextStyle(color: colors.onSurfaceVariant),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: colors.surfaceContainerHighest.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.info_outline_rounded,
+                      size: 20,
+                      color: colors.primary,
+                    ),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text(
+                        'This only removes the saved Openwalla device entry. If the device is still connected, it can reappear during the next device scan.',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(sheetContext).pop(false),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: () => Navigator.of(sheetContext).pop(true),
+                      icon: const Icon(Icons.delete_outline_rounded),
+                      label: const Text('Delete'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: colors.error,
+                        foregroundColor: colors.onError,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (shouldDelete != true || !mounted) return;
+    try {
+      await ref
+          .read(appStateProvider)
+          .deleteOpenwallaDeviceRecord(client, context: context);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('${client.displayName} removed.')));
+      await _refreshClients();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to remove device entry: $e')),
+      );
     }
   }
 
@@ -718,10 +851,12 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
 
 class _DeviceSettingsSheet extends ConsumerStatefulWidget {
   final Client client;
+  final Future<void> Function(bool paused) onToggleInternetPause;
   final Future<void> Function(bool blocked) onToggleInternetBlock;
 
   const _DeviceSettingsSheet({
     required this.client,
+    required this.onToggleInternetPause,
     required this.onToggleInternetBlock,
   });
 
@@ -741,11 +876,12 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
   late String _savedIconKey;
   late String _currentStaticIp;
   late bool _isBlocked;
+  late bool _isPaused;
   bool _isEditingName = false;
   bool _isSaving = false;
   bool _isSavingName = false;
   bool _isBlocking = false;
-  bool _isDeleting = false;
+  bool _isPausing = false;
   bool _hasSavedChanges = false;
 
   @override
@@ -761,6 +897,9 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
     _staticIpEnabled = widget.client.staticIpAddress?.isNotEmpty == true;
     _currentStaticIp = _staticIpEnabled ? _ipController.text.trim() : '';
     _isBlocked = widget.client.isBlocked;
+    _isPaused = ref
+        .read(appStateProvider)
+        .isInternetPaused(widget.client.macAddress);
     _selectedIconKey = widget.client.deviceIcon?.trim().isNotEmpty == true
         ? widget.client.deviceIcon!.trim()
         : 'device';
@@ -928,50 +1067,18 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
     }
   }
 
-  Future<void> _deleteDeviceRecord() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Remove device entry?'),
-        content: const Text(
-          'This removes the device from the Openwalla devices database only. If the device is still present on the network, it can reappear on the next device collector poll.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton.tonalIcon(
-            onPressed: () => Navigator.of(context).pop(true),
-            icon: const Icon(Icons.delete_outline_rounded),
-            label: const Text('Remove'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-
-    final messenger = ScaffoldMessenger.of(context);
-    final navigator = Navigator.of(context);
-    setState(() => _isDeleting = true);
-    try {
-      await ref
-          .read(appStateProvider)
-          .deleteOpenwallaDeviceRecord(widget.client, context: context);
-      if (!mounted) return;
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Device database entry removed.')),
-      );
-      navigator.pop(true);
-    } catch (e) {
-      if (!mounted) return;
-      _showError('Failed to remove device entry: $e');
-      setState(() => _isDeleting = false);
-    }
-  }
-
   Future<void> _toggleInternetBlock() async {
     final nextBlocked = !_isBlocked;
+    if (nextBlocked) {
+      final safe = await SelfDeviceGuard.checkSelfActionGuardrail(
+        context,
+        actionName: 'Block device',
+        targetMac: widget.client.macAddress,
+        targetIp: widget.client.ipAddress,
+        targetHostname: widget.client.displayName,
+      );
+      if (!safe || !mounted) return;
+    }
     setState(() => _isBlocking = true);
     try {
       await widget.onToggleInternetBlock(nextBlocked);
@@ -979,10 +1086,39 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
       setState(() {
         _isBlocked = nextBlocked;
         _isBlocking = false;
+        _hasSavedChanges = true;
       });
     } catch (_) {
       if (!mounted) return;
       setState(() => _isBlocking = false);
+    }
+  }
+
+  Future<void> _toggleInternetPause() async {
+    final nextPaused = !_isPaused;
+    if (nextPaused) {
+      final safe = await SelfDeviceGuard.checkSelfActionGuardrail(
+        context,
+        actionName: 'Pause internet access',
+        targetMac: widget.client.macAddress,
+        targetIp: widget.client.ipAddress,
+        targetHostname: widget.client.displayName,
+      );
+      if (!safe || !mounted) return;
+    }
+    setState(() => _isPausing = true);
+    try {
+      await widget.onToggleInternetPause(nextPaused);
+      if (!mounted) return;
+      setState(() {
+        _isPaused = nextPaused;
+        _isPausing = false;
+        _hasSavedChanges = true;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isPausing = false);
+      _showError('Failed to update internet access: $e');
     }
   }
 
@@ -1095,7 +1231,7 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
     final colorScheme = theme.colorScheme;
     final selectedIcon = _deviceIconOptionFor(_selectedIconKey).icon;
     final isIdentityBusy =
-        _isSaving || _isSavingName || _isBlocking || _isDeleting;
+        _isSaving || _isSavingName || _isBlocking || _isPausing;
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.fromLTRB(
@@ -1213,7 +1349,7 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
                   ),
                   IconButton(
                     tooltip: 'Close',
-                    onPressed: (_isSaving || _isSavingName || _isDeleting)
+                    onPressed: isIdentityBusy
                         ? null
                         : () => Navigator.of(context).pop(_hasSavedChanges),
                     icon: const Icon(Icons.close_rounded),
@@ -1253,58 +1389,24 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
               const SizedBox(height: 20),
               Row(
                 children: [
-                  Expanded(child: _buildBlockButton(context)),
+                  Expanded(child: _buildPauseButton(context)),
                   const SizedBox(width: 10),
-                  Expanded(
-                    child: FilledButton.tonalIcon(
-                      onPressed:
-                          (_isSaving ||
-                              _isSavingName ||
-                              _isBlocking ||
-                              _isDeleting)
-                          ? null
-                          : _save,
-                      icon: _isSaving
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.save_rounded),
-                      label: Text(_isSaving ? 'Saving' : 'Save'),
-                    ),
-                  ),
+                  Expanded(child: _buildBlockButton(context)),
                 ],
               ),
               const SizedBox(height: 10),
               SizedBox(
                 width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed:
-                      (_isSaving || _isSavingName || _isBlocking || _isDeleting)
-                      ? null
-                      : _deleteDeviceRecord,
-                  icon: _isDeleting
+                child: FilledButton.tonalIcon(
+                  onPressed: isIdentityBusy ? null : _save,
+                  icon: _isSaving
                       ? const SizedBox(
                           width: 18,
                           height: 18,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Icon(Icons.delete_outline_rounded),
-                  label: Text(_isDeleting ? 'Removing' : 'Remove Device Entry'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: colorScheme.error.withValues(alpha: 0.88),
-                    side: BorderSide(
-                      color: colorScheme.error.withValues(alpha: 0.32),
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 12,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
+                      : const Icon(Icons.save_rounded),
+                  label: Text(_isSaving ? 'Saving' : 'Save'),
                 ),
               ),
             ],
@@ -1315,12 +1417,11 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
   }
 
   Widget _buildBlockButton(BuildContext context) {
-    final theme = Theme.of(context);
-    final color = _isBlocked
-        ? theme.colorScheme.primary
-        : theme.colorScheme.error;
+    const unblockColor = Color(0xFF34C759);
+    const blockColor = Color(0xFFFFB800);
+    final color = _isBlocked ? unblockColor : blockColor;
     return OutlinedButton.icon(
-      onPressed: (_isSaving || _isBlocking || _isDeleting)
+      onPressed: (_isSaving || _isBlocking || _isPausing)
           ? null
           : _toggleInternetBlock,
       icon: _isBlocking
@@ -1343,6 +1444,37 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
       style: OutlinedButton.styleFrom(
         foregroundColor: color,
         side: BorderSide(color: color.withValues(alpha: 0.42)),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+    );
+  }
+
+  Widget _buildPauseButton(BuildContext context) {
+    const pausedColor = Color(0xFF34C759);
+    const pauseColor = Color(0xFFE85D8E);
+    final color = _isPaused ? pausedColor : pauseColor;
+    return OutlinedButton.icon(
+      onPressed: (_isSaving || _isBlocking || _isPausing)
+          ? null
+          : _toggleInternetPause,
+      icon: _isPausing
+          ? SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2, color: color),
+            )
+          : Icon(_isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded),
+      label: Text(
+        _isPausing
+            ? 'Wait'
+            : _isPaused
+            ? 'Resume'
+            : 'Pause',
+      ),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: color,
+        side: BorderSide(color: color.withValues(alpha: 0.58)),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
@@ -1694,10 +1826,12 @@ class _ActiveScheduleNotice extends ConsumerWidget {
 class _UnifiedClientCard extends StatelessWidget {
   final Client client;
   final VoidCallback onOpenSettings;
+  final VoidCallback onLongPress;
 
   const _UnifiedClientCard({
     required this.client,
     required this.onOpenSettings,
+    required this.onLongPress,
   });
 
   @override
@@ -1723,6 +1857,7 @@ class _UnifiedClientCard extends StatelessWidget {
           : null,
       child: InkWell(
         onTap: onOpenSettings,
+        onLongPress: onLongPress,
         borderRadius: BorderRadius.circular(18.0),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
