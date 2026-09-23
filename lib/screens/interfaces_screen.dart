@@ -567,11 +567,12 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
   Future<void> _showWirelessDisplaySettings() async {
     final appState = ref.read(appStateProvider);
     final current = appState.dashboardPreferences.showInactiveWirelessNetworks;
+    final pageContext = context;
     final next = await showModalBottomSheet<bool>(
       context: context,
       showDragHandle: true,
-      builder: (context) {
-        final colorScheme = Theme.of(context).colorScheme;
+      builder: (sheetContext) {
+        final colorScheme = Theme.of(sheetContext).colorScheme;
         var showInactive = current;
         return StatefulBuilder(
           builder: (context, setSheetState) {
@@ -584,7 +585,7 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Wi-Fi Display',
+                      'Wi-Fi Settings',
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         color: colorScheme.onSurface,
                         fontWeight: FontWeight.w900,
@@ -592,13 +593,51 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Choose whether disabled Wi-Fi networks are shown on this page.',
+                      'Manage nearby networks and how Wi-Fi appears in Openwalla.',
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: colorScheme.onSurfaceVariant,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                     const SizedBox(height: 16),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: colorScheme.primary.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: colorScheme.primary.withValues(alpha: 0.24),
+                        ),
+                      ),
+                      child: ListTile(
+                        leading: Container(
+                          width: 42,
+                          height: 42,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: colorScheme.primary.withValues(alpha: 0.14),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(
+                            Icons.wifi_find_rounded,
+                            color: colorScheme.primary,
+                          ),
+                        ),
+                        title: const Text('Scan & Connect'),
+                        subtitle: const Text(
+                          'Use Wi-Fi as this router\'s internet connection',
+                        ),
+                        trailing: const Icon(Icons.chevron_right_rounded),
+                        onTap: () {
+                          Navigator.of(sheetContext).pop();
+                          Future.microtask(() {
+                            if (mounted && pageContext.mounted) {
+                              _showJoinWifiSheet();
+                            }
+                          });
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 12),
                     SwitchListTile.adaptive(
                       contentPadding: EdgeInsets.zero,
                       title: const Text('Show inactive Wi-Fi networks'),
@@ -834,14 +873,8 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
         showBack: true,
         actions: widget.wirelessOnly
             ? [
-                if (_wirelessPanelIndex == 1)
-                  IconButton(
-                    tooltip: 'Join Wi-Fi as WAN',
-                    icon: const Icon(Icons.wifi_find_rounded),
-                    onPressed: _showJoinWifiSheet,
-                  ),
                 IconButton(
-                  tooltip: 'Wi-Fi display settings',
+                  tooltip: 'Wi-Fi settings',
                   icon: const Icon(Icons.settings_rounded),
                   onPressed: _showWirelessDisplaySettings,
                 ),
@@ -1345,12 +1378,6 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
     final staDisabled = visibleDisabled
         .where((iface) => iface['isSta'] == true)
         .toList();
-    final hasSta = staActive.isNotEmpty || staDisabled.isNotEmpty;
-
-    if (!hasSta) {
-      return _buildWirelessSliver(mainActive, mainDisabled);
-    }
-
     if (_wirelessPanelIndex > 1) _wirelessPanelIndex = 0;
     return SliverFillRemaining(
       child: Column(
@@ -1369,7 +1396,12 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
                   slivers: [_buildWirelessSliver(mainActive, mainDisabled)],
                 ),
                 CustomScrollView(
-                  slivers: [_buildWirelessSliver(staActive, staDisabled)],
+                  slivers: [
+                    if (staActive.isEmpty && staDisabled.isEmpty)
+                      _buildRepeaterEmptySliver()
+                    else
+                      _buildWirelessSliver(staActive, staDisabled),
+                  ],
                 ),
               ],
             ),
@@ -1377,6 +1409,66 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
           _NetworkPanelDots(count: 2, currentIndex: _wirelessPanelIndex),
           const SizedBox(height: 12),
         ],
+      ),
+    );
+  }
+
+  Widget _buildRepeaterEmptySliver() {
+    final colorScheme = Theme.of(context).colorScheme;
+    return SliverFillRemaining(
+      hasScrollBody: false,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 72,
+                  height: 72,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: colorScheme.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.wifi_find_rounded,
+                    size: 36,
+                    color: colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  'Connect to a Wi-Fi Network',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Scan nearby networks and use one as this router\'s internet connection.',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: _showJoinWifiSheet,
+                    icon: const Icon(Icons.wifi_find_rounded),
+                    label: const Text('Scan Nearby Networks'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

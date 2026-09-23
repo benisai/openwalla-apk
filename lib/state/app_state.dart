@@ -6307,39 +6307,48 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       throw StateError('No selected router connection is available');
     }
 
-    final result = await _apiService!.call(
-      router.ipAddress,
-      sysauth,
-      router.useHttps,
-      object: 'iwinfo',
-      method: 'scan',
-      params: {'device': device},
-      context: context,
-      receiveTimeout: const Duration(seconds: 120),
-    );
-    final data = _extractRpcData(result);
-    List<dynamic> rawResults = const [];
-    if (data is Map && data['results'] is List) {
-      rawResults = data['results'] as List;
-    } else if (data is List) {
-      rawResults = data;
-    } else if (data is Map) {
-      for (final value in data.values) {
-        if (value is List) {
-          rawResults = value;
-          break;
+    Future<List<WifiScanResult>> scanDevice(String scanDevice) async {
+      final result = await _apiService!.call(
+        router.ipAddress,
+        sysauth,
+        router.useHttps,
+        object: 'iwinfo',
+        method: 'scan',
+        params: {'device': scanDevice},
+        context: context?.mounted == true ? context : null,
+        receiveTimeout: const Duration(seconds: 120),
+      );
+      final data = _extractRpcData(result);
+      List<dynamic> rawResults = const [];
+      if (data is Map && data['results'] is List) {
+        rawResults = data['results'] as List;
+      } else if (data is List) {
+        rawResults = data;
+      } else if (data is Map) {
+        for (final value in data.values) {
+          if (value is List) {
+            rawResults = value;
+            break;
+          }
         }
       }
+      return rawResults
+          .whereType<Map>()
+          .map(
+            (entry) =>
+                WifiScanResult.fromJson(Map<String, dynamic>.from(entry)),
+          )
+          .toList();
     }
-    final results =
-        rawResults
-            .whereType<Map>()
-            .map(
-              (entry) =>
-                  WifiScanResult.fromJson(Map<String, dynamic>.from(entry)),
-            )
-            .toList()
-          ..sort((a, b) => b.signal.compareTo(a.signal));
+
+    var results = await scanDevice(device);
+    if (results.isEmpty) {
+      final phyMatch = RegExp(r'^(phy\d+)-').firstMatch(device);
+      if (phyMatch != null) {
+        results = await scanDevice(phyMatch.group(1)!);
+      }
+    }
+    results.sort((a, b) => b.signal.compareTo(a.signal));
     return results;
   }
 
