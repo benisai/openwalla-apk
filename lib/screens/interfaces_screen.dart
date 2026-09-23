@@ -57,6 +57,7 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
   int _networkPanelIndex = 0;
   int _wirelessPanelIndex = 0;
   bool _isLoadingNetworkPanels = false;
+  final Set<String> _updatingWirelessRadios = <String>{};
   List<OpenwrtPortForward> _portForwards = const [];
   List<OpenwrtFirewallZone> _firewallZones = const [];
   OpenwrtFirewallDefaults _firewallDefaults = const OpenwrtFirewallDefaults(
@@ -73,6 +74,50 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
       return value.isNotEmpty ? value.first.toString() : fallback;
     }
     return value?.toString() ?? fallback;
+  }
+
+  static String _wirelessBandLabel(Map? radio, Map? iwinfo) {
+    final configuredBand = _uciString(radio?['band']).toLowerCase();
+    if (configuredBand == '2g' || configuredBand == '2.4g') return '2.4 GHz';
+    if (configuredBand == '5g') return '5 GHz';
+    if (configuredBand == '6g') return '6 GHz';
+
+    final frequency = double.tryParse(iwinfo?['frequency']?.toString() ?? '');
+    if (frequency != null) {
+      if (frequency < 3000) return '2.4 GHz';
+      if (frequency < 5925) return '5 GHz';
+      return '6 GHz';
+    }
+
+    final hwMode = _uciString(radio?['hwmode']).toLowerCase();
+    if (hwMode.contains('11a')) return '5 GHz';
+    if (hwMode.contains('11b') || hwMode.contains('11g')) return '2.4 GHz';
+    return 'Wi-Fi';
+  }
+
+  Future<void> _setWirelessRadioEnabled(
+    BuildContext context,
+    String radioName,
+    bool enabled,
+  ) async {
+    if (radioName.isEmpty || _updatingWirelessRadios.contains(radioName)) {
+      return;
+    }
+    setState(() => _updatingWirelessRadios.add(radioName));
+    final success = await ref
+        .read(appStateProvider)
+        .setWirelessRadioState(radioName, enabled, context: context);
+    if (!mounted || !context.mounted) return;
+    setState(() => _updatingWirelessRadios.remove(radioName));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          success
+              ? '$radioName turned ${enabled ? 'on' : 'off'}'
+              : 'Could not update $radioName',
+        ),
+      ),
+    );
   }
 
   // Unified key generator for all interfaces
@@ -1113,6 +1158,8 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
     final dashboardData = appState.dashboardData;
     final wirelessData = dashboardData?['wireless'] as Map<String, dynamic>?;
     final uciWirelessConfig = dashboardData?['uciWirelessConfig'];
+    final associatedWirelessMacs =
+        dashboardData?['associatedWirelessMacs'] as Map? ?? const {};
     final interfacesList = <Map<String, dynamic>>[];
 
     final uciRadios = <String, Map>{};
@@ -1135,6 +1182,18 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
       wirelessData.forEach((radioName, radioData) {
         final interfaces = radioData['interfaces'] as List<dynamic>?;
         if (interfaces != null) {
+          final radioClients = <String>{};
+          for (final rawIface in interfaces) {
+            if (rawIface is! Map) continue;
+            for (final candidate in [rawIface['ifname'], rawIface['name']]) {
+              final stations = associatedWirelessMacs[candidate?.toString()];
+              if (stations is Iterable) {
+                radioClients.addAll(
+                  stations.map((station) => station.toString()),
+                );
+              }
+            }
+          }
           for (final iface in interfaces) {
             final config = iface['config'] ?? {};
             final iwinfo = iface['iwinfo'] ?? {};
@@ -1152,6 +1211,7 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
             final encryption = _uciString(ifaceConfig['encryption'], 'N/A');
             final password = _uciString(ifaceConfig['key']);
             final txPower = _uciString(uciRadios[radioName]?['txpower']);
+            final band = _wirelessBandLabel(uciRadios[radioName], iwinfo);
 
             final name = iface['name'] ?? '';
             final ssid = _uciString(iwinfo['ssid']).isNotEmpty
@@ -1173,8 +1233,11 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
                   ? _uciString(ifaceConfig['ssid'])
                   : (iwinfo['ssid']?.toString() ?? 'Unnamed'),
               'subtitle':
-                  '$mode • Ch. ${iwinfo['channel']?.toString() ?? _uciString(ifaceConfig['channel'], 'N/A')}',
+                  '$band • Ch. ${iwinfo['channel']?.toString() ?? _uciString(uciRadios[radioName]?['channel'], 'N/A')}',
               'isEnabled': isEnabled,
+              'radioEnabled': isRadioEnabled,
+              'clientCount': radioClients.length,
+              'band': band,
               'deviceName': deviceName,
               'radioName': radioName,
               'ssid': ssid,
@@ -1222,11 +1285,16 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
             mode.contains('CLIENT') ||
             _uciString(config['ssid']).toUpperCase() == 'STA';
         final txPower = _uciString(uciRadios[radioName]?['txpower']);
+        final band = _wirelessBandLabel(uciRadios[radioName], null);
         interfacesList.add({
           'section': uciName,
           'name': name,
-          'subtitle': '$mode • Disabled',
+          'subtitle':
+              '$band • Ch. ${_uciString(uciRadios[radioName]?['channel'], 'N/A')}',
           'isEnabled': isEnabled,
+          'radioEnabled': isRadioEnabled,
+          'clientCount': 0,
+          'band': band,
           'deviceName': radioName,
           'radioName': radioName,
           'ssid': name,
@@ -1268,12 +1336,15 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
     final staActive = activeInterfaces
         .where((iface) => iface['isSta'] == true)
         .toList();
-    final mainDisabled = showInactive
-        ? disabledInterfaces.where((iface) => iface['isSta'] != true).toList()
-        : <Map<String, dynamic>>[];
-    final staDisabled = showInactive
-        ? disabledInterfaces.where((iface) => iface['isSta'] == true).toList()
-        : <Map<String, dynamic>>[];
+    final visibleDisabled = disabledInterfaces
+        .where((iface) => showInactive || iface['radioEnabled'] != true)
+        .toList();
+    final mainDisabled = visibleDisabled
+        .where((iface) => iface['isSta'] != true)
+        .toList();
+    final staDisabled = visibleDisabled
+        .where((iface) => iface['isSta'] == true)
+        .toList();
     final hasSta = staActive.isNotEmpty || staDisabled.isNotEmpty;
 
     if (!hasSta) {
@@ -1358,6 +1429,9 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
                 _normalizeInterfaceKey(_targetInterface!));
 
     final shouldExpand = isTargetInterface || _expandedInterface == keyStr;
+    final isRadioEnabled = iface['radioEnabled'] == true;
+    final clientCount = iface['clientCount'] as int? ?? 0;
+    final isUpdating = _updatingWirelessRadios.contains(radioName);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
       child: _UnifiedNetworkCard(
@@ -1366,6 +1440,40 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
         subtitle: iface['subtitle'],
         isUp: iface['isEnabled'],
         icon: Icons.wifi,
+        headerTrailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                '$clientCount ${clientCount == 1 ? 'device' : 'devices'}',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onPrimaryContainer,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+            if (isUpdating)
+              const SizedBox.square(
+                dimension: 36,
+                child: Padding(
+                  padding: EdgeInsets.all(9),
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              )
+            else
+              Switch(
+                value: isRadioEnabled,
+                onChanged: (enabled) =>
+                    _setWirelessRadioEnabled(context, radioName, enabled),
+              ),
+          ],
+        ),
         details: _buildWirelessDetails(context, iface),
         initiallyExpanded: shouldExpand,
       ),
@@ -4781,6 +4889,7 @@ class _UnifiedNetworkCard extends StatefulWidget {
   final bool isUp;
   final IconData icon;
   final Widget details;
+  final Widget? headerTrailing;
   final bool initiallyExpanded;
 
   const _UnifiedNetworkCard({
@@ -4789,6 +4898,7 @@ class _UnifiedNetworkCard extends StatefulWidget {
     required this.isUp,
     required this.icon,
     required this.details,
+    this.headerTrailing,
     this.initiallyExpanded = false,
     super.key,
   });
@@ -4949,7 +5059,9 @@ class _UnifiedNetworkCardState extends State<_UnifiedNetworkCard>
                         ],
                       ),
                     ),
-                    if (!widget.isUp)
+                    if (widget.headerTrailing != null)
+                      widget.headerTrailing!
+                    else if (!widget.isUp)
                       Padding(
                         padding: const EdgeInsets.only(right: LuciSpacing.xs),
                         child: LuciStatusIndicators.statusChip(
