@@ -6229,6 +6229,8 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       final interfaces = radioData['interfaces'] as List<dynamic>?;
       String scanDevice = radioName;
       String ssid = radioName;
+      dynamic frequency = radioData['frequency'];
+      dynamic channel = radioData['channel'];
       if (interfaces != null && interfaces.isNotEmpty) {
         for (final iface in interfaces) {
           if (iface is! Map) continue;
@@ -6241,16 +6243,30 @@ done | sort -t "|" -k1,1nr | head -n ''' +
           if (ifname != null && ifname.isNotEmpty) {
             scanDevice = ifname;
             if (ifaceSsid.isNotEmpty) ssid = ifaceSsid;
+            frequency = iwinfo['frequency'] ?? frequency;
+            channel = iwinfo['channel'] ?? channel;
             if (mode == 'ap') break;
           }
         }
       }
-      final channel = radioData['channel']?.toString() ?? '';
-      final labelParts = [ssid, if (channel.isNotEmpty) 'ch $channel'];
+      final configuredBand = radioData['band']?.toString().toLowerCase() ?? '';
+      final frequencyMhz = double.tryParse(frequency?.toString() ?? '');
+      final channelNumber = int.tryParse(channel?.toString() ?? '');
+      final band = switch (configuredBand) {
+        '2g' || '2.4g' => '2.4 GHz',
+        '5g' => '5 GHz',
+        '6g' => '6 GHz',
+        _ when frequencyMhz != null && frequencyMhz >= 5925 => '6 GHz',
+        _ when frequencyMhz != null && frequencyMhz >= 4900 => '5 GHz',
+        _ when frequencyMhz != null && frequencyMhz > 0 => '2.4 GHz',
+        _ when channelNumber != null && channelNumber >= 36 => '5 GHz',
+        _ when channelNumber != null && channelNumber > 0 => '2.4 GHz',
+        _ => 'Wi-Fi',
+      };
       devices.add({
         'radio': radioName,
         'device': scanDevice,
-        'label': labelParts.join(' • '),
+        'label': '$ssid - $band',
       });
     });
     devices.sort((a, b) => a['radio']!.compareTo(b['radio']!));
