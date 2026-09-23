@@ -90,8 +90,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
         child: Builder(
           builder: (context) {
             final showStatistics =
-                appState.dashboardPreferences.showStatisticsTab &&
-                appState.statisticsPreloadData?.hasSupport == true;
+                appState.dashboardPreferences.showStatisticsTab;
             final pages = _widgetOptions(showStatistics);
             if (_selectedIndex >= pages.length) {
               WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -109,8 +108,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
       bottomNavigationBar: Builder(
         builder: (context) {
           final showStatistics =
-              appState.dashboardPreferences.showStatisticsTab &&
-              appState.statisticsPreloadData?.hasSupport == true;
+              appState.dashboardPreferences.showStatisticsTab;
           final destinations = _destinations(showStatistics: showStatistics);
           final safeIndex = _selectedIndex.clamp(0, destinations.length - 1);
           return NavigationBar(

@@ -1927,8 +1927,10 @@ class AppState extends ChangeNotifier {
       }
       if (json != null && json.isNotEmpty) {
         _dashboardPreferences = DashboardPreferences.fromJson(jsonDecode(json));
-        notifyListeners();
+      } else {
+        _dashboardPreferences = DashboardPreferences();
       }
+      notifyListeners();
     } catch (e, stack) {
       Logger.exception('Failed to load dashboard preferences', e, stack);
       _dashboardPreferences = DashboardPreferences();
