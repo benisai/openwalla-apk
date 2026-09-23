@@ -19,7 +19,7 @@ export PATH
 
 DEFAULT_DB="/tmp/openwalla-devices.sqlite"
 DEFAULT_POLL_SECONDS="60"
-DEFAULT_OFFLINE_AFTER_SECONDS="300"
+DEFAULT_OFFLINE_AFTER_SECONDS="90"
 DEFAULT_LAN_NETWORK="lan"
 DEFAULT_LAN_DEVICE="br-lan"
 DEFAULT_RULE_PREFIX="openwalla_quarantine_"
@@ -168,7 +168,7 @@ collect_dhcp() {
 			ip=$3
 			host=$4
 			if (host == "*") host=""
-			print mac "|" ip "|" host
+			print mac "|" ip "|" host "|0"
 		}
 	}' /tmp/dhcp.leases
 }
@@ -180,7 +180,7 @@ collect_arp() {
 			mac=tolower($4)
 			ifname=$6
 			if (ifname == dev && mac ~ /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/ && mac != "00:00:00:00:00:00")
-				print mac "|" ip "|"
+				print mac "|" ip "||" ($3 == "0x2" ? 1 : 0)
 		}' /proc/net/arp
 	fi
 }
@@ -189,12 +189,24 @@ collect_ip_neigh() {
 	ip neigh show dev "$LAN_DEVICE" 2>/dev/null | awk '{
 		ip=$1
 		mac=""
+		active=0
 		for (i=1; i<=NF; i++) {
 			if ($i == "lladdr" && (i+1) <= NF) { mac=$(i+1); break }
 		}
+		for (i=1; i<=NF; i++) {
+			if ($i == "REACHABLE" || $i == "DELAY" || $i == "PROBE" || $i == "PERMANENT") active=1
+		}
 		if (mac ~ /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/)
-			print tolower(mac) "|" ip "|"
+			print tolower(mac) "|" ip "||" active
 	}'
+}
+
+collect_bridge_fdb() {
+	command -v bridge >/dev/null 2>&1 || return 0
+	bridge fdb show br "$LAN_DEVICE" 2>/dev/null | awk '
+		$1 ~ /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/ && $0 !~ / self/ && $0 !~ / permanent/ {
+			print tolower($1) "|||1"
+		}'
 }
 
 collect_wireless() {
@@ -207,7 +219,7 @@ collect_wireless() {
 	{
 		jsonfilter -s "$json" -e "@.*.interfaces[@.config.network='$LAN_NETWORK'].stations[*].mac" 2>/dev/null || true
 		jsonfilter -s "$json" -e "@.*.interfaces[@.config.network[0]='$LAN_NETWORK'].stations[*].mac" 2>/dev/null || true
-	} | tr ' ' '\n' | sed '/^$/d' | tr '[:upper:]' '[:lower:]' | sort -u | awk '{ print $1 "||" }'
+	} | tr ' ' '\n' | sed '/^$/d' | tr '[:upper:]' '[:lower:]' | sort -u | awk '{ print $1 "|||1" }'
 }
 
 collect_candidates() {
@@ -215,21 +227,24 @@ collect_candidates() {
 		collect_dhcp
 		collect_arp
 		collect_ip_neigh
+		collect_bridge_fdb
 		collect_wireless
 	} | awk -F'|' '
 		{
 			mac=tolower($1)
 			ip=$2
 			host=$3
+			active_now=$4 + 0
 			if (mac ~ /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/) {
-				if (!(mac in seen)) {
-					seen[mac]=1
-					print mac "|" ip "|" host
-				} else {
-					if (ip != "" && ip_by_mac[mac] == "") ip_by_mac[mac]=ip
-					if (host != "" && host_by_mac[mac] == "") host_by_mac[mac]=host
-				}
+				seen[mac]=1
+				if (ip != "" && ip_by_mac[mac] == "") ip_by_mac[mac]=ip
+				if (host != "" && host_by_mac[mac] == "") host_by_mac[mac]=host
+				if (active_now == 1) active[mac]=1
 			}
+		}
+		END {
+			for (mac in seen)
+				print mac "|" ip_by_mac[mac] "|" host_by_mac[mac] "|" (active[mac] ? 1 : 0)
 		}
 	'
 }
@@ -270,7 +285,7 @@ collect_quarantined() {
 }
 
 collect_once() {
-	local now cutoff candidates totals quarantined sql mac ip host rx tx is_quarantined esc_mac esc_ip esc_host
+	local now cutoff candidates totals quarantined sql mac ip host active_now rx tx is_quarantined esc_mac esc_ip esc_host
 	now="$(date +%s)"
 	cutoff=$((now - OFFLINE_AFTER_SECONDS))
 	candidates="/tmp/.openwalla-devices-candidates.$$"
@@ -281,7 +296,7 @@ collect_once() {
 	collect_totals >"$totals"
 	collect_quarantined >"$quarantined"
 
-	while IFS='|' read -r mac ip host; do
+	while IFS='|' read -r mac ip host active_now; do
 		[ -n "$mac" ] || continue
 		rx="$(awk -F'|' -v m="$mac" '$1 == m { print $2; found=1; exit } END { if (!found) print 0 }' "$totals")"
 		tx="$(awk -F'|' -v m="$mac" '$1 == m { print $3; found=1; exit } END { if (!found) print 0 }' "$totals")"
@@ -296,7 +311,11 @@ collect_once() {
 		esc_mac="$(sql_escape "$mac")"
 		esc_ip="$(sql_escape "$ip")"
 		esc_host="$(sql_escape "$host")"
-		sql="INSERT INTO devices (mac, ip, hostname, vendor, quarantined, last_seen, total_up, total_down, status) VALUES ('$esc_mac', '$esc_ip', '$esc_host', '', $is_quarantined, $now, $tx, $rx, 'online') ON CONFLICT(mac) DO UPDATE SET ip=CASE WHEN excluded.ip != '' THEN excluded.ip ELSE devices.ip END, hostname=CASE WHEN devices.hostname = '' AND excluded.hostname != '' THEN excluded.hostname ELSE devices.hostname END, quarantined=excluded.quarantined, last_seen=excluded.last_seen, total_up=excluded.total_up, total_down=excluded.total_down, status=CASE WHEN devices.scheduled_block=1 THEN 'block-scheduled' ELSE excluded.status END;"
+		if [ "$active_now" = "1" ]; then
+			sql="INSERT INTO devices (mac, ip, hostname, vendor, quarantined, last_seen, total_up, total_down, status) VALUES ('$esc_mac', '$esc_ip', '$esc_host', '', $is_quarantined, $now, $tx, $rx, 'online') ON CONFLICT(mac) DO UPDATE SET ip=CASE WHEN excluded.ip != '' THEN excluded.ip ELSE devices.ip END, hostname=CASE WHEN devices.hostname = '' AND excluded.hostname != '' THEN excluded.hostname ELSE devices.hostname END, quarantined=excluded.quarantined, last_seen=excluded.last_seen, total_up=excluded.total_up, total_down=excluded.total_down, status=CASE WHEN devices.scheduled_block=1 THEN 'block-scheduled' ELSE excluded.status END;"
+		else
+			sql="INSERT INTO devices (mac, ip, hostname, vendor, quarantined, last_seen, total_up, total_down, status) VALUES ('$esc_mac', '$esc_ip', '$esc_host', '', $is_quarantined, 0, $tx, $rx, 'offline') ON CONFLICT(mac) DO UPDATE SET ip=CASE WHEN excluded.ip != '' THEN excluded.ip ELSE devices.ip END, hostname=CASE WHEN devices.hostname = '' AND excluded.hostname != '' THEN excluded.hostname ELSE devices.hostname END, quarantined=excluded.quarantined, total_up=excluded.total_up, total_down=excluded.total_down;"
+		fi
 		sql_exec "$sql" || true
 	done <"$candidates"
 

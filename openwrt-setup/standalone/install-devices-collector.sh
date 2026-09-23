@@ -29,7 +29,7 @@ install_rpcd_acl
 set_uci openwalla.devices.enabled "1"
 set_uci openwalla.devices.db_path "/tmp/openwalla-devices.sqlite"
 set_uci openwalla.devices.poll_seconds "60"
-set_uci openwalla.devices.offline_after_seconds "300"
+set_uci openwalla.devices.offline_after_seconds "90"
 uci commit openwalla
 
 /usr/bin/openwalla-devices-collector --init-db || true

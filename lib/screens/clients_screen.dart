@@ -568,6 +568,8 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
 
     setState(() {
       _blockingMacs.add(mac);
+      _applyCachedClientBlockState(mac, blocked);
+      _clientsFuture = Future.value(_visibleClients);
     });
 
     try {
@@ -584,12 +586,12 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
           ),
         ),
       );
-      setState(() {
-        _applyCachedClientBlockState(mac, blocked);
-        _computeClientsFuture();
-      });
     } catch (e) {
       if (!mounted) return;
+      setState(() {
+        _applyCachedClientBlockState(mac, !blocked);
+        _clientsFuture = Future.value(_visibleClients);
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to update device block: $e')),
       );
@@ -1099,18 +1101,23 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
       );
       if (!safe || !mounted) return;
     }
-    setState(() => _isBlocking = true);
+    setState(() {
+      _isBlocked = nextBlocked;
+      _isBlocking = true;
+    });
     try {
       await widget.onToggleInternetBlock(nextBlocked);
       if (!mounted) return;
       setState(() {
-        _isBlocked = nextBlocked;
         _isBlocking = false;
         _hasSavedChanges = true;
       });
     } catch (_) {
       if (!mounted) return;
-      setState(() => _isBlocking = false);
+      setState(() {
+        _isBlocked = !nextBlocked;
+        _isBlocking = false;
+      });
     }
   }
 
@@ -1126,18 +1133,23 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
       );
       if (!safe || !mounted) return;
     }
-    setState(() => _isPausing = true);
+    setState(() {
+      _isPaused = nextPaused;
+      _isPausing = true;
+    });
     try {
       await widget.onToggleInternetPause(nextPaused);
       if (!mounted) return;
       setState(() {
-        _isPaused = nextPaused;
         _isPausing = false;
         _hasSavedChanges = true;
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _isPausing = false);
+      setState(() {
+        _isPaused = !nextPaused;
+        _isPausing = false;
+      });
       _showError('Failed to update internet access: $e');
     }
   }
