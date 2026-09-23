@@ -1987,12 +1987,16 @@ class _UnifiedClientCard extends StatelessWidget {
 
   String _buildMinimalClientSubtitle(Client client) {
     final v4 = client.ipAddress;
+    final staticIp = client.staticIpAddress?.trim() ?? '';
     final v6s = client.ipv6Addresses ?? [];
     final v6 = v6s.isNotEmpty ? v6s.first : null;
     String? shown;
     int extra = 0;
     if (v4 != 'N/A') {
-      shown = v4;
+      shown = staticIp.isNotEmpty ? '$v4 (static)' : v4;
+      if (v6 != null) extra++;
+    } else if (staticIp.isNotEmpty) {
+      shown = '$staticIp (static)';
       if (v6 != null) extra++;
     } else if (v6 != null) {
       shown = v6;
