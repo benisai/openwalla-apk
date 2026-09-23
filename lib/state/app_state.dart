@@ -1065,6 +1065,7 @@ class OpenwallaDeviceRecord {
   final String icon;
   final bool scheduledBlock;
   final String scheduleUntil;
+  final bool hidden;
 
   const OpenwallaDeviceRecord({
     required this.mac,
@@ -1078,6 +1079,7 @@ class OpenwallaDeviceRecord {
     this.icon = '',
     this.scheduledBlock = false,
     this.scheduleUntil = '',
+    this.hidden = false,
   });
 }
 
@@ -4085,6 +4087,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       final icon = parts.length > 8 ? parts[8].trim() : '';
       final scheduledBlock = parts.length > 9 && parts[9].trim() == '1';
       final scheduleUntil = parts.length > 10 ? parts[10].trim() : '';
+      final hidden = parts.length > 11 && parts[11].trim() == '1';
       final record = OpenwallaDeviceRecord(
         mac: mac,
         ip: ip,
@@ -4097,6 +4100,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
         icon: icon,
         scheduledBlock: scheduledBlock || status == 'block-scheduled',
         scheduleUntil: scheduleUntil,
+        hidden: hidden,
       );
       if (mac.isNotEmpty && mac != 'N/A') {
         byMac[mac] = _mergeDuplicateDeviceRecord(byMac[mac], record);
@@ -4136,6 +4140,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       scheduleUntil: custom.scheduleUntil.isNotEmpty
           ? custom.scheduleUntil
           : live.scheduleUntil,
+      hidden: live.hidden || custom.hidden,
     );
   }
 
@@ -4171,6 +4176,8 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       final where = activeOnly
           ? " WHERE status != 'offline' OR quarantined = 1"
           : "";
+      final sqlWithHidden =
+          "SELECT mac, ip, hostname, total_up, total_down, static_ip, status, quarantined, icon, scheduled_block, schedule_until, hidden FROM devices$where ORDER BY last_seen DESC;";
       final sqlWithStatic =
           "SELECT mac, ip, hostname, total_up, total_down, static_ip, status, quarantined, icon, scheduled_block, schedule_until FROM devices$where ORDER BY last_seen DESC;";
       final sqlWithoutSchedule =
@@ -4183,7 +4190,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
         final output = router == null || sysauth == null || useHttps == null
             ? await _sqliteQueryOutput(
                 dbExpression: _devicesDbExpression(),
-                sql: sqlWithStatic,
+                sql: sqlWithHidden,
                 context: context,
               )
             : await _sqliteQueryOutputForRouter(
@@ -4191,7 +4198,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
                 sysauth: sysauth,
                 useHttps: useHttps,
                 dbExpression: _devicesDbExpression(),
-                sql: sqlWithStatic,
+                sql: sqlWithHidden,
               );
         return _parseDeviceRecordsOutput(output);
       } catch (_) {
@@ -4199,14 +4206,14 @@ done | sort -t "|" -k1,1nr | head -n ''' +
           final output = router == null || sysauth == null || useHttps == null
               ? await _sqliteQueryOutput(
                   dbExpression: _devicesDbExpression(),
-                  sql: sqlWithoutSchedule,
+                  sql: sqlWithStatic,
                 )
               : await _sqliteQueryOutputForRouter(
                   router: router,
                   sysauth: sysauth,
                   useHttps: useHttps,
                   dbExpression: _devicesDbExpression(),
-                  sql: sqlWithoutSchedule,
+                  sql: sqlWithStatic,
                 );
           return _parseDeviceRecordsOutput(output);
         } catch (_) {
@@ -4214,30 +4221,48 @@ done | sort -t "|" -k1,1nr | head -n ''' +
             final output = router == null || sysauth == null || useHttps == null
                 ? await _sqliteQueryOutput(
                     dbExpression: _devicesDbExpression(),
-                    sql: sqlWithoutIcon,
+                    sql: sqlWithoutSchedule,
                   )
                 : await _sqliteQueryOutputForRouter(
                     router: router,
                     sysauth: sysauth,
                     useHttps: useHttps,
                     dbExpression: _devicesDbExpression(),
-                    sql: sqlWithoutIcon,
+                    sql: sqlWithoutSchedule,
                   );
             return _parseDeviceRecordsOutput(output);
           } catch (_) {
-            final output = router == null || sysauth == null || useHttps == null
-                ? await _sqliteQueryOutput(
-                    dbExpression: _devicesDbExpression(),
-                    sql: sqlFallback,
-                  )
-                : await _sqliteQueryOutputForRouter(
-                    router: router,
-                    sysauth: sysauth,
-                    useHttps: useHttps,
-                    dbExpression: _devicesDbExpression(),
-                    sql: sqlFallback,
-                  );
-            return _parseDeviceRecordsOutput(output);
+            try {
+              final output =
+                  router == null || sysauth == null || useHttps == null
+                  ? await _sqliteQueryOutput(
+                      dbExpression: _devicesDbExpression(),
+                      sql: sqlWithoutIcon,
+                    )
+                  : await _sqliteQueryOutputForRouter(
+                      router: router,
+                      sysauth: sysauth,
+                      useHttps: useHttps,
+                      dbExpression: _devicesDbExpression(),
+                      sql: sqlWithoutIcon,
+                    );
+              return _parseDeviceRecordsOutput(output);
+            } catch (_) {
+              final output =
+                  router == null || sysauth == null || useHttps == null
+                  ? await _sqliteQueryOutput(
+                      dbExpression: _devicesDbExpression(),
+                      sql: sqlFallback,
+                    )
+                  : await _sqliteQueryOutputForRouter(
+                      router: router,
+                      sysauth: sysauth,
+                      useHttps: useHttps,
+                      dbExpression: _devicesDbExpression(),
+                      sql: sqlFallback,
+                    );
+              return _parseDeviceRecordsOutput(output);
+            }
           }
         }
       }
@@ -4316,33 +4341,36 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     (Map<String, OpenwallaDeviceRecord>, Map<String, OpenwallaDeviceRecord>)
     deviceRecords,
   ) {
-    final clients = deviceRecords.$1.values.map((record) {
-      final hostname = record.hostname.trim();
-      final ip = record.ip.trim();
-      return Client(
-        ipAddress: ip.isEmpty ? 'N/A' : ip,
-        macAddress: record.mac,
-        hostname: hostname.isEmpty ? 'Unknown' : hostname,
-        connectionType: ConnectionType.unknown,
-        isBlocked:
-            record.quarantined ||
-            record.status == 'blocked' ||
-            record.status == 'block-scheduled' ||
-            record.scheduledBlock,
-        totalUploadBytes: record.totalUploadBytes,
-        totalDownloadBytes: record.totalDownloadBytes,
-        staticIpAddress: null,
-        status: record.quarantined
-            ? 'blocked'
-            : record.scheduledBlock
-            ? 'block-scheduled'
-            : record.status,
-        deviceIcon: record.icon.isEmpty ? null : record.icon,
-        scheduledBlockUntil: record.scheduleUntil.isEmpty
-            ? null
-            : record.scheduleUntil,
-      );
-    }).toList();
+    final clients = deviceRecords.$1.values
+        .where((record) => !record.hidden)
+        .map((record) {
+          final hostname = record.hostname.trim();
+          final ip = record.ip.trim();
+          return Client(
+            ipAddress: ip.isEmpty ? 'N/A' : ip,
+            macAddress: record.mac,
+            hostname: hostname.isEmpty ? 'Unknown' : hostname,
+            connectionType: ConnectionType.unknown,
+            isBlocked:
+                record.quarantined ||
+                record.status == 'blocked' ||
+                record.status == 'block-scheduled' ||
+                record.scheduledBlock,
+            totalUploadBytes: record.totalUploadBytes,
+            totalDownloadBytes: record.totalDownloadBytes,
+            staticIpAddress: null,
+            status: record.quarantined
+                ? 'blocked'
+                : record.scheduledBlock
+                ? 'block-scheduled'
+                : record.status,
+            deviceIcon: record.icon.isEmpty ? null : record.icon,
+            scheduledBlockUntil: record.scheduleUntil.isEmpty
+                ? null
+                : record.scheduleUntil,
+          );
+        })
+        .toList();
 
     clients.sort((a, b) {
       if (a.isBlocked != b.isBlocked) return a.isBlocked ? -1 : 1;
@@ -10376,6 +10404,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     for (final client in clients) {
       final mac = _normalizeMacAddress(client.macAddress);
       final record = byMac[mac] ?? byIp[client.ipAddress];
+      if (record?.hidden == true) continue;
       if (record == null) {
         yield client;
         continue;
@@ -11604,7 +11633,32 @@ exit 0
     }
 
     final escMac = normalizedMac.toLowerCase().replaceAll("'", "''");
-    final sql = "DELETE FROM devices WHERE lower(mac) = '$escMac';";
+    final escIp = (client.ipAddress == 'N/A' ? '' : client.ipAddress)
+        .replaceAll("'", "''");
+    final escHostname = client.hostname.replaceAll("'", "''");
+    try {
+      await _apiService!.call(
+        router.ipAddress,
+        sysauth,
+        router.useHttps,
+        object: 'file',
+        method: 'exec',
+        params: {
+          'command': '/bin/sh',
+          'params': [
+            '-c',
+            _sqliteCommand(
+              _devicesDbExpression(),
+              'ALTER TABLE devices ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0;',
+            ),
+          ],
+        },
+      );
+    } catch (_) {
+      // The column already exists on routers with the current collector.
+    }
+    final sql =
+        "INSERT INTO devices (mac, ip, hostname, hidden) VALUES ('$escMac', '$escIp', '$escHostname', 1) ON CONFLICT(mac) DO UPDATE SET hidden = 1;";
     await _apiService!.call(
       router.ipAddress,
       sysauth,
@@ -11615,7 +11669,6 @@ exit 0
         'command': '/bin/sh',
         'params': ['-c', _sqliteCommand(_devicesDbExpression(), sql)],
       },
-      context: context,
     );
     notifyListeners();
   }

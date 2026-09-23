@@ -703,7 +703,7 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
                     const SizedBox(width: 10),
                     const Expanded(
                       child: Text(
-                        'This only removes the saved Openwalla device entry. If the device is still connected, it can reappear during the next device scan.',
+                        'This hides the device from Openwalla without blocking its network access.',
                       ),
                     ),
                   ],
@@ -743,10 +743,30 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
           .read(appStateProvider)
           .deleteOpenwallaDeviceRecord(client, context: context);
       if (!mounted) return;
+      final normalizedMac = client.macAddress.toUpperCase().replaceAll(
+        '-',
+        ':',
+      );
+      setState(() {
+        for (final entry in _clientCache.entries) {
+          entry.value.removeWhere(
+            (cached) =>
+                cached.macAddress.toUpperCase().replaceAll('-', ':') ==
+                normalizedMac,
+          );
+        }
+        _visibleClients = _visibleClients
+            .where(
+              (cached) =>
+                  cached.macAddress.toUpperCase().replaceAll('-', ':') !=
+                  normalizedMac,
+            )
+            .toList();
+        _clientsFuture = Future.value(_visibleClients);
+      });
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('${client.displayName} removed.')));
-      await _refreshClients();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
