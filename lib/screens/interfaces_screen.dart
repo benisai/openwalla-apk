@@ -28,7 +28,7 @@ bool shouldShowWiredInterface({
 
   final disabled = interface['disabled']?.toString().trim().toLowerCase();
   final isDisabled = disabled == '1' || disabled == 'true' || disabled == 'yes';
-  return interface['up'] == true && !isDisabled;
+  return !isDisabled;
 }
 
 class InterfacesScreen extends ConsumerStatefulWidget {

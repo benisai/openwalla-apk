@@ -3,7 +3,7 @@ import 'package:luci_mobile/screens/interfaces_screen.dart';
 
 void main() {
   group('wired interface visibility', () {
-    test('defaults to active interfaces before selection is initialized', () {
+    test('defaults to enabled interfaces before selection is initialized', () {
       expect(
         shouldShowWiredInterface(
           interface: {'interface': 'lan', 'up': true},
@@ -18,7 +18,7 @@ void main() {
           enabledInterfaces: const {},
           selectionInitialized: false,
         ),
-        isFalse,
+        isTrue,
       );
       expect(
         shouldShowWiredInterface(

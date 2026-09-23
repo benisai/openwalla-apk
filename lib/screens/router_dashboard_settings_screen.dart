@@ -162,12 +162,11 @@ class _RouterDashboardSettingsScreenState
       for (var item in interfaces) {
         final interface = item as Map<String, dynamic>;
         final name = interface['interface'] as String? ?? '';
-        final isUp = interface['up'] == true;
         final isDisabled = _isDisabled(interface['disabled']);
         if (name.isNotEmpty && name != 'loopback' && name != 'lo') {
           _availableWiredInterfaces.add(name);
           _allInterfaces.add(name);
-          if (!isUp || isDisabled) {
+          if (isDisabled) {
             _disabledWiredInterfaces.add(name);
           }
         }
@@ -1107,7 +1106,7 @@ class _RouterDashboardSettingsScreenState
   Widget _buildWiredInterfacesSection() {
     if (_availableWiredInterfaces.isEmpty) return const SizedBox.shrink();
     final sortedInterfaces = _availableWiredInterfaces.toList()..sort();
-    return _buildSection(
+    return _buildStaticSection(
       title: 'Network Interfaces',
       subtitle: 'Choose which wired/VPN interfaces to display',
       icon: Icons.cable,
