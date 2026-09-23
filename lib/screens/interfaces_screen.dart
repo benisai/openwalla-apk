@@ -1546,23 +1546,20 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
         _WirelessActionButton(
           label: 'Edit Wi-Fi',
           icon: Icons.tune_rounded,
-          backgroundColor: const Color(0xFFFFE3EB),
-          foregroundColor: const Color(0xFF9D294F),
+          color: const Color(0xFFE85D8E),
           onPressed: () => _showEditWirelessSheet(section),
         ),
       _WirelessActionButton(
         label: 'Info',
         icon: Icons.info_outline_rounded,
-        backgroundColor: const Color(0xFFD9F3EE),
-        foregroundColor: const Color(0xFF08766A),
+        color: const Color(0xFF18A999),
         onPressed: () => _showWirelessInfoSheet(iface),
       ),
       if (canShare)
         _WirelessActionButton(
           label: 'Share Wi-Fi',
           icon: Icons.qr_code_rounded,
-          backgroundColor: colorScheme.primaryContainer,
-          foregroundColor: colorScheme.onPrimaryContainer,
+          color: colorScheme.primary,
           onPressed: () => _showShareWifiDialog(iface),
         ),
     ];
@@ -4954,21 +4951,19 @@ class _FormPanel extends StatelessWidget {
 class _WirelessActionButton extends StatelessWidget {
   final String label;
   final IconData icon;
-  final Color backgroundColor;
-  final Color foregroundColor;
+  final Color color;
   final VoidCallback onPressed;
 
   const _WirelessActionButton({
     required this.label,
     required this.icon,
-    required this.backgroundColor,
-    required this.foregroundColor,
+    required this.color,
     required this.onPressed,
   });
 
   @override
   Widget build(BuildContext context) {
-    return FilledButton.icon(
+    return OutlinedButton.icon(
       onPressed: onPressed,
       icon: Icon(icon, size: 17),
       label: Text(
@@ -4977,11 +4972,13 @@ class _WirelessActionButton extends StatelessWidget {
         overflow: TextOverflow.fade,
         softWrap: false,
       ),
-      style: FilledButton.styleFrom(
+      style: OutlinedButton.styleFrom(
         minimumSize: const Size(0, 44),
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-        backgroundColor: backgroundColor,
-        foregroundColor: foregroundColor,
+        backgroundColor: Colors.transparent,
+        foregroundColor: color,
+        side: BorderSide(color: color.withValues(alpha: 0.5)),
+        overlayColor: color.withValues(alpha: 0.08),
         textStyle: Theme.of(
           context,
         ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w800),
