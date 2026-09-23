@@ -9602,6 +9602,138 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     }
   }
 
+  Iterable<Client> _applyClientConnectionDetails(
+    Iterable<Client> clients,
+    Map<String, ({String interfaceName, String ssid})> connections,
+  ) sync* {
+    for (final client in clients) {
+      final mac = _normalizeMacAddress(client.macAddress);
+      final connection = connections[mac];
+      if (connection != null) {
+        yield client.copyWith(
+          connectionType: ConnectionType.wireless,
+          ssid: connection.ssid,
+          wirelessInterface: connection.interfaceName,
+        );
+      } else if (client.isConnected) {
+        yield client.copyWith(connectionType: ConnectionType.wired);
+      } else {
+        yield client;
+      }
+    }
+  }
+
+  Future<Map<String, ({String interfaceName, String ssid})>>
+  _fetchWirelessConnectionsForRouter({
+    required model.Router router,
+    required String sysauth,
+    required bool useHttps,
+  }) async {
+    final connections = <String, ({String interfaceName, String ssid})>{};
+    try {
+      final result = await _apiService!.call(
+        router.ipAddress,
+        sysauth,
+        useHttps,
+        object: 'luci-rpc',
+        method: 'getWirelessDevices',
+        params: {},
+      );
+      final data = _extractRpcData(result);
+      if (data is! Map) return connections;
+      for (final radioData in data.values) {
+        if (radioData is! Map || radioData['interfaces'] is! List) continue;
+        for (final rawInterface in radioData['interfaces'] as List) {
+          if (rawInterface is! Map) continue;
+          final interfaceName =
+              (rawInterface['ifname'] ?? rawInterface['name'] ?? '')
+                  .toString()
+                  .trim();
+          if (interfaceName.isEmpty) continue;
+          final iwinfo = rawInterface['iwinfo'] is Map
+              ? rawInterface['iwinfo'] as Map
+              : const {};
+          final config = rawInterface['config'] is Map
+              ? rawInterface['config'] as Map
+              : const {};
+          final ssid =
+              (iwinfo['ssid'] ?? config['ssid'] ?? rawInterface['ssid'] ?? '')
+                  .toString()
+                  .trim();
+          final stations = await _apiService!
+              .fetchAssociatedStationsWithContext(
+                ipAddress: router.ipAddress,
+                sysauth: sysauth,
+                useHttps: useHttps,
+                interface: interfaceName,
+              );
+          for (final station in stations) {
+            connections[_normalizeMacAddress(station)] = (
+              interfaceName: interfaceName,
+              ssid: ssid,
+            );
+          }
+        }
+      }
+    } catch (e, stack) {
+      Logger.debug('Optional wireless connection mapping failed: $e');
+      Logger.debug('Optional wireless connection mapping stack: $stack');
+    }
+    return connections;
+  }
+
+  Future<Map<String, ({String interfaceName, String ssid})>>
+  _fetchAggregatedWirelessConnections() async {
+    if (_reviewerModeEnabled) {
+      final result = <String, ({String interfaceName, String ssid})>{};
+      final stations = await _apiService!.fetchAssociatedStations();
+      stations.forEach((interfaceName, macs) {
+        for (final mac in macs) {
+          result[_normalizeMacAddress(mac)] = (
+            interfaceName: interfaceName,
+            ssid: 'Openwalla',
+          );
+        }
+      });
+      return result;
+    }
+
+    final routers = _routerService?.routers ?? const <model.Router>[];
+    final tasks = routers
+        .map<Future<Map<String, ({String interfaceName, String ssid})>>>((
+          router,
+        ) async {
+          try {
+            if (_apiService is! RealApiService) {
+              return <String, ({String interfaceName, String ssid})>{};
+            }
+            final login = await (_apiService as RealApiService)
+                .loginWithProtocolDetection(
+                  router.ipAddress,
+                  router.username,
+                  router.password,
+                  router.useHttps,
+                );
+            if (login.token == null) {
+              return <String, ({String interfaceName, String ssid})>{};
+            }
+            return await _fetchWirelessConnectionsForRouter(
+              router: router,
+              sysauth: login.token!,
+              useHttps: login.actualUseHttps,
+            );
+          } catch (_) {
+            return <String, ({String interfaceName, String ssid})>{};
+          }
+        });
+    final maps = await Future.wait(tasks);
+    final combined = <String, ({String interfaceName, String ssid})>{};
+    for (final map in maps) {
+      combined.addAll(map);
+    }
+    return combined;
+  }
+
   @override
   void dispose() {
     _throughputTimer?.cancel();
@@ -9628,6 +9760,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
   Future<List<Client>> _fetchAggregatedClientsRaw() async {
     try {
       final staticLeasesFuture = fetchAggregatedStaticDhcpReservations();
+      final wirelessConnectionsFuture = _fetchAggregatedWirelessConnections();
       final activeDeviceRecords = await fetchDeviceRecords(
         aggregateAllRouters: true,
       );
@@ -9635,7 +9768,10 @@ done | sort -t "|" -k1,1nr | head -n ''' +
         final quarantinedMacs = await fetchAggregatedQuarantinedMacs();
         return _applyStaticDhcpReservations(
           _applyQuarantineState(
-            _clientsFromDeviceDbRecords(activeDeviceRecords),
+            _applyClientConnectionDetails(
+              _clientsFromDeviceDbRecords(activeDeviceRecords),
+              await wirelessConnectionsFuture,
+            ),
             quarantinedMacs,
           ),
           await staticLeasesFuture,
@@ -9645,10 +9781,8 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       final quarantinedMacsFuture = fetchAggregatedQuarantinedMacs();
       final deviceRecordsFuture = fetchDeviceRecords(aggregateAllRouters: true);
       // Build a union of wireless MACs across all routers
-      final wirelessMacs = await fetchAllAssociatedWirelessMacsAggregated();
-      final normalizedWireless = wirelessMacs
-          .map((m) => m.toUpperCase().replaceAll('-', ':'))
-          .toSet();
+      final wirelessConnections = await wirelessConnectionsFuture;
+      final normalizedWireless = wirelessConnections.keys.toSet();
 
       // Aggregate leases across routers
       final leases = await fetchAggregatedDhcpLeases();
@@ -9661,8 +9795,12 @@ done | sort -t "|" -k1,1nr | head -n ''' +
         final isWireless = normalizedWireless.contains(macNorm);
         // If confirmed wireless by assoclist, mark wireless; otherwise keep heuristic
         final enriched = isWireless
-            ? client.copyWith(connectionType: ConnectionType.wireless)
-            : client;
+            ? client.copyWith(
+                connectionType: ConnectionType.wireless,
+                ssid: wirelessConnections[macNorm]?.ssid,
+                wirelessInterface: wirelessConnections[macNorm]?.interfaceName,
+              )
+            : client.copyWith(connectionType: ConnectionType.wired);
         // Prefer entries that have more info (hostname length as heuristic)
         if (!clients.containsKey(macNorm) ||
             (enriched.hostname.isNotEmpty &&
@@ -9675,7 +9813,11 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       // Add wireless stations not in DHCP leases (AP-mode fallback)
       for (final mac in normalizedWireless) {
         if (!clients.containsKey(mac)) {
-          clients[mac] = Client.fromWirelessStation(mac);
+          final connection = wirelessConnections[mac];
+          clients[mac] = Client.fromWirelessStation(mac).copyWith(
+            ssid: connection?.ssid,
+            wirelessInterface: connection?.interfaceName,
+          );
         }
       }
 
@@ -9793,11 +9935,19 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       final router = _routerService!.selectedRouter!;
 
       final staticLeasesFuture = fetchStaticDhcpReservations();
+      final wirelessConnectionsFuture = _fetchWirelessConnectionsForRouter(
+        router: router,
+        sysauth: _authService!.sysauth!,
+        useHttps: router.useHttps,
+      );
       final activeDeviceRecords = await fetchDeviceRecords();
       if (activeDeviceRecords.$1.isNotEmpty) {
         final quarantinedMacs = await fetchQuarantinedMacsForSelectedRouter();
         final clients = _applyQuarantineState(
-          _clientsFromDeviceDbRecords(activeDeviceRecords),
+          _applyClientConnectionDetails(
+            _clientsFromDeviceDbRecords(activeDeviceRecords),
+            await wirelessConnectionsFuture,
+          ),
           quarantinedMacs,
         );
         return _applyStaticDhcpReservations(
@@ -9806,13 +9956,6 @@ done | sort -t "|" -k1,1nr | head -n ''' +
         ).toList();
       }
 
-      final stationsFuture = _apiService!
-          .fetchAllAssociatedWirelessMacsWithContext(
-            ipAddress: router.ipAddress,
-            sysauth: _authService!.sysauth!,
-            useHttps: router.useHttps,
-          )
-          .catchError((_) => <String, Set<String>>{});
       final leasesFuture = _apiService!
           .call(
             router.ipAddress,
@@ -9826,11 +9969,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       final deviceRecordsFuture = fetchDeviceRecords();
       final quarantinedMacsFuture = fetchQuarantinedMacsForSelectedRouter();
 
-      final stationsMap = await stationsFuture;
-      final wireless = <String>{};
-      stationsMap.forEach(
-        (_, s) => wireless.addAll(s.map((m) => m.toLowerCase())),
-      );
+      final wirelessConnections = await wirelessConnectionsFuture;
 
       final callRes = await leasesFuture;
       final leases = <Map<String, dynamic>>[];
@@ -9843,9 +9982,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       }
 
       // Normalize wireless MACs for consistent lookup
-      final normalizedWireless = wireless
-          .map((m) => m.toUpperCase().replaceAll('-', ':'))
-          .toSet();
+      final normalizedWireless = wirelessConnections.keys.toSet();
 
       final clientMap = <String, Client>{};
       for (final l in leases) {
@@ -9853,14 +9990,22 @@ done | sort -t "|" -k1,1nr | head -n ''' +
         final macNorm = c.macAddress.toUpperCase().replaceAll('-', ':');
         final isWireless = normalizedWireless.contains(macNorm);
         clientMap[macNorm] = isWireless
-            ? c.copyWith(connectionType: ConnectionType.wireless)
-            : c;
+            ? c.copyWith(
+                connectionType: ConnectionType.wireless,
+                ssid: wirelessConnections[macNorm]?.ssid,
+                wirelessInterface: wirelessConnections[macNorm]?.interfaceName,
+              )
+            : c.copyWith(connectionType: ConnectionType.wired);
       }
 
       // Add wireless stations not in DHCP leases (AP-mode fallback)
       for (final mac in normalizedWireless) {
         if (!clientMap.containsKey(mac)) {
-          clientMap[mac] = Client.fromWirelessStation(mac);
+          final connection = wirelessConnections[mac];
+          clientMap[mac] = Client.fromWirelessStation(mac).copyWith(
+            ssid: connection?.ssid,
+            wirelessInterface: connection?.interfaceName,
+          );
         }
       }
 

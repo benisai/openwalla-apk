@@ -12,6 +12,8 @@ class Client {
   final int? activeTime; // in seconds
   final int? expiresAt; // timestamp in seconds
   final ConnectionType connectionType;
+  final String? ssid;
+  final String? wirelessInterface;
   final List<String>? ipv6Addresses;
   final bool isBlocked;
   final int totalUploadBytes;
@@ -33,6 +35,8 @@ class Client {
     this.activeTime,
     this.expiresAt,
     this.connectionType = ConnectionType.unknown,
+    this.ssid,
+    this.wirelessInterface,
     this.ipv6Addresses,
     this.isBlocked = false,
     this.totalUploadBytes = 0,
@@ -270,6 +274,8 @@ class Client {
     int? activeTime,
     int? expiresAt,
     ConnectionType? connectionType,
+    String? ssid,
+    String? wirelessInterface,
     List<String>? ipv6Addresses,
     bool? isBlocked,
     int? totalUploadBytes,
@@ -291,6 +297,8 @@ class Client {
       activeTime: activeTime ?? this.activeTime,
       expiresAt: expiresAt ?? this.expiresAt,
       connectionType: connectionType ?? this.connectionType,
+      ssid: ssid ?? this.ssid,
+      wirelessInterface: wirelessInterface ?? this.wirelessInterface,
       ipv6Addresses: ipv6Addresses ?? this.ipv6Addresses,
       isBlocked: isBlocked ?? this.isBlocked,
       totalUploadBytes: totalUploadBytes ?? this.totalUploadBytes,

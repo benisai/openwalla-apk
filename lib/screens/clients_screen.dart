@@ -1943,6 +1943,11 @@ class _UnifiedClientCard extends StatelessWidget {
                       semanticsLabel:
                           'Client details: ${_buildMinimalClientSubtitle(client)}',
                     ),
+                    if (client.isConnected &&
+                        client.connectionType != ConnectionType.unknown) ...[
+                      const SizedBox(height: 7),
+                      _ClientConnectionBadge(client: client),
+                    ],
                   ],
                 ),
               ),
@@ -1978,5 +1983,63 @@ class _UnifiedClientCard extends StatelessWidget {
     } else {
       return shown;
     }
+  }
+}
+
+class _ClientConnectionBadge extends StatelessWidget {
+  final Client client;
+
+  const _ClientConnectionBadge({required this.client});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final isWireless = client.connectionType == ConnectionType.wireless;
+    final ssid = client.ssid?.trim() ?? '';
+    final label = isWireless
+        ? (ssid.isEmpty ? 'Wi-Fi' : 'Wi-Fi • $ssid')
+        : 'Wired';
+    final background = isWireless
+        ? colors.primaryContainer.withValues(alpha: 0.72)
+        : colors.secondaryContainer.withValues(alpha: 0.72);
+    final foreground = isWireless
+        ? colors.onPrimaryContainer
+        : colors.onSecondaryContainer;
+    final border = isWireless ? colors.primary : colors.secondary;
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 190),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: border.withValues(alpha: 0.34)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              isWireless ? Icons.wifi_rounded : Icons.lan_rounded,
+              size: 13,
+              color: foreground,
+            ),
+            const SizedBox(width: 5),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: foreground,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
