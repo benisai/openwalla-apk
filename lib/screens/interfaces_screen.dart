@@ -1224,13 +1224,18 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
     final uciRadios = <String, Map>{};
     final uciInterfaces = <String, Map>{};
 
-    final uciValues = uciWirelessConfig?['values'] as Map?;
+    final uciValues = uciWirelessConfig is Map
+        ? (uciWirelessConfig['values'] is Map
+              ? uciWirelessConfig['values'] as Map
+              : uciWirelessConfig)
+        : null;
     if (uciValues != null) {
       uciValues.forEach((key, value) {
         final typedValue = value as Map?;
-        if (typedValue?['.type'] == 'wifi-device') {
+        final sectionType = _uciString(typedValue?['.type']);
+        if (sectionType == 'wifi-device') {
           uciRadios[key] = typedValue!;
-        } else if (typedValue?['.type'] == 'wifi-iface') {
+        } else if (sectionType == 'wifi-iface') {
           uciInterfaces[key] = typedValue!;
         }
       });
@@ -1263,8 +1268,10 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
               runtimeInterfaces.add(uciName);
             }
 
-            final isRadioEnabled = uciRadios[radioName]?['disabled'] != '1';
-            final isIfaceEnabled = ifaceConfig['disabled'] != '1';
+            final isRadioEnabled =
+                _uciString(uciRadios[radioName]?['disabled'], '0') != '1';
+            final isIfaceEnabled =
+                _uciString(ifaceConfig['disabled'], '0') != '1';
             final isEnabled = isRadioEnabled && isIfaceEnabled;
             final hidden = _uciString(ifaceConfig['hidden'], '0') == '1';
             final encryption = _uciString(ifaceConfig['encryption'], 'N/A');
@@ -1376,6 +1383,44 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
           },
         });
       }
+    });
+
+    final representedRadios = interfacesList
+        .map((iface) => iface['radioName']?.toString() ?? '')
+        .where((name) => name.isNotEmpty)
+        .toSet();
+    uciRadios.forEach((radioName, radioConfig) {
+      if (representedRadios.contains(radioName)) return;
+      final radioEnabled = _uciString(radioConfig['disabled'], '0') != '1';
+      final band = _wirelessBandLabel(radioConfig, null);
+      final channel = _uciString(radioConfig['channel'], 'Auto');
+      interfacesList.add({
+        'section': '',
+        'name': radioName,
+        'subtitle': '$band • Ch. $channel',
+        'isEnabled': radioEnabled,
+        'radioEnabled': radioEnabled,
+        'clientCount': 0,
+        'band': band,
+        'deviceName': radioName,
+        'radioName': radioName,
+        'ssid': radioName,
+        'password': '',
+        'encryption': 'N/A',
+        'hidden': false,
+        'mode': 'AP',
+        'isSta': false,
+        'interfaceName': radioName,
+        'details': {
+          'Device': radioName,
+          'Mode': 'Radio',
+          'Channel': channel,
+          'Security': 'Not configured',
+          'TX Power': _uciString(radioConfig['txpower']).isEmpty
+              ? 'Auto'
+              : '${_uciString(radioConfig['txpower'])} dBm',
+        },
+      });
     });
 
     final activeInterfaces = interfacesList
@@ -1509,7 +1554,16 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
     List<Map<String, dynamic>> disabledInterfaces,
   ) {
     if (activeInterfaces.isEmpty && disabledInterfaces.isEmpty) {
-      return const SliverToBoxAdapter(child: SizedBox.shrink());
+      return _buildNoWirelessRadiosSliver();
+    }
+    if (activeInterfaces.isEmpty) {
+      return SliverList(
+        delegate: SliverChildBuilderDelegate(
+          (context, index) =>
+              _buildWirelessCard(context, disabledInterfaces[index]),
+          childCount: disabledInterfaces.length,
+        ),
+      );
     }
     return SliverList(
       delegate: SliverChildBuilderDelegate(
@@ -1522,6 +1576,41 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
         },
         childCount:
             activeInterfaces.length + (disabledInterfaces.isEmpty ? 0 : 1),
+      ),
+    );
+  }
+
+  Widget _buildNoWirelessRadiosSliver() {
+    final colorScheme = Theme.of(context).colorScheme;
+    return SliverFillRemaining(
+      hasScrollBody: false,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.wifi_off_rounded,
+                size: 44,
+                color: colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'No Wi-Fi Radios Found',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Pull down to check the router wireless configuration again.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: colorScheme.onSurfaceVariant),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
