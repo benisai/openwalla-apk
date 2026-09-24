@@ -75,6 +75,13 @@ normalize_speed_mbps() {
 	awk -v n="$value" 'BEGIN { if (n > 10000) printf "%.2f", n / 1000000; else printf "%.2f", n; }'
 }
 
+normalize_ookla_bandwidth_mbps() {
+	local value="$1"
+	[ -n "$value" ] || return 0
+	# Ookla JSON reports bandwidth in bytes per second.
+	awk -v n="$value" 'BEGIN { printf "%.2f", (n * 8) / 1000000 }'
+}
+
 extract_json_number() {
 	local key="$1"
 	local input="$2"
@@ -87,17 +94,24 @@ extract_text_number() {
 	echo "$input" | sed -n "s/.*$label[^0-9]*\\([0-9][0-9.]*\\).*/\\1/p" | head -n 1
 }
 
+extract_ookla_bandwidth() {
+	local direction="$1"
+	local input="$2"
+	echo "$input" | sed -n "s/.*\"$direction\"[[:space:]]*:[[:space:]]*{[^}]*\"bandwidth\"[[:space:]]*:[[:space:]]*\([0-9][0-9.]*\).*/\1/p" | head -n 1
+}
+
 extract_server() {
 	local input="$1"
 	local value
 	value="$(echo "$input" | sed -n 's/.*"server_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
 	[ -n "$value" ] || value="$(echo "$input" | sed -n 's/.*"server"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
+	[ -n "$value" ] || value="$(echo "$input" | sed -n 's/.*"server"[[:space:]]*:[[:space:]]*{[^}]*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
 	[ -n "$value" ] || value="$(echo "$input" | sed -n 's/.*[Ss]erver[^:]*:[[:space:]]*\([^,]*\).*/\1/p' | head -n 1)"
 	echo "$value"
 }
 
 run_speedtest_once() {
-	local now output dl ul dl_norm ul_norm server status message
+	local now output dl ul dl_norm ul_norm server status message client_help client_type
 	now="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
 	local speedtest_cmd="$SPEEDTEST_BIN"
@@ -116,16 +130,29 @@ run_speedtest_once() {
 		return 1
 	fi
 
-	# The OpenWrt speedtestcpp package uses its normal text output. Calling it
-	# with an unsupported JSON flag can print help and exit without a result.
-	output="$("$speedtest_cmd" 2>&1 || true)"
-	dl="$(extract_json_number "download" "$output")"
-	ul="$(extract_json_number "upload" "$output")"
-	[ -n "$dl" ] || dl="$(extract_text_number "[Dd]ownload" "$output")"
-	[ -n "$ul" ] || ul="$(extract_text_number "[Uu]pload" "$output")"
+	client_help="$("$speedtest_cmd" --help 2>&1 || true)"
+	client_type="text"
+	if echo "$client_help" | grep -Eqi "Speedtest by Ookla|Ookla Speedtest"; then
+		client_type="ookla"
+		output="$("$speedtest_cmd" --accept-license --accept-gdpr --format=json 2>&1 || true)"
+	else
+		# speedtestcpp and Python speedtest-cli both provide parseable text output.
+		output="$("$speedtest_cmd" 2>&1 || true)"
+	fi
 
-	dl_norm="$(normalize_speed_mbps "$dl")"
-	ul_norm="$(normalize_speed_mbps "$ul")"
+	if [ "$client_type" = "ookla" ]; then
+		dl="$(extract_ookla_bandwidth "download" "$output")"
+		ul="$(extract_ookla_bandwidth "upload" "$output")"
+		dl_norm="$(normalize_ookla_bandwidth_mbps "$dl")"
+		ul_norm="$(normalize_ookla_bandwidth_mbps "$ul")"
+	else
+		dl="$(extract_json_number "download" "$output")"
+		ul="$(extract_json_number "upload" "$output")"
+		[ -n "$dl" ] || dl="$(extract_text_number "[Dd]ownload" "$output")"
+		[ -n "$ul" ] || ul="$(extract_text_number "[Uu]pload" "$output")"
+		dl_norm="$(normalize_speed_mbps "$dl")"
+		ul_norm="$(normalize_speed_mbps "$ul")"
+	fi
 	server="$(extract_server "$output" | tr '|' ' ' | tr -s ' ')"
 
 	if [ -n "$dl_norm" ] && [ -n "$ul_norm" ]; then
