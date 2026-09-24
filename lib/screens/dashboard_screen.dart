@@ -17,6 +17,7 @@ import 'package:luci_mobile/screens/ddns_screen.dart';
 import 'package:luci_mobile/screens/flows_screen.dart';
 import 'package:luci_mobile/screens/interfaces_screen.dart';
 import 'package:luci_mobile/screens/live_throughput_screen.dart';
+import 'package:luci_mobile/screens/multi_wan_screen.dart';
 import 'package:luci_mobile/screens/network_performance_screen.dart';
 import 'package:luci_mobile/screens/notifications_screen.dart';
 import 'package:luci_mobile/screens/rules_screen.dart';
@@ -1326,6 +1327,20 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                 Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (context) => const TailscaleScreen(),
+                  ),
+                );
+              },
+            ),
+          if (preferences.showMultiWanShortcut)
+            _DashboardShortcutData(
+              id: 'multi_wan',
+              label: 'Multi-WAN',
+              icon: Icons.alt_route_rounded,
+              color: _openwallaOrange,
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const MultiWanScreen(),
                   ),
                 );
               },

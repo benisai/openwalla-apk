@@ -121,7 +121,39 @@ class OpenwallaStateBackupStatus {
   }
 }
 
-enum OpenwrtFeature { wireguard, adblock, sqm, tor, tailscale }
+enum OpenwrtFeature { wireguard, adblock, sqm, tor, tailscale, mwan3 }
+
+class Mwan3Section {
+  final String name;
+  final String type;
+  final Map<String, String> options;
+  final List<String> members;
+
+  const Mwan3Section({
+    required this.name,
+    required this.type,
+    required this.options,
+    this.members = const [],
+  });
+}
+
+class Mwan3Snapshot {
+  final bool running;
+  final List<Mwan3Section> interfaces;
+  final List<Mwan3Section> members;
+  final List<Mwan3Section> policies;
+  final List<Mwan3Section> rules;
+  final String liveStatus;
+
+  const Mwan3Snapshot({
+    required this.running,
+    required this.interfaces,
+    required this.members,
+    required this.policies,
+    required this.rules,
+    required this.liveStatus,
+  });
+}
 
 enum TorRoutingMode { none, devices, lan }
 
@@ -2416,6 +2448,7 @@ class AppState extends ChangeNotifier {
       OpenwrtFeature.sqm => 'SQM',
       OpenwrtFeature.tor => 'Tor',
       OpenwrtFeature.tailscale => 'Tailscale',
+      OpenwrtFeature.mwan3 => 'Multi-WAN',
     };
   }
 
@@ -2426,6 +2459,7 @@ class AppState extends ChangeNotifier {
       OpenwrtFeature.sqm => 'qos',
       OpenwrtFeature.tor => 'tor',
       OpenwrtFeature.tailscale => 'tailscale',
+      OpenwrtFeature.mwan3 => 'mwan3',
     };
   }
 
@@ -2442,7 +2476,115 @@ class AppState extends ChangeNotifier {
         r'([ -x /usr/bin/openwalla-tor ] && command -v tor >/dev/null 2>&1) && echo OK',
       OpenwrtFeature.tailscale =>
         r'([ -x /usr/bin/openwalla-tailscale ] && command -v tailscale >/dev/null 2>&1) && echo OK',
+      OpenwrtFeature.mwan3 =>
+        r'([ -x /etc/init.d/mwan3 ] && command -v mwan3 >/dev/null 2>&1 && [ -f /etc/config/mwan3 ]) && echo OK',
     };
+  }
+
+  Future<Mwan3Snapshot> fetchMwan3Snapshot({BuildContext? context}) async {
+    if (_reviewerModeEnabled) {
+      return const Mwan3Snapshot(
+        running: true,
+        interfaces: [
+          Mwan3Section(
+            name: 'wan',
+            type: 'interface',
+            options: {'enabled': '1', 'family': 'ipv4'},
+          ),
+          Mwan3Section(
+            name: 'wanb',
+            type: 'interface',
+            options: {'enabled': '1', 'family': 'ipv4'},
+          ),
+        ],
+        members: [],
+        policies: [
+          Mwan3Section(
+            name: 'balanced',
+            type: 'policy',
+            options: {'last_resort': 'unreachable'},
+            members: ['wan_m1_w1', 'wanb_m1_w1'],
+          ),
+        ],
+        rules: [],
+        liveStatus:
+            'Interface status:\n interface wan is online\n interface wanb is online',
+      );
+    }
+    final output = await runRouterSetupCommand(
+      "printf '__SERVICE__|'; /etc/init.d/mwan3 running >/dev/null 2>&1 && echo running || echo stopped; "
+      "echo __UCI__; uci -q show mwan3; echo __LIVE__; mwan3 interfaces 2>&1",
+      context: context,
+    );
+    final lines = output.split('\n');
+    var running = false;
+    var mode = '';
+    final types = <String, String>{};
+    final options = <String, Map<String, String>>{};
+    final members = <String, List<String>>{};
+    final live = <String>[];
+    final sectionPattern = RegExp(r'''^mwan3\.([^.=]+)=['"]?([^'"]+)['"]?$''');
+    final optionPattern = RegExp(
+      r'''^mwan3\.([^.=]+)\.([^=]+)=['"]?(.*?)['"]?$''',
+    );
+    for (final rawLine in lines) {
+      final line = rawLine.trim();
+      if (line.startsWith('__SERVICE__|')) {
+        running = line.endsWith('|running');
+        continue;
+      }
+      if (line == '__UCI__' || line == '__LIVE__') {
+        mode = line;
+        continue;
+      }
+      if (mode == '__LIVE__') {
+        if (line.isNotEmpty) live.add(line);
+        continue;
+      }
+      if (mode != '__UCI__') continue;
+      final sectionMatch = sectionPattern.firstMatch(line);
+      if (sectionMatch != null) {
+        types[sectionMatch.group(1)!] = sectionMatch.group(2)!;
+        continue;
+      }
+      final optionMatch = optionPattern.firstMatch(line);
+      if (optionMatch == null) continue;
+      final section = optionMatch.group(1)!;
+      final key = optionMatch.group(2)!;
+      final value = optionMatch.group(3)!;
+      if (key == 'use_member') {
+        members.putIfAbsent(section, () => []).add(value);
+      } else {
+        options.putIfAbsent(section, () => {})[key] = value;
+      }
+    }
+    List<Mwan3Section> sectionsOfType(String type) => types.entries
+        .where((entry) => entry.value == type)
+        .map(
+          (entry) => Mwan3Section(
+            name: entry.key,
+            type: entry.value,
+            options: options[entry.key] ?? const {},
+            members: members[entry.key] ?? const [],
+          ),
+        )
+        .toList();
+    return Mwan3Snapshot(
+      running: running,
+      interfaces: sectionsOfType('interface'),
+      members: sectionsOfType('member'),
+      policies: sectionsOfType('policy'),
+      rules: sectionsOfType('rule'),
+      liveStatus: live.join('\n'),
+    );
+  }
+
+  Future<void> restartMwan3({BuildContext? context}) async {
+    if (_reviewerModeEnabled) return;
+    await runRouterSetupCommand(
+      '/etc/init.d/mwan3 enable; /etc/init.d/mwan3 restart',
+      context: context,
+    );
   }
 
   String _openwrtFeatureCacheKey(OpenwrtFeature feature) {

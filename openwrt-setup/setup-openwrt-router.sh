@@ -78,6 +78,7 @@ Individual features:
   qos              Smart Queue/SQM packages
   tor              Tor transparent proxy support
   tailscale        Tailscale mesh VPN and subnet routing support
+  mwan3            Multi-WAN failover and load balancing support
 
 Compatibility options:
   --profile=1         Same as stack
@@ -150,6 +151,7 @@ feature_to_installer() {
 	qos) echo "install-qos-scripts.sh" ;;
 	tor) echo "install-tor.sh" ;;
 	tailscale) echo "install-tailscale.sh" ;;
+	mwan3) echo "install-mwan3.sh" ;;
 	*) return 1 ;;
 	esac
 }
@@ -179,6 +181,7 @@ canonical_feature() {
 	qos|sqm|smart-queue|smartqueue) echo "qos" ;;
 	tor|onion) echo "tor" ;;
 	tailscale|tailnet|mesh-vpn) echo "tailscale" ;;
+	mwan3|multi-wan|multiwan) echo "mwan3" ;;
 	*) return 1 ;;
 	esac
 }
@@ -552,6 +555,12 @@ uninstall_feature() {
 		uci commit network
 		uci commit firewall
 		remove_pkg_if_installed tailscale
+		;;
+	mwan3)
+		stop_disable_service mwan3
+		uci -q delete openwalla.features.mwan3 >/dev/null 2>&1 || true
+		remove_pkg_if_installed luci-app-mwan3
+		remove_pkg_if_installed mwan3
 		;;
 	tor)
 		[ -x /usr/bin/openwalla-tor ] && /usr/bin/openwalla-tor disable >/dev/null 2>&1 || true

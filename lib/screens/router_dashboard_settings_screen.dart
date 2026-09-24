@@ -911,6 +911,20 @@ class _RouterDashboardSettingsScreenState
                   _onPreferenceChanged();
                 },
               ),
+              _buildCardVisibilitySwitch(
+                title: 'Multi-WAN Shortcut',
+                subtitle: 'Show mwan3 failover and load balancing status',
+                icon: Icons.alt_route_rounded,
+                value: _preferences.showMultiWanShortcut,
+                onChanged: (value) {
+                  setState(() {
+                    _preferences = _preferences.copyWith(
+                      showMultiWanShortcut: value,
+                    );
+                  });
+                  _onPreferenceChanged();
+                },
+              ),
               const Divider(height: 1),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
@@ -978,6 +992,7 @@ class _RouterDashboardSettingsScreenState
       'ddns' => 'DDNS',
       'tor' => 'Tor',
       'tailscale' => 'Tailscale',
+      'multi_wan' => 'Multi-WAN',
       _ => id,
     };
   }
