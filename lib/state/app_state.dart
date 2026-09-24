@@ -7489,6 +7489,41 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     }
   }
 
+  Future<void> runSpeedtestMonitorOnce({BuildContext? context}) async {
+    if (_reviewerModeEnabled) return;
+
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) {
+      throw StateError('No selected router connection is available');
+    }
+
+    final result = await _apiService!.call(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      object: 'file',
+      method: 'exec',
+      params: {
+        'command': '/bin/sh',
+        'params': [
+          '-c',
+          '[ -x /usr/bin/openwalla-speedtest-monitor ] || { echo "Speedtest monitor is not installed"; exit 1; }; '
+              'nohup /usr/bin/openwalla-speedtest-monitor --once >/tmp/openwalla-speedtest-monitor.last.log 2>&1 </dev/null & '
+              'echo OPENWALLA_SPEEDTEST_STARTED',
+        ],
+      },
+      context: context,
+    );
+    final data = _extractRpcData(result);
+    if (data is Map && data['code'] != null && data['code'].toString() != '0') {
+      throw StateError(_commandOutput(data));
+    }
+    if (!_commandOutput(result).contains('OPENWALLA_SPEEDTEST_STARTED')) {
+      throw StateError('The router did not start the speed test');
+    }
+  }
+
   Future<List<VnstatUsageSample>> fetchVnstatUsageSamples({
     required String period,
     String? interfaceName,

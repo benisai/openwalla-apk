@@ -8,6 +8,7 @@ import 'package:luci_mobile/screens/recent_events_screen.dart';
 import 'package:luci_mobile/screens/router_setup_screen.dart';
 import 'package:luci_mobile/state/app_state.dart';
 import 'package:luci_mobile/widgets/luci_app_bar.dart';
+import 'package:luci_mobile/widgets/luci_toast.dart';
 import 'package:luci_mobile/widgets/ssh_console_sheet.dart';
 
 class NetworkPerformanceScreen extends ConsumerStatefulWidget {
@@ -94,6 +95,7 @@ class _NetworkPerformanceScreenState
   List<OpenwallaNotification>? _recentNotifications;
   Future<bool>? _supportFuture;
   bool _isInstallingSupport = false;
+  bool _isSpeedtestRunning = false;
 
   @override
   void initState() {
@@ -177,7 +179,11 @@ class _NetworkPerformanceScreenState
                       const SizedBox(height: 14),
                       _PingTestCard(samples: samples),
                       const SizedBox(height: 14),
-                      _SpeedTestCard(samples: _speedtestSamples ?? const []),
+                      _SpeedTestCard(
+                        samples: _speedtestSamples ?? const [],
+                        isRunning: _isSpeedtestRunning,
+                        onRun: _runSpeedtest,
+                      ),
                     ],
                   );
                 },
@@ -271,6 +277,42 @@ class _NetworkPerformanceScreenState
     Navigator.of(
       context,
     ).push(MaterialPageRoute(builder: (context) => const RecentEventsScreen()));
+  }
+
+  Future<void> _runSpeedtest() async {
+    if (_isSpeedtestRunning) return;
+    setState(() => _isSpeedtestRunning = true);
+    try {
+      await ref
+          .read(appStateProvider)
+          .runSpeedtestMonitorOnce(context: context);
+      if (!mounted) return;
+      unawaited(
+        showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const _SpeedtestWaitDialog(),
+        ),
+      );
+      await Future<void>.delayed(const Duration(seconds: 30));
+      if (!mounted) return;
+      await _refreshSamples();
+      if (!mounted) return;
+      context.showToastSuccess(
+        'Speed test complete',
+        subtitle: 'The latest result is now available.',
+        actionKey: 'manual-speedtest',
+      );
+    } catch (error) {
+      if (!mounted) return;
+      context.showToastError(
+        'Speed test could not be started',
+        subtitle: error.toString().replaceFirst('Bad state: ', ''),
+        actionKey: 'manual-speedtest',
+      );
+    } finally {
+      if (mounted) setState(() => _isSpeedtestRunning = false);
+    }
   }
 }
 
@@ -809,8 +851,14 @@ class _PingTestCard extends StatelessWidget {
 
 class _SpeedTestCard extends StatelessWidget {
   final List<SpeedtestMonitorSample> samples;
+  final bool isRunning;
+  final VoidCallback onRun;
 
-  const _SpeedTestCard({required this.samples});
+  const _SpeedTestCard({
+    required this.samples,
+    required this.isRunning,
+    required this.onRun,
+  });
 
   String _formatDay(DateTime time) {
     const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -883,6 +931,127 @@ class _SpeedTestCard extends StatelessWidget {
       secondaryColor: NetworkPerformanceScreen._orange,
       labels: labels,
       tooltips: tooltips,
+      trailing: OutlinedButton.icon(
+        onPressed: isRunning ? null : onRun,
+        icon: isRunning
+            ? const SizedBox.square(
+                dimension: 15,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.play_arrow_rounded, size: 18),
+        label: Text(isRunning ? 'Running' : 'Run'),
+      ),
+    );
+  }
+}
+
+class _SpeedtestWaitDialog extends StatefulWidget {
+  const _SpeedtestWaitDialog();
+
+  @override
+  State<_SpeedtestWaitDialog> createState() => _SpeedtestWaitDialogState();
+}
+
+class _SpeedtestWaitDialogState extends State<_SpeedtestWaitDialog> {
+  static const _durationSeconds = 30;
+  Timer? _timer;
+  int _remainingSeconds = _durationSeconds;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return;
+      if (_remainingSeconds <= 1) {
+        timer.cancel();
+        setState(() => _remainingSeconds = 0);
+      } else {
+        setState(() => _remainingSeconds--);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final complete = _remainingSeconds == 0;
+    final progress = (_durationSeconds - _remainingSeconds) / _durationSeconds;
+    return AlertDialog(
+      title: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: NetworkPerformanceScreen._cyan.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              complete ? Icons.check_rounded : Icons.speed_rounded,
+              color: complete
+                  ? NetworkPerformanceScreen._green
+                  : NetworkPerformanceScreen._cyan,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              complete ? 'Speed Test Complete' : 'Running Speed Test',
+            ),
+          ),
+          IconButton(
+            tooltip: 'Close',
+            onPressed: () => Navigator.of(context).pop(),
+            icon: const Icon(Icons.close_rounded),
+          ),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            complete
+                ? 'The latest result will appear on the Speed Test card.'
+                : 'Testing download and upload performance. You can close this window while the test continues.',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: colors.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 20),
+          LinearProgressIndicator(
+            value: progress,
+            minHeight: 6,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerRight,
+            child: Text(
+              complete ? 'Complete' : '$_remainingSeconds seconds remaining',
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: complete
+                    ? NetworkPerformanceScreen._green
+                    : colors.primary,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton.icon(
+          onPressed: () => Navigator.of(context).pop(),
+          icon: const Icon(Icons.close_rounded),
+          label: const Text('Close'),
+        ),
+      ],
     );
   }
 }
@@ -948,6 +1117,7 @@ class _ChartPanel extends StatelessWidget {
   final List<String> labels;
   final List<String> tooltips;
   final List<({String label, String value})> stats;
+  final Widget? trailing;
 
   const _ChartPanel({
     required this.title,
@@ -960,6 +1130,7 @@ class _ChartPanel extends StatelessWidget {
     required this.labels,
     this.tooltips = const [],
     this.stats = const [],
+    this.trailing,
   });
 
   @override
@@ -970,7 +1141,12 @@ class _ChartPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _SectionTitle(title),
+          Row(
+            children: [
+              Expanded(child: _SectionTitle(title)),
+              if (trailing != null) trailing!,
+            ],
+          ),
           const SizedBox(height: 18),
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
