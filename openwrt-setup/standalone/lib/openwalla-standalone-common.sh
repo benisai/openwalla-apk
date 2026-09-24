@@ -194,6 +194,30 @@ enable_restart_service() {
 	fi
 }
 
+configure_vnstat_interface() {
+	interface="${1:-br-lan}"
+
+	if [ -f /etc/config/vnstat ]; then
+		section="$(uci -q show vnstat 2>/dev/null | sed -n 's/^vnstat\.\([^.=]*\)=vnstat$/\1/p' | head -n 1)"
+		if [ -z "$section" ]; then
+			section="$(uci add vnstat vnstat)"
+		fi
+		if ! uci -q get "vnstat.$section.interface" 2>/dev/null | tr ' ' '\n' | grep -Fxq "$interface"; then
+			uci add_list "vnstat.$section.interface=$interface"
+			uci commit vnstat
+			log "Configured vnStat to monitor $interface"
+		else
+			log "vnStat already monitors $interface"
+		fi
+	fi
+
+	if have_cmd vnstat; then
+		vnstat --add -i "$interface" >/dev/null 2>&1 || \
+			vnstat -u -i "$interface" >/dev/null 2>&1 || true
+		log "Initialized the vnStat database for $interface"
+	fi
+}
+
 reload_cron() {
 	/bin/sh -c '/etc/init.d/cron reload 2>/dev/null || /etc/init.d/cron restart 2>/dev/null || /etc/init.d/crond reload 2>/dev/null || /etc/init.d/crond restart 2>/dev/null || killall -HUP crond 2>/dev/null || true'
 }

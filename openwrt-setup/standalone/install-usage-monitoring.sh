@@ -36,6 +36,7 @@ if [ -f "$NLBW_CONF" ]; then
 	log "Set nlbwmon refresh_interval to 10s"
 fi
 
+configure_vnstat_interface "br-lan"
 enable_restart_service vnstat
 enable_restart_service nlbwmon
 
