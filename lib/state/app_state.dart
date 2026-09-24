@@ -1060,7 +1060,7 @@ class MonthlyUsageSettings {
   const MonthlyUsageSettings({
     required this.monthStartDay,
     required this.interfaceName,
-    this.monthlyLimitGb = 0,
+    this.monthlyLimitGb = 100,
   });
 }
 
@@ -8813,7 +8813,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     const defaults = MonthlyUsageSettings(
       monthStartDay: 1,
       interfaceName: 'br-lan',
-      monthlyLimitGb: 0,
+      monthlyLimitGb: 100,
     );
     if (_reviewerModeEnabled) return defaults;
 

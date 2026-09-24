@@ -170,32 +170,45 @@ class _UsageSettingsScreenState extends ConsumerState<UsageSettingsScreen> {
                                 'No vnStat-monitored interfaces were found. Install or start vnstat, then refresh this screen.',
                           )
                         else
-                          DropdownButtonFormField<String>(
-                            initialValue: _selectedInterface,
-                            decoration: const InputDecoration(
-                              labelText: 'vnStat Monitored Interface',
-                              helperText:
-                                  'Only interfaces with a vnStat database are shown.',
-                              prefixIcon: Icon(Icons.settings_ethernet_rounded),
-                              border: OutlineInputBorder(),
-                            ),
-                            items: _interfaces
-                                .map(
-                                  (interface) => DropdownMenuItem(
-                                    value: interface,
-                                    child: Text(interface),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: LayoutBuilder(
+                              builder: (context, constraints) {
+                                final width = constraints.maxWidth < 280
+                                    ? constraints.maxWidth
+                                    : 280.0;
+                                return SizedBox(
+                                  width: width,
+                                  child: DropdownButtonFormField<String>(
+                                    initialValue: _selectedInterface,
+                                    decoration: const InputDecoration(
+                                      labelText: 'vnStat Interface',
+                                      prefixIcon: Icon(
+                                        Icons.settings_ethernet_rounded,
+                                      ),
+                                      border: OutlineInputBorder(),
+                                    ),
+                                    items: _interfaces
+                                        .map(
+                                          (interface) => DropdownMenuItem(
+                                            value: interface,
+                                            child: Text(interface),
+                                          ),
+                                        )
+                                        .toList(),
+                                    onChanged: _isSaving
+                                        ? null
+                                        : (value) {
+                                            if (value != null) {
+                                              setState(() {
+                                                _selectedInterface = value;
+                                              });
+                                            }
+                                          },
                                   ),
-                                )
-                                .toList(),
-                            onChanged: _isSaving
-                                ? null
-                                : (value) {
-                                    if (value != null) {
-                                      setState(() {
-                                        _selectedInterface = value;
-                                      });
-                                    }
-                                  },
+                                );
+                              },
+                            ),
                           ),
                         const SizedBox(height: 14),
                         TextField(
