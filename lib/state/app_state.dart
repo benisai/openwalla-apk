@@ -6719,11 +6719,23 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       ];
     }
 
+    final uciRadioNames = <String>[];
+    final uciValues = (_dashboardData?['uciWirelessConfig'] as Map?)?['values'];
+    if (uciValues is Map) {
+      uciValues.forEach((name, value) {
+        if (value is Map && value['.type']?.toString() == 'wifi-device') {
+          uciRadioNames.add(name.toString());
+        }
+      });
+    }
+
     final devices = <Map<String, String>>[];
+    var radioPosition = 0;
     wirelessData.forEach((radioName, radioData) {
       if (radioData is! Map<String, dynamic>) return;
       final interfaces = radioData['interfaces'] as List<dynamic>?;
       String scanDevice = radioName;
+      String? configuredRadio;
       String ssid = radioName;
       dynamic frequency = radioData['frequency'];
       dynamic channel = radioData['channel'];
@@ -6734,6 +6746,12 @@ done | sort -t "|" -k1,1nr | head -n ''' +
           final iwinfo = iface['iwinfo'] as Map? ?? const {};
           final ifname = iface['ifname']?.toString();
           final mode = config['mode']?.toString();
+          final configDevice = config['device']?.toString().trim();
+          if (configDevice != null &&
+              configDevice.isNotEmpty &&
+              uciRadioNames.contains(configDevice)) {
+            configuredRadio = configDevice;
+          }
           final ifaceSsid =
               iwinfo['ssid']?.toString() ?? config['ssid']?.toString() ?? '';
           if (ifname != null && ifname.isNotEmpty) {
@@ -6761,9 +6779,17 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       };
       devices.add({
         'radio': radioName,
+        'uciRadio':
+            configuredRadio ??
+            (uciRadioNames.contains(radioName)
+                ? radioName
+                : radioPosition < uciRadioNames.length
+                ? uciRadioNames[radioPosition]
+                : radioName),
         'device': scanDevice,
         'label': '$ssid - $band',
       });
+      radioPosition++;
     });
     devices.sort((a, b) => a['radio']!.compareTo(b['radio']!));
     return devices;
@@ -6907,7 +6933,11 @@ done | sort -t "|" -k1,1nr | head -n ''' +
         'ENC=${_shellQuote(encryption)}; '
         'KEY=${_shellQuote(password)}; '
         'BSSID=${_shellQuote(bssid)}; '
-        '[ "\$(uci -q get wireless.\$RADIO.type)" = "wifi-device" ] || { echo "Wireless radio not found: $radioDevice"; exit 1; }; '
+        'if [ "\$(uci -q get wireless.\$RADIO.type)" != "wifi-device" ]; then '
+        'RADIO_INDEX=${_shellQuote(radioIndex.toString())}; '
+        'RADIO=\$(uci -q show wireless | sed -n "s/^wireless\\.\\([^.=]*\\)=wifi-device\$/\\1/p" | sed -n "\$((RADIO_INDEX + 1))p"); '
+        'fi; '
+        '[ -n "\$RADIO" ] && [ "\$(uci -q get wireless.\$RADIO.type)" = "wifi-device" ] || { echo "Wireless radio not found: $radioDevice"; exit 1; }; '
         '[ "\$(uci -q get wireless.\$RADIO.disabled)" = "1" ] && { echo "Enable $radioDevice before joining another Wi-Fi network"; exit 1; }; '
         'uci set network.\$NET="interface"; '
         'uci set network.\$NET.proto="dhcp"; '

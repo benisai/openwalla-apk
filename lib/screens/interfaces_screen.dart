@@ -4399,6 +4399,16 @@ class _WirelessJoinSheetState extends ConsumerState<_WirelessJoinSheet> {
     return selected['device'] ?? selected['radio'] ?? 'radio0';
   }
 
+  String get _uciRadioDevice {
+    final selected = _radios.firstWhere(
+      (entry) => entry['radio'] == _selectedRadio,
+      orElse: () => _radios.isNotEmpty
+          ? _radios.first
+          : {'radio': 'radio0', 'uciRadio': 'radio0'},
+    );
+    return selected['uciRadio'] ?? selected['radio'] ?? 'radio0';
+  }
+
   Future<void> _scan() async {
     if (_selectedRadio == null || _isScanning) return;
     setState(() {
@@ -4438,8 +4448,10 @@ class _WirelessJoinSheetState extends ConsumerState<_WirelessJoinSheet> {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (context) =>
-          _RepeaterConnectionSheet(radioDevice: radio, network: selected),
+      builder: (context) => _RepeaterConnectionSheet(
+        radioDevice: _uciRadioDevice,
+        network: selected,
+      ),
     );
     if (joined == true && mounted) {
       Navigator.of(context).pop(true);
