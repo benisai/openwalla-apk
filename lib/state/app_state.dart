@@ -3074,6 +3074,7 @@ class AppState extends ChangeNotifier {
       );
       final notificationCountFuture = fetchNotificationCount();
       final rulesCountFuture = fetchFirewallRuleCount();
+      final deviceRecordsFuture = fetchDeviceRecords();
       final associatedMacsFuture = _apiService!
           .fetchAllAssociatedWirelessMacsWithContext(
             ipAddress: ip,
@@ -3171,6 +3172,7 @@ class AppState extends ChangeNotifier {
         notificationCountFuture,
         rulesCountFuture,
         associatedMacsFuture,
+        deviceRecordsFuture,
       ]);
       final wirelessRaw = optionalResults[0];
       final uciWirelessRaw = optionalResults[1];
@@ -3180,6 +3182,12 @@ class AppState extends ChangeNotifier {
       final notificationCount = optionalResults[5] as int;
       final rulesCount = optionalResults[6] as int;
       final associatedMacs = optionalResults[7] as Map<String, Set<String>>;
+      final deviceRecords =
+          optionalResults[8]
+              as (
+                Map<String, OpenwallaDeviceRecord>,
+                Map<String, OpenwallaDeviceRecord>,
+              );
 
       Map<String, dynamic>? wirelessData;
       if (wirelessRaw != null) {
@@ -3301,7 +3309,11 @@ class AppState extends ChangeNotifier {
         'flowSummary': flowSummary,
         'netifyFlowCount': flowSummary.count,
         'notificationCount': notificationCount,
-        'deviceCount': _countRouterDevices(dhcpLeases, associatedMacs),
+        'deviceCount': _countVisibleRouterDevices(
+          deviceRecords,
+          dhcpLeases,
+          associatedMacs,
+        ),
         'rulesCount': rulesCount,
         '_lastUpdated':
             DateTime.now().millisecondsSinceEpoch, // Force UI updates
@@ -3456,6 +3468,18 @@ class AppState extends ChangeNotifier {
     }
 
     return macs.length;
+  }
+
+  int _countVisibleRouterDevices(
+    (Map<String, OpenwallaDeviceRecord>, Map<String, OpenwallaDeviceRecord>)
+    deviceRecords,
+    Map<String, dynamic>? dhcpLeases,
+    Map<String, Set<String>> associatedMacs,
+  ) {
+    if (deviceRecords.$1.isNotEmpty) {
+      return deviceRecords.$1.values.where((record) => !record.hidden).length;
+    }
+    return _countRouterDevices(dhcpLeases, associatedMacs);
   }
 
   Future<Map<String, int>> _fetchConntrackData(String ip, bool useHttps) async {
@@ -6611,6 +6635,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     int? deviceCount;
     final notificationCountFuture = fetchNotificationCount(context: context);
     final rulesCountFuture = fetchFirewallRuleCount();
+    final deviceRecordsFuture = fetchDeviceRecords(context: context);
 
     try {
       final dhcpResult = await _apiService!.call(
@@ -6644,7 +6669,11 @@ done | sort -t "|" -k1,1nr | head -n ''' +
             return <String, Set<String>>{};
           });
 
-      deviceCount = _countRouterDevices(dhcpLeases, associatedMacs);
+      deviceCount = _countVisibleRouterDevices(
+        await deviceRecordsFuture,
+        dhcpLeases,
+        associatedMacs,
+      );
     } catch (e, stack) {
       Logger.warning('Optional dashboard device count refresh failed: $e');
       Logger.debug('Optional dashboard device count refresh stack: $stack');
