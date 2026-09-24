@@ -968,7 +968,7 @@ class _RouterDashboardSettingsScreenState
       'network' => 'Network',
       'dns' => 'DNS',
       'wifi' => 'Wi-Fi',
-      'routes' => 'Routes',
+      'routes' => 'Routing',
       'smart_queue' => 'Smart Queue',
       'adblock' => 'AdBlock',
       'services' => 'Services',

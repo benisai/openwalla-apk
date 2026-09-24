@@ -1204,7 +1204,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
             ),
           _DashboardShortcutData(
             id: 'routes',
-            label: 'Routes',
+            label: 'Routing',
             icon: Icons.route_rounded,
             color: _openwallaOrange,
             onTap: () {

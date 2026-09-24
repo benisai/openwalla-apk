@@ -220,7 +220,7 @@ class _RoutesScreenState extends ConsumerState<RoutesScreen> {
 
     return Scaffold(
       appBar: LuciAppBar(
-        title: 'Routes',
+        title: 'Routing',
         showBack: true,
         actions: [
           IconButton(
