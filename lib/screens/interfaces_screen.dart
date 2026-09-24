@@ -57,6 +57,7 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
   int _networkPanelIndex = 0;
   int _wirelessPanelIndex = 0;
   bool _isLoadingNetworkPanels = false;
+  bool _isRefreshingWireless = false;
   final Set<String> _updatingWirelessRadios = <String>{};
   final Set<String> _updatingWirelessInterfaces = <String>{};
   List<OpenwrtPortForward> _portForwards = const [];
@@ -252,6 +253,16 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
   Future<void> _refreshNetworkData() async {
     await ref.read(appStateProvider).fetchDashboardData();
     if (!widget.wirelessOnly) await _loadNetworkPanels();
+  }
+
+  Future<void> _refreshWirelessData() async {
+    if (_isRefreshingWireless) return;
+    setState(() => _isRefreshingWireless = true);
+    try {
+      await ref.read(appStateProvider).fetchDashboardData();
+    } finally {
+      if (mounted) setState(() => _isRefreshingWireless = false);
+    }
   }
 
   Future<void> _loadNetworkPanels() async {
@@ -594,12 +605,12 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
     final appState = ref.read(appStateProvider);
     final current = appState.dashboardPreferences.showInactiveWirelessNetworks;
     final pageContext = context;
+    var showInactive = current;
     final next = await showModalBottomSheet<bool>(
       context: context,
       showDragHandle: true,
       builder: (sheetContext) {
         final colorScheme = Theme.of(sheetContext).colorScheme;
-        var showInactive = current;
         return StatefulBuilder(
           builder: (context, setSheetState) {
             return SafeArea(
@@ -1604,9 +1615,23 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                'Pull down to check the router wireless configuration again.',
+                'Check the router wireless configuration again.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: colorScheme.onSurfaceVariant),
+              ),
+              const SizedBox(height: 18),
+              FilledButton.icon(
+                onPressed: _isRefreshingWireless ? null : _refreshWirelessData,
+                icon: _isRefreshingWireless
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.refresh_rounded),
+                label: Text(
+                  _isRefreshingWireless ? 'Checking...' : 'Check Again',
+                ),
               ),
             ],
           ),
