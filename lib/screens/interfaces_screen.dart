@@ -1639,7 +1639,6 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
     BuildContext context,
     Map<String, dynamic> iface,
   ) {
-    final colorScheme = Theme.of(context).colorScheme;
     final section = iface['section']?.toString() ?? '';
     final password = iface['password']?.toString() ?? '';
     final isSta = iface['isSta'] == true;
@@ -1653,41 +1652,7 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
         !isSta &&
         iface['isEnabled'] == true &&
         (iface['ssid']?.toString().trim().isNotEmpty ?? false);
-    final actions = <Widget>[
-      _WirelessActionButton(
-        label: isUpdating
-            ? 'Wait'
-            : isSta
-            ? (isInterfaceEnabled ? 'Disconnect' : 'Connect')
-            : (isRadioEnabled ? 'Enabled' : 'Disabled'),
-        icon: isUpdating
-            ? Icons.hourglass_top_rounded
-            : isSta
-            ? (isInterfaceEnabled ? Icons.link_off_rounded : Icons.link_rounded)
-            : (isRadioEnabled
-                  ? Icons.check_circle_outline_rounded
-                  : Icons.power_settings_new_rounded),
-        color: isSta && isInterfaceEnabled
-            ? const Color(0xFFE85D8E)
-            : const Color(0xFF18A999),
-        onPressed: isUpdating
-            ? null
-            : isSta
-            ? (section.isEmpty
-                  ? null
-                  : () => _setWirelessInterfaceEnabled(
-                      context,
-                      section,
-                      !isInterfaceEnabled,
-                    ))
-            : (radioName.isEmpty
-                  ? null
-                  : () => _setWirelessRadioEnabled(
-                      context,
-                      radioName,
-                      !isRadioEnabled,
-                    )),
-      ),
+    final primaryActions = <Widget>[
       if (section.isNotEmpty)
         _WirelessActionButton(
           label: 'Edit Wi-Fi',
@@ -1701,14 +1666,41 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
         color: const Color(0xFF18A999),
         onPressed: () => _showWirelessInfoSheet(iface),
       ),
-      if (canShare)
-        _WirelessActionButton(
-          label: 'Share Wi-Fi',
-          icon: Icons.qr_code_rounded,
-          color: colorScheme.primary,
-          onPressed: () => _showShareWifiDialog(iface),
-        ),
     ];
+    final statusAction = _WirelessActionButton(
+      label: isUpdating
+          ? 'Wait'
+          : isSta
+          ? (isInterfaceEnabled ? 'Disconnect' : 'Connect')
+          : (isRadioEnabled ? 'Enabled' : 'Disabled'),
+      icon: isUpdating
+          ? Icons.hourglass_top_rounded
+          : isSta
+          ? (isInterfaceEnabled ? Icons.link_off_rounded : Icons.link_rounded)
+          : (isRadioEnabled
+                ? Icons.check_circle_outline_rounded
+                : Icons.power_settings_new_rounded),
+      color: isSta && isInterfaceEnabled
+          ? const Color(0xFFE85D8E)
+          : const Color(0xFF18A999),
+      onPressed: isUpdating
+          ? null
+          : isSta
+          ? (section.isEmpty
+                ? null
+                : () => _setWirelessInterfaceEnabled(
+                    context,
+                    section,
+                    !isInterfaceEnabled,
+                  ))
+          : (radioName.isEmpty
+                ? null
+                : () => _setWirelessRadioEnabled(
+                    context,
+                    radioName,
+                    !isRadioEnabled,
+                  )),
+    );
     return Column(
       children: [
         _buildDetailRow(context, 'SSID', iface['ssid']?.toString() ?? 'N/A'),
@@ -1716,37 +1708,31 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
           context,
           'Password',
           password.isEmpty ? 'No password set' : password,
-          onTap: password.isEmpty
-              ? null
-              : () => _copyToClipboard(context, password, 'Wi-Fi password'),
+          onTap: canShare ? () => _showShareWifiDialog(iface) : null,
         ),
         const Divider(height: 1, indent: 16, endIndent: 16),
         const SizedBox(height: 12),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: actions.length <= 3
-              ? Row(
-                  children: [
-                    for (var index = 0; index < actions.length; index++) ...[
-                      if (index > 0) const SizedBox(width: 8),
-                      Expanded(child: actions[index]),
-                    ],
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  for (
+                    var index = 0;
+                    index < primaryActions.length;
+                    index++
+                  ) ...[
+                    if (index > 0) const SizedBox(width: 8),
+                    Expanded(child: primaryActions[index]),
                   ],
-                )
-              : LayoutBuilder(
-                  builder: (context, constraints) {
-                    final width = (constraints.maxWidth - 8) / 2;
-                    return Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: actions
-                          .map(
-                            (action) => SizedBox(width: width, child: action),
-                          )
-                          .toList(),
-                    );
-                  },
-                ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              statusAction,
+            ],
+          ),
         ),
         const SizedBox(height: 14),
       ],
