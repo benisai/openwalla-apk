@@ -4368,14 +4368,11 @@ class _WirelessJoinSheet extends ConsumerStatefulWidget {
 }
 
 class _WirelessJoinSheetState extends ConsumerState<_WirelessJoinSheet> {
-  final _passwordController = TextEditingController();
-  final _hiddenSsidController = TextEditingController();
   List<Map<String, String>> _radios = const [];
   List<WifiScanResult> _results = const [];
   WifiScanResult? _selected;
   String? _selectedRadio;
   bool _isScanning = false;
-  bool _isJoining = false;
   String? _error;
 
   @override
@@ -4392,13 +4389,6 @@ class _WirelessJoinSheetState extends ConsumerState<_WirelessJoinSheet> {
     });
   }
 
-  @override
-  void dispose() {
-    _passwordController.dispose();
-    _hiddenSsidController.dispose();
-    super.dispose();
-  }
-
   String get _scanDevice {
     final selected = _radios.firstWhere(
       (entry) => entry['radio'] == _selectedRadio,
@@ -4410,7 +4400,7 @@ class _WirelessJoinSheetState extends ConsumerState<_WirelessJoinSheet> {
   }
 
   Future<void> _scan() async {
-    if (_selectedRadio == null || _isScanning || _isJoining) return;
+    if (_selectedRadio == null || _isScanning) return;
     setState(() {
       _isScanning = true;
       _error = null;
@@ -4435,49 +4425,24 @@ class _WirelessJoinSheetState extends ConsumerState<_WirelessJoinSheet> {
     }
   }
 
-  Future<void> _join() async {
+  Future<void> _showConnectionDetails() async {
     final radio = _selectedRadio;
     final selected = _selected;
     if (radio == null || selected == null) return;
-    final ssid = selected.ssid.trim().isEmpty
-        ? _hiddenSsidController.text.trim()
-        : selected.ssid.trim();
-    if (ssid.isEmpty) {
-      setState(() => _error = 'SSID is required.');
-      return;
-    }
     if (selected.encryption.openwrtEncryption == 'wpa-eap') {
       setState(() => _error = 'Enterprise Wi-Fi is not supported yet.');
       return;
     }
-    if (selected.encryption.enabled &&
-        selected.encryption.openwrtEncryption != 'owe' &&
-        _passwordController.text.length < 8) {
-      setState(() => _error = 'Wi-Fi password must be at least 8 characters.');
-      return;
-    }
-    setState(() {
-      _isJoining = true;
-      _error = null;
-    });
-    try {
-      await ref
-          .read(appStateProvider)
-          .connectWirelessWwan(
-            radioDevice: radio,
-            network: selected,
-            ssid: ssid,
-            password: _passwordController.text,
-            context: context,
-          );
-      if (!mounted) return;
+    setState(() => _error = null);
+    final joined = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) =>
+          _RepeaterConnectionSheet(radioDevice: radio, network: selected),
+    );
+    if (joined == true && mounted) {
       Navigator.of(context).pop(true);
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isJoining = false;
-        _error = 'Join failed: $e';
-      });
     }
   }
 
@@ -4491,9 +4456,6 @@ class _WirelessJoinSheetState extends ConsumerState<_WirelessJoinSheet> {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final selected = _selected;
-    final needsPassword =
-        selected?.encryption.enabled == true &&
-        selected?.encryption.openwrtEncryption != 'owe';
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.fromLTRB(
@@ -4546,9 +4508,7 @@ class _WirelessJoinSheetState extends ConsumerState<_WirelessJoinSheet> {
                   ),
                   IconButton(
                     tooltip: 'Close',
-                    onPressed: _isJoining
-                        ? null
-                        : () => Navigator.of(context).pop(false),
+                    onPressed: () => Navigator.of(context).pop(false),
                     icon: const Icon(Icons.close_rounded),
                   ),
                 ],
@@ -4580,7 +4540,7 @@ class _WirelessJoinSheetState extends ConsumerState<_WirelessJoinSheet> {
                             ),
                           )
                           .toList(),
-                      onChanged: _isScanning || _isJoining
+                      onChanged: _isScanning
                           ? null
                           : (value) {
                               setState(() => _selectedRadio = value);
@@ -4591,7 +4551,7 @@ class _WirelessJoinSheetState extends ConsumerState<_WirelessJoinSheet> {
                     SizedBox(
                       width: double.infinity,
                       child: OutlinedButton.icon(
-                        onPressed: _isScanning || _isJoining ? null : _scan,
+                        onPressed: _isScanning ? null : _scan,
                         icon: _isScanning
                             ? const SizedBox(
                                 width: 16,
@@ -4656,15 +4616,7 @@ class _WirelessJoinSheetState extends ConsumerState<_WirelessJoinSheet> {
                               : result.ssid;
                           return InkWell(
                             borderRadius: BorderRadius.circular(8),
-                            onTap: _isJoining
-                                ? null
-                                : () {
-                                    setState(() {
-                                      _selected = result;
-                                      _passwordController.clear();
-                                      _hiddenSsidController.clear();
-                                    });
-                                  },
+                            onTap: () => setState(() => _selected = result),
                             child: Container(
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
@@ -4736,46 +4688,281 @@ class _WirelessJoinSheetState extends ConsumerState<_WirelessJoinSheet> {
                         },
                       ),
               ),
-              if (selected != null) ...[
-                const SizedBox(height: 16),
-                if (selected.ssid.trim().isEmpty) ...[
-                  TextField(
-                    controller: _hiddenSsidController,
-                    enabled: !_isJoining,
-                    decoration: const InputDecoration(
-                      labelText: 'Hidden SSID',
-                      prefixIcon: Icon(Icons.wifi_rounded),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: selected == null ? null : _showConnectionDetails,
+                  iconAlignment: IconAlignment.end,
+                  icon: const Icon(Icons.arrow_forward_rounded),
+                  label: const Text('Next'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RepeaterConnectionSheet extends ConsumerStatefulWidget {
+  final String radioDevice;
+  final WifiScanResult network;
+
+  const _RepeaterConnectionSheet({
+    required this.radioDevice,
+    required this.network,
+  });
+
+  @override
+  ConsumerState<_RepeaterConnectionSheet> createState() =>
+      _RepeaterConnectionSheetState();
+}
+
+class _RepeaterConnectionSheetState
+    extends ConsumerState<_RepeaterConnectionSheet> {
+  final _passwordController = TextEditingController();
+  final _hiddenSsidController = TextEditingController();
+  bool _showPassword = false;
+  bool _isJoining = false;
+  String? _error;
+
+  bool get _needsPassword =>
+      widget.network.encryption.enabled &&
+      widget.network.encryption.openwrtEncryption != 'owe';
+
+  @override
+  void dispose() {
+    _passwordController.dispose();
+    _hiddenSsidController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _join() async {
+    final ssid = widget.network.ssid.trim().isEmpty
+        ? _hiddenSsidController.text.trim()
+        : widget.network.ssid.trim();
+    if (ssid.isEmpty) {
+      setState(() => _error = 'SSID is required.');
+      return;
+    }
+    if (_needsPassword && _passwordController.text.length < 8) {
+      setState(() => _error = 'Wi-Fi password must be at least 8 characters.');
+      return;
+    }
+    setState(() {
+      _isJoining = true;
+      _error = null;
+    });
+    try {
+      await ref
+          .read(appStateProvider)
+          .connectWirelessWwan(
+            radioDevice: widget.radioDevice,
+            network: widget.network,
+            ssid: ssid,
+            password: _passwordController.text,
+            context: context,
+          );
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isJoining = false;
+        _error = 'Join failed: $e';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final networkName = widget.network.ssid.trim().isEmpty
+        ? 'Hidden network'
+        : widget.network.ssid;
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          18,
+          0,
+          18,
+          MediaQuery.of(context).viewInsets.bottom + 18,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: colorScheme.primary.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(Icons.wifi_rounded, color: colorScheme.primary),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Connect to Wi-Fi',
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(fontWeight: FontWeight.w900),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          'Enter the connection details for this network.',
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: colorScheme.onSurfaceVariant),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  IconButton(
+                    tooltip: 'Close',
+                    onPressed: _isJoining
+                        ? null
+                        : () => Navigator.of(context).pop(false),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
                 ],
-                if (needsPassword) ...[
-                  TextField(
-                    controller: _passwordController,
-                    enabled: !_isJoining,
-                    obscureText: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Wi-Fi Password',
-                      prefixIcon: Icon(Icons.lock_rounded),
+              ),
+              const SizedBox(height: 18),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: colorScheme.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: colorScheme.primary.withValues(alpha: 0.28),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.wifi_rounded, color: colorScheme.primary),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            networkName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w900),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            '${widget.network.band} • ${widget.network.encryption.shortLabel} • ${widget.network.signal} dBm',
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: colorScheme.onSurfaceVariant),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              if (widget.network.ssid.trim().isEmpty) ...[
+                TextField(
+                  controller: _hiddenSsidController,
+                  enabled: !_isJoining,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Network name (SSID)',
+                    prefixIcon: Icon(Icons.wifi_rounded),
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+              if (_needsPassword) ...[
+                TextField(
+                  controller: _passwordController,
+                  enabled: !_isJoining,
+                  autofocus: widget.network.ssid.trim().isNotEmpty,
+                  obscureText: !_showPassword,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _isJoining ? null : _join(),
+                  decoration: InputDecoration(
+                    labelText: 'Wi-Fi password',
+                    hintText: 'Enter network password',
+                    prefixIcon: const Icon(Icons.lock_rounded),
+                    suffixIcon: IconButton(
+                      tooltip: _showPassword
+                          ? 'Hide password'
+                          : 'Show password',
+                      onPressed: () =>
+                          setState(() => _showPassword = !_showPassword),
+                      icon: Icon(
+                        _showPassword
+                            ? Icons.visibility_off_rounded
+                            : Icons.visibility_rounded,
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 12),
-                ],
-                SizedBox(
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Use the password for $networkName.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ] else
+                Container(
                   width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: _isJoining ? null : _join,
-                    icon: _isJoining
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.link_rounded),
-                    label: Text(_isJoining ? 'Joining...' : 'Join Network'),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text(
+                    'No password is required for this network.',
+                  ),
+                ),
+              if (_error != null) ...[
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: colorScheme.errorContainer,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    _error!,
+                    style: TextStyle(
+                      color: colorScheme.onErrorContainer,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
               ],
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _isJoining ? null : _join,
+                  icon: _isJoining
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.link_rounded),
+                  label: Text(_isJoining ? 'Connecting...' : 'Connect'),
+                ),
+              ),
             ],
           ),
         ),
