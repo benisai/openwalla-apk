@@ -1012,7 +1012,7 @@ class _UninstallComponentsCard extends StatelessWidget {
     (
       feature: 'wireguard',
       title: 'WireGuard',
-      subtitle: 'WireGuard package support.',
+      subtitle: 'WireGuard tools only. No VPN configuration is created.',
       icon: Icons.vpn_key_rounded,
     ),
     (
