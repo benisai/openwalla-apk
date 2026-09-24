@@ -1552,14 +1552,8 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
                 _normalizeInterfaceKey(_targetInterface!));
 
     final shouldExpand = isTargetInterface || _expandedInterface == keyStr;
-    final section = iface['section']?.toString() ?? '';
     final isSta = iface['isSta'] == true;
-    final isInterfaceEnabled = iface['isEnabled'] == true;
-    final isRadioEnabled = iface['radioEnabled'] == true;
     final clientCount = iface['clientCount'] as int? ?? 0;
-    final isUpdating = isSta
-        ? _updatingWirelessInterfaces.contains(section)
-        : _updatingWirelessRadios.contains(radioName);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
       child: _UnifiedNetworkCard(
@@ -1568,11 +1562,9 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
         subtitle: iface['subtitle'],
         isUp: iface['isEnabled'],
         icon: Icons.wifi,
-        headerTrailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (!isSta) ...[
-              Container(
+        headerTrailing: isSta
+            ? null
+            : Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                 decoration: BoxDecoration(
                   color: Theme.of(context).colorScheme.primaryContainer,
@@ -1586,74 +1578,6 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
                   ),
                 ),
               ),
-              const SizedBox(width: 4),
-            ],
-            if (isUpdating)
-              const SizedBox.square(
-                dimension: 36,
-                child: Padding(
-                  padding: EdgeInsets.all(9),
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-              )
-            else if (isSta)
-              OutlinedButton(
-                onPressed: section.isEmpty
-                    ? null
-                    : () => _setWirelessInterfaceEnabled(
-                        context,
-                        section,
-                        !isInterfaceEnabled,
-                      ),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: isInterfaceEnabled
-                      ? const Color(0xFFE85D8E)
-                      : const Color(0xFF18A999),
-                  side: BorderSide(
-                    color:
-                        (isInterfaceEnabled
-                                ? const Color(0xFFE85D8E)
-                                : const Color(0xFF18A999))
-                            .withValues(alpha: 0.65),
-                  ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 8,
-                  ),
-                  visualDensity: VisualDensity.compact,
-                ),
-                child: Text(isInterfaceEnabled ? 'Disconnect' : 'Connect'),
-              )
-            else
-              OutlinedButton(
-                onPressed: radioName.toString().isEmpty
-                    ? null
-                    : () => _setWirelessRadioEnabled(
-                        context,
-                        radioName,
-                        !isRadioEnabled,
-                      ),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: isRadioEnabled
-                      ? const Color(0xFF18A999)
-                      : Theme.of(context).colorScheme.onSurfaceVariant,
-                  side: BorderSide(
-                    color:
-                        (isRadioEnabled
-                                ? const Color(0xFF18A999)
-                                : Theme.of(context).colorScheme.outlineVariant)
-                            .withValues(alpha: 0.65),
-                  ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 8,
-                  ),
-                  visualDensity: VisualDensity.compact,
-                ),
-                child: Text(isRadioEnabled ? 'Enabled' : 'Disabled'),
-              ),
-          ],
-        ),
         details: _buildWirelessDetails(context, iface),
         initiallyExpanded: shouldExpand,
       ),
@@ -1719,11 +1643,51 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
     final section = iface['section']?.toString() ?? '';
     final password = iface['password']?.toString() ?? '';
     final isSta = iface['isSta'] == true;
+    final radioName = iface['radioName']?.toString() ?? '';
+    final isInterfaceEnabled = iface['isEnabled'] == true;
+    final isRadioEnabled = iface['radioEnabled'] == true;
+    final isUpdating = isSta
+        ? _updatingWirelessInterfaces.contains(section)
+        : _updatingWirelessRadios.contains(radioName);
     final canShare =
         !isSta &&
         iface['isEnabled'] == true &&
         (iface['ssid']?.toString().trim().isNotEmpty ?? false);
     final actions = <Widget>[
+      _WirelessActionButton(
+        label: isUpdating
+            ? 'Wait'
+            : isSta
+            ? (isInterfaceEnabled ? 'Disconnect' : 'Connect')
+            : (isRadioEnabled ? 'Enabled' : 'Disabled'),
+        icon: isUpdating
+            ? Icons.hourglass_top_rounded
+            : isSta
+            ? (isInterfaceEnabled ? Icons.link_off_rounded : Icons.link_rounded)
+            : (isRadioEnabled
+                  ? Icons.check_circle_outline_rounded
+                  : Icons.power_settings_new_rounded),
+        color: isSta && isInterfaceEnabled
+            ? const Color(0xFFE85D8E)
+            : const Color(0xFF18A999),
+        onPressed: isUpdating
+            ? null
+            : isSta
+            ? (section.isEmpty
+                  ? null
+                  : () => _setWirelessInterfaceEnabled(
+                      context,
+                      section,
+                      !isInterfaceEnabled,
+                    ))
+            : (radioName.isEmpty
+                  ? null
+                  : () => _setWirelessRadioEnabled(
+                      context,
+                      radioName,
+                      !isRadioEnabled,
+                    )),
+      ),
       if (section.isNotEmpty)
         _WirelessActionButton(
           label: 'Edit Wi-Fi',
@@ -1760,14 +1724,29 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
         const SizedBox(height: 12),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Row(
-            children: [
-              for (var index = 0; index < actions.length; index++) ...[
-                if (index > 0) const SizedBox(width: 8),
-                Expanded(child: actions[index]),
-              ],
-            ],
-          ),
+          child: actions.length <= 3
+              ? Row(
+                  children: [
+                    for (var index = 0; index < actions.length; index++) ...[
+                      if (index > 0) const SizedBox(width: 8),
+                      Expanded(child: actions[index]),
+                    ],
+                  ],
+                )
+              : LayoutBuilder(
+                  builder: (context, constraints) {
+                    final width = (constraints.maxWidth - 8) / 2;
+                    return Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: actions
+                          .map(
+                            (action) => SizedBox(width: width, child: action),
+                          )
+                          .toList(),
+                    );
+                  },
+                ),
         ),
         const SizedBox(height: 14),
       ],
@@ -5134,7 +5113,7 @@ class _WirelessActionButton extends StatelessWidget {
   final String label;
   final IconData icon;
   final Color color;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
 
   const _WirelessActionButton({
     required this.label,
