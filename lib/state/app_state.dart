@@ -6980,6 +6980,19 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       throw StateError('Unsupported radio section: ${config.radioSection}');
     }
 
+    final password = config.password;
+    final configuredEncryption = config.encryption.trim().toLowerCase();
+    final isOpenNetwork =
+        configuredEncryption.isEmpty ||
+        configuredEncryption == 'none' ||
+        configuredEncryption == 'open';
+    final encryption = password.isNotEmpty && isOpenNetwork
+        ? 'psk2'
+        : (configuredEncryption.isEmpty ? 'none' : configuredEncryption);
+    if (encryption != 'none' && encryption != 'owe' && password.length < 8) {
+      throw ArgumentError('Wi-Fi password must be at least 8 characters.');
+    }
+
     await _apiService!.uciSet(
       router.ipAddress,
       sysauth,
@@ -6990,10 +7003,8 @@ done | sort -t "|" -k1,1nr | head -n ''' +
         'ssid': config.ssid.trim(),
         'disabled': config.enabled ? '0' : '1',
         'hidden': config.hidden ? '1' : '0',
-        'encryption': config.encryption.trim().isEmpty
-            ? 'psk2'
-            : config.encryption.trim(),
-        'key': config.password,
+        'encryption': encryption,
+        'key': password,
       },
       context: context,
     );

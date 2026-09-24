@@ -4867,10 +4867,15 @@ class _WirelessNetworkEditSheetState
       return;
     }
     final password = _passwordController.text;
-    final encryption = current.encryption.trim().isEmpty
+    final currentEncryption = current.encryption.trim().toLowerCase();
+    final isOpenNetwork =
+        currentEncryption.isEmpty ||
+        currentEncryption == 'none' ||
+        currentEncryption == 'open';
+    final encryption = password.isNotEmpty && isOpenNetwork
         ? 'psk2'
-        : current.encryption.trim();
-    if (encryption != 'none' && password.isNotEmpty && password.length < 8) {
+        : (currentEncryption.isEmpty ? 'none' : currentEncryption);
+    if (encryption != 'none' && encryption != 'owe' && password.length < 8) {
       _showError('Wi-Fi password must be at least 8 characters.');
       return;
     }
@@ -4884,6 +4889,7 @@ class _WirelessNetworkEditSheetState
     final next = current.copyWith(
       ssid: ssid,
       password: password,
+      encryption: encryption,
       enabled: _enabled,
       hidden: _hidden,
       txPower: txPower,
