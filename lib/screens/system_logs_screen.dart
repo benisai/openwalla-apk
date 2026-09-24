@@ -38,7 +38,9 @@ class _SystemLogsScreenState extends ConsumerState<SystemLogsScreen> {
 
   Future<void> _refresh() async {
     final future = _loadLogs();
-    setState(() => _logsFuture = future);
+    setState(() {
+      _logsFuture = future;
+    });
     await future;
   }
 

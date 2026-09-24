@@ -29,7 +29,9 @@ class _MemoryProcessesScreenState extends ConsumerState<MemoryProcessesScreen> {
 
   Future<void> _refresh() async {
     final future = _loadProcesses();
-    setState(() => _processesFuture = future);
+    setState(() {
+      _processesFuture = future;
+    });
     await future;
   }
 

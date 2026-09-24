@@ -27,7 +27,9 @@ class _ServicesScreenState extends ConsumerState<ServicesScreen> {
   }
 
   Future<void> _refresh() async {
-    setState(() => _servicesFuture = _loadServices());
+    setState(() {
+      _servicesFuture = _loadServices();
+    });
     await _servicesFuture;
   }
 

@@ -50,7 +50,9 @@ class _OpenwrtFeatureGateState extends ConsumerState<OpenwrtFeatureGate> {
   }
 
   Future<void> _recheck() async {
-    setState(() => _statusFuture = _loadStatus(force: true));
+    setState(() {
+      _statusFuture = _loadStatus(force: true);
+    });
     await _statusFuture;
   }
 
@@ -118,7 +120,9 @@ class _OpenwrtFeatureGateState extends ConsumerState<OpenwrtFeatureGate> {
           ),
         ),
       );
-      setState(() => _statusFuture = Future.value(status));
+      setState(() {
+        _statusFuture = Future.value(status);
+      });
     } catch (e) {
       console.setOutput('Install failed.\n\n$e');
       if (!mounted) return;
