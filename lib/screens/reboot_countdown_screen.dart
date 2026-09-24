@@ -33,6 +33,9 @@ class _RebootCountdownDialogState extends ConsumerState<RebootCountdownDialog>
   bool _checking = false;
   bool _sendingReboot = false;
   bool _sendFailed = false;
+  bool _probeInFlight = false;
+  Timer? _probeStartTimer;
+  Timer? _probeTimer;
 
   @override
   void initState() {
@@ -43,20 +46,40 @@ class _RebootCountdownDialogState extends ConsumerState<RebootCountdownDialog>
           duration: Duration(seconds: widget.duration),
         )..addStatusListener((status) {
           if (status == AnimationStatus.completed && !_checking) {
+            _cancelRecoveryProbes();
             unawaited(_tryReconnect());
           }
         });
     if (widget.sendRebootCommand) {
       unawaited(_sendRebootAndStart());
     } else {
-      _controller.forward();
+      _startCountdown();
     }
   }
 
   @override
   void dispose() {
+    _cancelRecoveryProbes();
     _controller.dispose();
     super.dispose();
+  }
+
+  void _startCountdown() {
+    _controller.forward();
+    if (widget.returnToLoginAfterRecovery || widget.duration <= 60) return;
+    _probeStartTimer = Timer(const Duration(seconds: 60), () {
+      unawaited(_probeForRecovery());
+      _probeTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+        unawaited(_probeForRecovery());
+      });
+    });
+  }
+
+  void _cancelRecoveryProbes() {
+    _probeStartTimer?.cancel();
+    _probeStartTimer = null;
+    _probeTimer?.cancel();
+    _probeTimer = null;
   }
 
   void _restartCountdown() {
@@ -68,6 +91,15 @@ class _RebootCountdownDialogState extends ConsumerState<RebootCountdownDialog>
       ..duration = Duration(seconds: widget.duration)
       ..reset()
       ..forward();
+    _cancelRecoveryProbes();
+    if (!widget.returnToLoginAfterRecovery && widget.duration > 60) {
+      _probeStartTimer = Timer(const Duration(seconds: 60), () {
+        unawaited(_probeForRecovery());
+        _probeTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+          unawaited(_probeForRecovery());
+        });
+      });
+    }
   }
 
   Future<void> _sendRebootAndStart() async {
@@ -88,7 +120,40 @@ class _RebootCountdownDialogState extends ConsumerState<RebootCountdownDialog>
     setState(() {
       _sendingReboot = false;
     });
-    unawaited(_controller.forward());
+    _startCountdown();
+  }
+
+  Future<void> _probeForRecovery() async {
+    if (!mounted || _probeInFlight || _controller.isCompleted) return;
+    _probeInFlight = true;
+    setState(() => _checking = true);
+    final appState = ref.read(appStateProvider);
+    await appState.retryDashboardConnection();
+    if (!mounted) return;
+    final reconnected =
+        appState.dashboardData != null && appState.dashboardError == null;
+    if (reconnected) {
+      await _completeRecovery();
+    } else {
+      setState(() => _checking = false);
+      if (_controller.isCompleted) {
+        _probeInFlight = false;
+        await _tryReconnect();
+        return;
+      }
+    }
+    _probeInFlight = false;
+  }
+
+  Future<void> _completeRecovery() async {
+    _cancelRecoveryProbes();
+    _controller.stop();
+    final appState = ref.read(appStateProvider);
+    appState.finishRebootRecovery();
+    appState.requestTab(0);
+    final navigator = Navigator.of(context, rootNavigator: true);
+    navigator.pop();
+    unawaited(navigator.pushNamedAndRemoveUntil('/', (_) => false));
   }
 
   Future<void> _tryReconnect() async {
@@ -113,11 +178,7 @@ class _RebootCountdownDialogState extends ConsumerState<RebootCountdownDialog>
     final reconnected =
         appState.dashboardData != null && appState.dashboardError == null;
     if (reconnected) {
-      appState.finishRebootRecovery();
-      appState.requestTab(0);
-      final navigator = Navigator.of(context, rootNavigator: true);
-      navigator.pop();
-      unawaited(navigator.pushNamedAndRemoveUntil('/', (_) => false));
+      await _completeRecovery();
       return;
     }
 
@@ -131,6 +192,7 @@ class _RebootCountdownDialogState extends ConsumerState<RebootCountdownDialog>
   }
 
   Future<void> _returnToLogin() async {
+    _cancelRecoveryProbes();
     final appState = ref.read(appStateProvider);
     appState.finishRebootRecovery();
     await appState.logout();
@@ -185,7 +247,7 @@ class _RebootCountdownDialogState extends ConsumerState<RebootCountdownDialog>
           child: AnimatedBuilder(
             animation: _controller,
             builder: (context, _) {
-              final progress = (_checking || _sendingReboot || _sendFailed)
+              final progress = (_sendingReboot || _sendFailed)
                   ? 1.0
                   : _controller.value;
               return Column(
@@ -291,8 +353,10 @@ class _RebootCountdownDialogState extends ConsumerState<RebootCountdownDialog>
                           label: 'Remaining',
                           value: _sendFailed
                               ? '-'
-                              : (_checking || _sendingReboot)
-                              ? 'Login'
+                              : _sendingReboot
+                              ? 'Starting'
+                              : _checking
+                              ? 'Checking'
                               : '${(widget.duration * (1 - progress)).ceil()}s',
                         ),
                       ),
@@ -305,8 +369,12 @@ class _RebootCountdownDialogState extends ConsumerState<RebootCountdownDialog>
                         : _sendingReboot
                         ? 'Sending reboot command to the router.'
                         : _checking
-                        ? 'Trying to reconnect to the router.'
-                        : 'Openwalla will try to log back in when the timer finishes.',
+                        ? 'The router may be ready. Trying to reconnect now.'
+                        : widget.returnToLoginAfterRecovery
+                        ? 'Openwalla will return to login when the reset timer finishes.'
+                        : _controller.value >= (60 / widget.duration)
+                        ? 'Openwalla checks the router every 5 seconds and will continue as soon as it is ready.'
+                        : 'Openwalla will begin checking the router after 60 seconds.',
                     textAlign: TextAlign.center,
                     style: LuciTextStyles.cardSubtitle(
                       context,
