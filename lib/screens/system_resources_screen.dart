@@ -338,34 +338,36 @@ class _ResourceGraphCard extends StatelessWidget {
           const SizedBox(height: 18),
           SizedBox(
             height: 92,
-            child: CustomPaint(
-              painter: _ResourceLinePainter(
-                samples: List<double>.of(samples),
-                color: color,
-                gridColor: colorScheme.outlineVariant.withValues(alpha: 0.3),
-                fillColor: color.withValues(alpha: 0.12),
-              ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(
+                  width: 34,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _GraphAxisLabel(label: '100%'),
+                      _GraphAxisLabel(label: '50%'),
+                      _GraphAxisLabel(label: '0%'),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: CustomPaint(
+                    painter: _ResourceLinePainter(
+                      samples: List<double>.of(samples),
+                      color: color,
+                      gridColor: colorScheme.outlineVariant.withValues(
+                        alpha: 0.3,
+                      ),
+                      fillColor: color.withValues(alpha: 0.12),
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Text(
-                '0%',
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const Spacer(),
-              Text(
-                '100%',
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ],
           ),
         ],
       ),
@@ -374,6 +376,23 @@ class _ResourceGraphCard extends StatelessWidget {
     return Card(
       clipBehavior: Clip.antiAlias,
       child: onTap == null ? content : InkWell(onTap: onTap, child: content),
+    );
+  }
+}
+
+class _GraphAxisLabel extends StatelessWidget {
+  final String label;
+
+  const _GraphAxisLabel({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label,
+      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+        fontWeight: FontWeight.w800,
+      ),
     );
   }
 }
