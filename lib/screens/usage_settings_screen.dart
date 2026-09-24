@@ -16,7 +16,7 @@ class UsageSettingsScreen extends ConsumerStatefulWidget {
 class _UsageSettingsScreenState extends ConsumerState<UsageSettingsScreen> {
   static const _defaultInterface = 'br-lan';
 
-  var _interfaces = const ['br-lan', 'wan', 'eth0', 'eth1'];
+  var _interfaces = const <String>[];
   final _monthlyLimitController = TextEditingController();
   DateTime _startDate = DateTime.now();
   String _selectedInterface = _defaultInterface;
@@ -175,7 +175,7 @@ class _UsageSettingsScreenState extends ConsumerState<UsageSettingsScreen> {
                             decoration: const InputDecoration(
                               labelText: 'vnStat Monitored Interface',
                               helperText:
-                                  'Only interfaces returned by vnstat --iflist are shown.',
+                                  'Only interfaces with a vnStat database are shown.',
                               prefixIcon: Icon(Icons.settings_ethernet_rounded),
                               border: OutlineInputBorder(),
                             ),

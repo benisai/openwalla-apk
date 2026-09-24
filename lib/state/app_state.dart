@@ -8087,7 +8087,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     BuildContext? context,
   }) async {
     if (_reviewerModeEnabled) {
-      return const ['br-lan', 'wan', 'WG'];
+      return const ['br-lan'];
     }
 
     final router = _routerService?.selectedRouter;
@@ -8098,24 +8098,32 @@ done | sort -t "|" -k1,1nr | head -n ''' +
 
     final commands = ['/usr/bin/vnstat', '/usr/sbin/vnstat', '/bin/vnstat'];
     for (final command in commands) {
-      try {
-        final result = await _apiService!.call(
-          router.ipAddress,
-          sysauth,
-          router.useHttps,
-          object: 'file',
-          method: 'exec',
-          params: {
-            'command': command,
-            'params': ['--iflist'],
-          },
-          context: context,
-        );
-        final names = _parseVnstatIfList(_commandOutput(result));
-        if (names.isNotEmpty) return names;
-      } catch (e, stack) {
-        Logger.debug('Optional vnstat --iflist command $command failed: $e');
-        Logger.debug('Optional vnstat --iflist stack: $stack');
+      for (final params in const [
+        ['--dbiflist', '1'],
+        ['--dbiflist'],
+        ['--json'],
+      ]) {
+        try {
+          final result = await _apiService!.call(
+            router.ipAddress,
+            sysauth,
+            router.useHttps,
+            object: 'file',
+            method: 'exec',
+            params: {'command': command, 'params': params},
+            context: context,
+          );
+          final output = _commandOutput(result);
+          final names = params.first == '--json'
+              ? _parseVnstatJsonInterfaceNames(output)
+              : _parseVnstatDbIfList(output);
+          if (names.isNotEmpty) return names;
+        } catch (e, stack) {
+          Logger.debug(
+            'Optional vnstat ${params.join(' ')} command $command failed: $e',
+          );
+          Logger.debug('Optional vnstat interface list stack: $stack');
+        }
       }
     }
 
@@ -8327,14 +8335,15 @@ done | sort -t "|" -k1,1nr | head -n ''' +
         .toList();
   }
 
-  List<String> _parseVnstatIfList(String output) {
+  List<String> _parseVnstatDbIfList(String output) {
     final trimmed = output.trim();
     if (trimmed.isEmpty) return const [];
 
     final cleaned = trimmed
         .split('\n')
         .map(
-          (line) => line.replaceFirst(RegExp(r'^Available interfaces:\s*'), ''),
+          (line) =>
+              line.replaceFirst(RegExp(r'^Interfaces in database:\s*'), ''),
         )
         .join(' ');
     final names =
@@ -8346,6 +8355,23 @@ done | sort -t "|" -k1,1nr | head -n ''' +
             .toList()
           ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     return names;
+  }
+
+  List<String> _parseVnstatJsonInterfaceNames(String output) {
+    try {
+      final payload = jsonDecode(output);
+      if (payload is! Map<String, dynamic>) return const [];
+      final names = _vnstatInterfaces(payload['interfaces'])
+          .expand(_vnstatInterfaceNames)
+          .map((name) => name.trim())
+          .where((name) => name.isNotEmpty)
+          .toSet()
+          .toList();
+      names.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+      return names;
+    } catch (_) {
+      return const [];
+    }
   }
 
   List<VnstatUsageSample> _parseVnstatSamples(
