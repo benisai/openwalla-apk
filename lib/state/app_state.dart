@@ -123,6 +123,22 @@ class OpenwallaStateBackupStatus {
 
 enum OpenwrtFeature { wireguard, adblock, sqm, tor, tailscale, mwan3 }
 
+enum RouterPackageManager { opkg, apk, none }
+
+class RouterPackage {
+  final String name;
+  final String version;
+
+  const RouterPackage({required this.name, required this.version});
+}
+
+class RouterPackageSnapshot {
+  final RouterPackageManager manager;
+  final List<RouterPackage> packages;
+
+  const RouterPackageSnapshot({required this.manager, required this.packages});
+}
+
 class Mwan3Section {
   final String name;
   final String type;
@@ -2577,6 +2593,86 @@ class AppState extends ChangeNotifier {
       rules: sectionsOfType('rule'),
       liveStatus: live.join('\n'),
     );
+  }
+
+  Future<RouterPackageSnapshot> fetchInstalledRouterPackages({
+    BuildContext? context,
+  }) async {
+    if (_reviewerModeEnabled) {
+      return const RouterPackageSnapshot(
+        manager: RouterPackageManager.opkg,
+        packages: [
+          RouterPackage(name: 'base-files', version: '1563-r1'),
+          RouterPackage(name: 'luci-base', version: 'git-26.210.44122'),
+          RouterPackage(name: 'mwan3', version: '2.11.20-r1'),
+        ],
+      );
+    }
+    final output = await runRouterSetupCommand(
+      "if command -v apk >/dev/null 2>&1; then echo '__MANAGER__|apk'; apk info -v; "
+      "elif command -v opkg >/dev/null 2>&1; then echo '__MANAGER__|opkg'; opkg list-installed; "
+      "else echo '__MANAGER__|none'; fi",
+      context: context,
+    );
+    var manager = RouterPackageManager.none;
+    final packages = <RouterPackage>[];
+    for (final rawLine in output.split('\n')) {
+      final line = rawLine.trim();
+      if (line.startsWith('__MANAGER__|')) {
+        manager = switch (line.substring('__MANAGER__|'.length)) {
+          'apk' => RouterPackageManager.apk,
+          'opkg' => RouterPackageManager.opkg,
+          _ => RouterPackageManager.none,
+        };
+        continue;
+      }
+      if (line.isEmpty || line.startsWith('WARNING:')) continue;
+      if (manager == RouterPackageManager.opkg) {
+        final separator = line.indexOf(' - ');
+        if (separator <= 0) continue;
+        packages.add(
+          RouterPackage(
+            name: line.substring(0, separator).trim(),
+            version: line.substring(separator + 3).trim(),
+          ),
+        );
+      } else if (manager == RouterPackageManager.apk) {
+        final match = RegExp(r'^(.+)-([0-9][^\s]*)$').firstMatch(line);
+        if (match == null) continue;
+        packages.add(
+          RouterPackage(name: match.group(1)!, version: match.group(2)!),
+        );
+      }
+    }
+    packages.sort((a, b) => a.name.compareTo(b.name));
+    return RouterPackageSnapshot(manager: manager, packages: packages);
+  }
+
+  Future<String> runRouterPackageAction({
+    required RouterPackageManager manager,
+    required String action,
+    String packageName = '',
+    void Function(String chunk)? onOutput,
+  }) {
+    final cleanName = packageName.trim();
+    if (cleanName.isNotEmpty &&
+        !RegExp(r'^[A-Za-z0-9][A-Za-z0-9+_.@-]*$').hasMatch(cleanName)) {
+      throw StateError('Enter a valid package name');
+    }
+    final command = switch ((manager, action)) {
+      (RouterPackageManager.opkg, 'update') => 'opkg update',
+      (RouterPackageManager.opkg, 'install') =>
+        'opkg install ${_shellQuote(cleanName)}',
+      (RouterPackageManager.opkg, 'remove') =>
+        'opkg remove ${_shellQuote(cleanName)}',
+      (RouterPackageManager.apk, 'update') => 'apk update',
+      (RouterPackageManager.apk, 'install') =>
+        'apk add ${_shellQuote(cleanName)}',
+      (RouterPackageManager.apk, 'remove') =>
+        'apk del ${_shellQuote(cleanName)}',
+      _ => throw StateError('Unsupported package manager action'),
+    };
+    return runRouterSetupCommandViaSsh(command, onOutput: onOutput);
   }
 
   Future<void> restartMwan3({BuildContext? context}) async {

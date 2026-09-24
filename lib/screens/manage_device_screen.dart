@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:luci_mobile/design/luci_design_system.dart';
 import 'package:luci_mobile/screens/backup_restore_screen.dart';
+import 'package:luci_mobile/screens/package_manager_screen.dart';
 import 'package:luci_mobile/screens/reset_router_screen.dart';
 import 'package:luci_mobile/screens/router_setup_screen.dart';
 import 'package:luci_mobile/screens/ssh_terminal_screen.dart';
@@ -36,6 +37,13 @@ class ManageDeviceScreen extends StatelessWidget {
                 title: 'SSH Terminal',
                 subtitle: 'Open a shell with saved router credentials',
                 onTap: () => _open(context, const SshTerminalScreen()),
+              ),
+              _DeviceManagementTile(
+                icon: Icons.inventory_2_rounded,
+                color: colors.primary,
+                title: 'Package Manager',
+                subtitle: 'Install and remove OpenWrt software packages',
+                onTap: () => _open(context, const PackageManagerScreen()),
               ),
               _DeviceManagementTile(
                 icon: Icons.construction_rounded,
