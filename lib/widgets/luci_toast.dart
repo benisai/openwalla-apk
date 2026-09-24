@@ -6,7 +6,8 @@ extension LuciToastContext on BuildContext {
     OpenwallaToast.showLoading(
       this,
       key: actionKey ?? message,
-      message: subtitle == null ? message : '$message\n$subtitle',
+      message: message,
+      subtitle: subtitle,
     );
   }
 
@@ -14,7 +15,8 @@ extension LuciToastContext on BuildContext {
     OpenwallaToast.showSuccess(
       this,
       key: actionKey ?? message,
-      message: subtitle == null ? message : '$message\n$subtitle',
+      message: message,
+      subtitle: subtitle,
     );
   }
 
@@ -22,11 +24,26 @@ extension LuciToastContext on BuildContext {
     OpenwallaToast.showError(
       this,
       key: actionKey ?? message,
-      message: subtitle == null ? message : '$message\n$subtitle',
+      message: message,
+      subtitle: subtitle,
+    );
+  }
+
+  void showToastWarning(String message, {String? subtitle, String? actionKey}) {
+    OpenwallaToast.showWarning(
+      this,
+      key: actionKey ?? message,
+      message: message,
+      subtitle: subtitle,
     );
   }
 
   void showToastInfo(String message, {String? subtitle, String? actionKey}) {
-    showToastSuccess(message, subtitle: subtitle, actionKey: actionKey);
+    OpenwallaToast.showInfo(
+      this,
+      key: actionKey ?? message,
+      message: message,
+      subtitle: subtitle,
+    );
   }
 }

@@ -9,6 +9,7 @@ import 'package:luci_mobile/state/app_state.dart';
 import 'package:luci_mobile/widgets/luci_app_bar.dart';
 import 'package:luci_mobile/widgets/luci_loading_states.dart';
 import 'package:luci_mobile/widgets/openwalla_toast.dart';
+import 'package:luci_mobile/widgets/luci_toast.dart';
 import 'package:luci_mobile/widgets/luci_refresh_components.dart';
 import 'package:luci_mobile/widgets/luci_animation_system.dart';
 import 'package:luci_mobile/utils/self_device_guard.dart';
@@ -574,20 +575,21 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
       _applyCachedClientBlockState(mac, blocked);
       _clientsFuture = Future.value(_visibleClients);
     });
+    context.showToastLoading(
+      blocked ? 'Blocking device...' : 'Unblocking device...',
+      subtitle: client.displayName,
+      actionKey: 'client-block-$mac',
+    );
 
     try {
       await ref
           .read(appStateProvider)
           .setClientInternetBlocked(client, blocked);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            blocked
-                ? 'Internet blocked for ${client.hostname}'
-                : 'Device unblocked',
-          ),
-        ),
+      context.showToastSuccess(
+        blocked ? 'Internet access blocked' : 'Device unblocked',
+        subtitle: client.displayName,
+        actionKey: 'client-block-$mac',
       );
     } catch (e) {
       if (!mounted) return;
@@ -595,8 +597,10 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
         _applyCachedClientBlockState(mac, !blocked);
         _clientsFuture = Future.value(_visibleClients);
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to update device block: $e')),
+      context.showToastError(
+        'Device access could not be updated',
+        subtitle: e.toString().replaceFirst('Bad state: ', ''),
+        actionKey: 'client-block-$mac',
       );
     } finally {
       if (mounted) {
@@ -769,13 +773,17 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
             .toList();
         _clientsFuture = Future.value(_visibleClients);
       });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('${client.displayName} removed.')));
+      context.showToastSuccess(
+        'Device removed',
+        subtitle: client.displayName,
+        actionKey: 'remove-device-$normalizedMac',
+      );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to remove device entry: $e')),
+      context.showToastError(
+        'Device could not be removed',
+        subtitle: e.toString().replaceFirst('Bad state: ', ''),
+        actionKey: 'remove-device-${_normalizeMac(client.macAddress)}',
       );
     }
   }
@@ -982,9 +990,10 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
         _isSavingName = false;
         _hasSavedChanges = true;
       });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Device name saved.')));
+      context.showToastSuccess(
+        'Device name saved',
+        actionKey: 'device-name-${widget.client.macAddress}',
+      );
       return true;
     } catch (e) {
       if (!mounted) return false;
@@ -1140,6 +1149,14 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
       _isPaused = nextPaused;
       _isPausing = true;
     });
+    final actionKey = 'device-pause-${widget.client.macAddress}';
+    context.showToastLoading(
+      nextPaused
+          ? 'Pausing internet access...'
+          : 'Restoring internet access...',
+      subtitle: widget.client.displayName,
+      actionKey: actionKey,
+    );
     try {
       await widget.onToggleInternetPause(nextPaused);
       if (!mounted) return;
@@ -1147,20 +1164,31 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
         _isPausing = false;
         _hasSavedChanges = true;
       });
+      context.showToastSuccess(
+        nextPaused ? 'Internet access paused' : 'Internet access restored',
+        subtitle: widget.client.displayName,
+        actionKey: actionKey,
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _isPaused = !nextPaused;
         _isPausing = false;
       });
-      _showError('Failed to update internet access: $e');
+      context.showToastError(
+        'Internet access could not be updated',
+        subtitle: e.toString().replaceFirst('Bad state: ', ''),
+        actionKey: actionKey,
+      );
     }
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    context.showToastError(
+      'Unable to update device',
+      subtitle: message.replaceFirst('Bad state: ', ''),
+      actionKey: 'device-settings-${widget.client.macAddress}',
+    );
   }
 
   Future<void> _pickIcon() async {

@@ -1,8 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
-enum OpenwallaToastType { loading, success, error }
+enum OpenwallaToastType { loading, success, error, warning, info }
 
 class OpenwallaToast {
   OpenwallaToast._();
@@ -13,11 +14,13 @@ class OpenwallaToast {
     BuildContext context, {
     required String key,
     required String message,
+    String? subtitle,
   }) {
     _show(
       context,
       key: key,
       message: message,
+      subtitle: subtitle,
       type: OpenwallaToastType.loading,
       duration: const Duration(seconds: 45),
     );
@@ -27,11 +30,13 @@ class OpenwallaToast {
     BuildContext context, {
     required String key,
     required String message,
+    String? subtitle,
   }) {
     _show(
       context,
       key: key,
       message: message,
+      subtitle: subtitle,
       type: OpenwallaToastType.success,
       duration: const Duration(seconds: 4),
     );
@@ -41,13 +46,47 @@ class OpenwallaToast {
     BuildContext context, {
     required String key,
     required String message,
+    String? subtitle,
   }) {
     _show(
       context,
       key: key,
       message: message,
+      subtitle: subtitle,
       type: OpenwallaToastType.error,
       duration: const Duration(seconds: 6),
+    );
+  }
+
+  static void showWarning(
+    BuildContext context, {
+    required String key,
+    required String message,
+    String? subtitle,
+  }) {
+    _show(
+      context,
+      key: key,
+      message: message,
+      subtitle: subtitle,
+      type: OpenwallaToastType.warning,
+      duration: const Duration(seconds: 5),
+    );
+  }
+
+  static void showInfo(
+    BuildContext context, {
+    required String key,
+    required String message,
+    String? subtitle,
+  }) {
+    _show(
+      context,
+      key: key,
+      message: message,
+      subtitle: subtitle,
+      type: OpenwallaToastType.info,
+      duration: const Duration(seconds: 4),
     );
   }
 
@@ -55,6 +94,7 @@ class OpenwallaToast {
     BuildContext context, {
     required String key,
     required String message,
+    String? subtitle,
     required OpenwallaToastType type,
     required Duration duration,
   }) {
@@ -66,6 +106,7 @@ class OpenwallaToast {
     entry = OverlayEntry(
       builder: (context) => _OpenwallaToastCard(
         message: message,
+        subtitle: subtitle,
         type: type,
         duration: duration,
         onDismiss: () {
@@ -86,12 +127,14 @@ class OpenwallaToast {
 class _OpenwallaToastCard extends StatefulWidget {
   const _OpenwallaToastCard({
     required this.message,
+    this.subtitle,
     required this.type,
     required this.duration,
     required this.onDismiss,
   });
 
   final String message;
+  final String? subtitle;
   final OpenwallaToastType type;
   final Duration duration;
   final VoidCallback onDismiss;
@@ -115,6 +158,19 @@ class _OpenwallaToastCardState extends State<_OpenwallaToastCard>
     if (widget.type != OpenwallaToastType.loading) {
       _progressController.reverse(from: 1);
     }
+    switch (widget.type) {
+      case OpenwallaToastType.error:
+        HapticFeedback.heavyImpact();
+        break;
+      case OpenwallaToastType.warning:
+        HapticFeedback.mediumImpact();
+        break;
+      case OpenwallaToastType.loading:
+      case OpenwallaToastType.success:
+      case OpenwallaToastType.info:
+        HapticFeedback.lightImpact();
+        break;
+    }
     _dismissTimer = Timer(widget.duration, widget.onDismiss);
   }
 
@@ -133,11 +189,15 @@ class _OpenwallaToastCardState extends State<_OpenwallaToastCard>
       OpenwallaToastType.loading => colorScheme.primary,
       OpenwallaToastType.success => const Color(0xFF22C55E),
       OpenwallaToastType.error => colorScheme.error,
+      OpenwallaToastType.warning => const Color(0xFFF59E0B),
+      OpenwallaToastType.info => const Color(0xFF38BDF8),
     };
     final icon = switch (widget.type) {
       OpenwallaToastType.loading => null,
       OpenwallaToastType.success => Icons.check_rounded,
       OpenwallaToastType.error => Icons.error_outline_rounded,
+      OpenwallaToastType.warning => Icons.warning_amber_rounded,
+      OpenwallaToastType.info => Icons.info_outline_rounded,
     };
 
     return SafeArea(
@@ -202,14 +262,34 @@ class _OpenwallaToastCardState extends State<_OpenwallaToastCard>
                             ),
                             const SizedBox(width: 10),
                             Expanded(
-                              child: Text(
-                                widget.message,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: colorScheme.onSurface,
-                                  fontWeight: FontWeight.w800,
-                                ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    widget.message,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      color: colorScheme.onSurface,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  if (widget.subtitle?.trim().isNotEmpty ==
+                                      true) ...[
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      widget.subtitle!,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color: colorScheme.onSurfaceVariant,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                    ),
+                                  ],
+                                ],
                               ),
                             ),
                             IconButton(
