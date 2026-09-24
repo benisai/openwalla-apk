@@ -6065,6 +6065,27 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     final network = networkEntry.value;
     final dhcp = dhcpEntry?.value;
     final dnsText = stringValue(network, 'dns').trim();
+    final rawIpAddress = stringValue(network, 'ipaddr').trim();
+    var ipAddress = rawIpAddress;
+    var netmask = stringValue(network, 'netmask').trim();
+    final cidrParts = rawIpAddress.split('/');
+    if (cidrParts.length == 2) {
+      final prefixLength = int.tryParse(cidrParts[1]);
+      if (prefixLength != null && prefixLength >= 0 && prefixLength <= 32) {
+        ipAddress = cidrParts[0].trim();
+        if (netmask.isEmpty) {
+          final mask = prefixLength == 0
+              ? 0
+              : (0xffffffff << (32 - prefixLength)) & 0xffffffff;
+          netmask = [
+            (mask >> 24) & 0xff,
+            (mask >> 16) & 0xff,
+            (mask >> 8) & 0xff,
+            mask & 0xff,
+          ].join('.');
+        }
+      }
+    }
 
     return OpenwrtNetworkInterfaceConfig(
       section: networkEntry.key,
@@ -6072,8 +6093,8 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       protocol: stringValue(network, 'proto').trim().isEmpty
           ? 'static'
           : stringValue(network, 'proto').trim(),
-      ipAddress: stringValue(network, 'ipaddr').trim(),
-      netmask: stringValue(network, 'netmask').trim(),
+      ipAddress: ipAddress,
+      netmask: netmask,
       dnsServers: dnsText.isEmpty ? const [] : dnsText.split(RegExp(r'\s+')),
       dhcpSection: dhcpEntry?.key,
       dhcpEnabled: dhcp == null ? false : dhcp['ignore']?.toString() != '1',
