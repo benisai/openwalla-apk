@@ -39,9 +39,14 @@ CRON_PATH="/etc/crontabs/root"
 TMP_CRON="/tmp/.openwalla_speedtest_cron.$$"
 HOUR="$(uci -q get openwalla.speedtest_monitor.run_hour 2>/dev/null || echo 3)"
 MINUTE="$(uci -q get openwalla.speedtest_monitor.run_minute 2>/dev/null || echo 15)"
+RUN_DATE="$(uci -q get openwalla.speedtest_monitor.run_date 2>/dev/null || date +%Y-%m-%d)"
 ENABLED="$(uci -q get openwalla.speedtest_monitor.enabled 2>/dev/null || echo 1)"
+MONTH="$(printf '%s' "$RUN_DATE" | cut -d- -f2 | sed 's/^0*//')"
+DAY="$(printf '%s' "$RUN_DATE" | cut -d- -f3 | sed 's/^0*//')"
 case "$HOUR" in ''|*[!0-9]*) HOUR=3 ;; esac
 case "$MINUTE" in ''|*[!0-9]*) MINUTE=15 ;; esac
+case "$MONTH" in ''|*[!0-9]*) MONTH="$(date +%m | sed 's/^0*//')" ;; esac
+case "$DAY" in ''|*[!0-9]*) DAY="$(date +%d | sed 's/^0*//')" ;; esac
 if [ "$HOUR" -gt 23 ]; then HOUR=3; fi
 if [ "$MINUTE" -gt 59 ]; then MINUTE=15; fi
 if [ -f "$CRON_PATH" ]; then
@@ -50,7 +55,7 @@ else
 	: >"$TMP_CRON"
 fi
 if [ "$ENABLED" = "1" ]; then
-	echo "$MINUTE $HOUR * * * /usr/bin/openwalla-speedtest-monitor --once >/tmp/openwalla-speedtest-monitor.last.log 2>&1 $SPEEDTEST_MARKER" >>"$TMP_CRON"
+	echo "$MINUTE $HOUR $DAY $MONTH * /usr/bin/openwalla-speedtest-monitor --scheduled >/tmp/openwalla-speedtest-monitor.last.log 2>&1 $SPEEDTEST_MARKER" >>"$TMP_CRON"
 fi
 cp "$TMP_CRON" "$CRON_PATH"
 rm -f "$TMP_CRON"

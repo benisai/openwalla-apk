@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # Openwalla Speedtest Monitor
-# Runs speedtestcpp on demand and writes samples to /tmp/openwalla-speedtest-monitor.txt
+# Runs the installed speedtest client and writes samples for the app.
 
 set -u
 
@@ -116,7 +116,9 @@ run_speedtest_once() {
 		return 1
 	fi
 
-	output="$({ "$speedtest_cmd" --json 2>/dev/null || "$speedtest_cmd" 2>&1; } || true)"
+	# The OpenWrt speedtestcpp package uses its normal text output. Calling it
+	# with an unsupported JSON flag can print help and exit without a result.
+	output="$("$speedtest_cmd" 2>&1 || true)"
 	dl="$(extract_json_number "download" "$output")"
 	ul="$(extract_json_number "upload" "$output")"
 	[ -n "$dl" ] || dl="$(extract_text_number "[Dd]ownload" "$output")"
@@ -142,6 +144,34 @@ run_speedtest_once() {
 	[ "$status" = "OK" ]
 }
 
+finish_scheduled_run() {
+	local cron_path tmp_cron
+	cron_path="/etc/crontabs/root"
+	tmp_cron="/tmp/.openwalla_speedtest_finish.$$"
+	if command -v uci >/dev/null 2>&1; then
+		uci set openwalla.speedtest_monitor.enabled='0' 2>/dev/null || true
+		uci commit openwalla 2>/dev/null || true
+	fi
+	if [ -f "$cron_path" ]; then
+		grep -v "OPENWALLA_SPEEDTEST_MONITOR" "$cron_path" >"$tmp_cron" 2>/dev/null || : >"$tmp_cron"
+		mv "$tmp_cron" "$cron_path"
+	fi
+	/bin/sh -c '/etc/init.d/cron reload 2>/dev/null || /etc/init.d/cron restart 2>/dev/null || true'
+}
+
+run_scheduled_once() {
+	local enabled run_date today result
+	enabled="$(uci -q get openwalla.speedtest_monitor.enabled 2>/dev/null || echo 0)"
+	run_date="$(uci -q get openwalla.speedtest_monitor.run_date 2>/dev/null || true)"
+	today="$(date +%Y-%m-%d)"
+	[ "$enabled" = "1" ] || return 0
+	[ -z "$run_date" ] || [ "$run_date" = "$today" ] || return 0
+	run_speedtest_once
+	result=$?
+	finish_scheduled_run
+	return "$result"
+}
+
 main() {
 	load_config
 	SPEEDTEST_MAX_LINES="$(sanitize_int "$SPEEDTEST_MAX_LINES" "$DEFAULT_MAX_LINES")"
@@ -149,7 +179,11 @@ main() {
 
 	case "${1:-}" in
 		--init-file)
-			: >"$SPEEDTEST_OUTPUT"
+			# ensure_output_file already created it; retain existing history.
+			:
+			;;
+		--scheduled)
+			run_scheduled_once
 			;;
 		--once | *)
 			run_speedtest_once
