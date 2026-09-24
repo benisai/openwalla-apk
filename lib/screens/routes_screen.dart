@@ -248,7 +248,7 @@ class _RoutesScreenState extends ConsumerState<RoutesScreen> {
                       ),
                     ),
                   ),
-                  if (_hasPbrSupport)
+                  if (!_isLoading && _hasPbrSupport)
                     FilledButton.icon(
                       onPressed: _showAddPbrSheet,
                       icon: const Icon(Icons.add_rounded),
@@ -264,7 +264,9 @@ class _RoutesScreenState extends ConsumerState<RoutesScreen> {
                 ),
               ),
               const SizedBox(height: 12),
-              if (!_hasPbrSupport)
+              if (_isLoading)
+                const _PbrCheckingCard()
+              else if (!_hasPbrSupport)
                 _PbrInstallCard(
                   isInstalling: _isInstallingPbr,
                   onInstall: _installPbr,
@@ -282,44 +284,99 @@ class _RoutesScreenState extends ConsumerState<RoutesScreen> {
                     onDelete: () => _deletePbrPolicy(policy),
                   ),
                 ),
-              const SizedBox(height: 22),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Static IPv4 Routes',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 0,
+              if (!_isLoading) ...[
+                const SizedBox(height: 22),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Static IPv4 Routes',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0,
+                            ),
                       ),
                     ),
-                  ),
-                  FilledButton.icon(
-                    onPressed: _showAddRouteSheet,
-                    icon: const Icon(Icons.add_rounded),
-                    label: const Text('Add'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              if (_isLoading)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 48),
-                  child: Center(child: CircularProgressIndicator()),
-                )
-              else if (_error != null)
-                _RouteEmptyCard(message: _error!, onRefresh: _loadRoutes)
-              else if (_routes.isEmpty)
-                _RouteEmptyCard(
-                  message: 'No static routes found.',
-                  onRefresh: _loadRoutes,
-                )
-              else
-                ..._routes.map((route) => _RouteCard(route: route)),
+                    FilledButton.icon(
+                      onPressed: _showAddRouteSheet,
+                      icon: const Icon(Icons.add_rounded),
+                      label: const Text('Add'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                if (_error != null)
+                  _RouteEmptyCard(message: _error!, onRefresh: _loadRoutes)
+                else if (_routes.isEmpty)
+                  _RouteEmptyCard(
+                    message: 'No static routes found.',
+                    onRefresh: _loadRoutes,
+                  )
+                else
+                  ..._routes.map((route) => _RouteCard(route: route)),
+              ],
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _PbrCheckingCard extends StatelessWidget {
+  const _PbrCheckingCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: colors.outlineVariant.withValues(alpha: 0.42),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: colors.primary.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const SizedBox.square(
+              dimension: 20,
+              child: CircularProgressIndicator(strokeWidth: 2.4),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Checking PBR support',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  'Reading routing policies from the router...',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
