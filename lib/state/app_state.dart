@@ -648,6 +648,41 @@ class OpenwrtStaticRoute {
   }
 }
 
+class OpenwrtPbrPolicy {
+  final String section;
+  final String name;
+  final String destination;
+  final String interfaceName;
+  final bool enabled;
+
+  const OpenwrtPbrPolicy({
+    required this.section,
+    required this.name,
+    required this.destination,
+    required this.interfaceName,
+    required this.enabled,
+  });
+
+  factory OpenwrtPbrPolicy.fromUciSection(
+    String section,
+    Map<String, dynamic> values,
+  ) {
+    String read(String key) {
+      final value = values[key];
+      if (value is List) return value.map((item) => item.toString()).join(' ');
+      return value?.toString() ?? '';
+    }
+
+    return OpenwrtPbrPolicy(
+      section: section,
+      name: read('name').trim(),
+      destination: read('dest_addr').trim(),
+      interfaceName: read('interface').trim(),
+      enabled: read('enabled') != '0',
+    );
+  }
+}
+
 class OpenwrtSqmQueue {
   final String section;
   final bool enabled;
@@ -5539,6 +5574,178 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       sysauth,
       router.useHttps,
       command: '/etc/init.d/network reload 2>/dev/null || ifup $interfaceName',
+    );
+    notifyListeners();
+  }
+
+  Future<bool> hasPbrSupport({BuildContext? context}) async {
+    if (_reviewerModeEnabled) return true;
+    return _routerCommandSucceeds(
+      '[ -x /etc/init.d/pbr ] && uci -q get pbr.config >/dev/null 2>&1 && echo OK',
+      context: context,
+    );
+  }
+
+  Future<void> installPbrSupport({
+    void Function(String chunk)? onOutput,
+  }) async {
+    if (_reviewerModeEnabled) return;
+    final output = await installOpenwallaSetupFeatures(
+      const ['pbr'],
+      postInstallCheck:
+          '[ -x /etc/init.d/pbr ] && uci -q get pbr.config >/dev/null 2>&1 && echo OK',
+      onOutput: onOutput,
+    );
+    if (!output.contains('OK')) {
+      throw StateError('PBR installation did not complete');
+    }
+  }
+
+  List<OpenwrtPbrPolicy> _mockPbrPolicies() {
+    return const [
+      OpenwrtPbrPolicy(
+        section: 'openwalla_streaming',
+        name: 'Streaming over VPN',
+        destination: 'example.com',
+        interfaceName: 'owrt_wg_client',
+        enabled: true,
+      ),
+    ];
+  }
+
+  Future<List<OpenwrtPbrPolicy>> fetchPbrPolicies({
+    BuildContext? context,
+  }) async {
+    if (_reviewerModeEnabled) return _mockPbrPolicies();
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) {
+      return const [];
+    }
+    final result = await _apiService!.call(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      object: 'uci',
+      method: 'get',
+      params: {'config': 'pbr'},
+      context: context,
+    );
+    final values = _extractUciValues(result);
+    final policies = values.entries
+        .where((entry) => entry.value['.type']?.toString() == 'policy')
+        .map((entry) => OpenwrtPbrPolicy.fromUciSection(entry.key, entry.value))
+        .where((policy) => policy.destination.isNotEmpty)
+        .toList();
+    return policies;
+  }
+
+  Future<void> addPbrPolicy({
+    required String name,
+    required String destination,
+    required String interfaceName,
+    bool enabled = true,
+  }) async {
+    if (_reviewerModeEnabled) {
+      notifyListeners();
+      return;
+    }
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) {
+      throw StateError('No selected router connection is available');
+    }
+    final addResult = await _apiService!.call(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      object: 'uci',
+      method: 'add',
+      params: {'config': 'pbr', 'type': 'policy'},
+    );
+    final section = _extractAddedSection(addResult);
+    if (section == null || section.isEmpty) {
+      throw StateError('Unable to create PBR policy');
+    }
+    await _apiService!.uciSet(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      config: 'pbr',
+      section: section,
+      values: {
+        'name': name.trim(),
+        'dest_addr': destination.trim().toLowerCase(),
+        'interface': interfaceName.trim(),
+        'enabled': enabled ? '1' : '0',
+      },
+    );
+    await _apiService!.uciSet(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      config: 'pbr',
+      section: 'config',
+      values: {'enabled': '1'},
+    );
+    await _commitAndReloadPbr(router, sysauth);
+  }
+
+  Future<void> setPbrPolicyEnabled(String section, bool enabled) async {
+    if (_reviewerModeEnabled) {
+      notifyListeners();
+      return;
+    }
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) {
+      throw StateError('No selected router connection is available');
+    }
+    await _apiService!.uciSet(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      config: 'pbr',
+      section: section,
+      values: {'enabled': enabled ? '1' : '0'},
+    );
+    await _commitAndReloadPbr(router, sysauth);
+  }
+
+  Future<void> deletePbrPolicy(String section) async {
+    if (_reviewerModeEnabled) {
+      notifyListeners();
+      return;
+    }
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) {
+      throw StateError('No selected router connection is available');
+    }
+    await _apiService!.call(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      object: 'uci',
+      method: 'delete',
+      params: {'config': 'pbr', 'section': section},
+    );
+    await _commitAndReloadPbr(router, sysauth);
+  }
+
+  Future<void> _commitAndReloadPbr(model.Router router, String sysauth) async {
+    await _apiService!.uciCommit(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      config: 'pbr',
+    );
+    await _apiService!.systemExec(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      command:
+          '/etc/init.d/pbr enable >/dev/null 2>&1 || true; /etc/init.d/pbr reload >/dev/null 2>&1 || /etc/init.d/pbr restart >/dev/null 2>&1',
     );
     notifyListeners();
   }

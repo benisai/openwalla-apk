@@ -1,8 +1,28 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:luci_mobile/main.dart';
 import 'package:luci_mobile/state/app_state.dart';
 import 'package:luci_mobile/widgets/luci_app_bar.dart';
+import 'package:luci_mobile/widgets/luci_toast.dart';
+import 'package:luci_mobile/widgets/ssh_console_sheet.dart';
+
+Future<bool?> showAddPbrPolicySheet(
+  BuildContext context, {
+  String initialDestination = '',
+  String initialName = '',
+}) {
+  return showModalBottomSheet<bool>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (context) => _AddPbrPolicySheet(
+      initialDestination: initialDestination,
+      initialName: initialName,
+    ),
+  );
+}
 
 class RoutesScreen extends ConsumerStatefulWidget {
   const RoutesScreen({super.key});
@@ -13,6 +33,9 @@ class RoutesScreen extends ConsumerStatefulWidget {
 
 class _RoutesScreenState extends ConsumerState<RoutesScreen> {
   List<OpenwrtStaticRoute> _routes = const [];
+  List<OpenwrtPbrPolicy> _pbrPolicies = const [];
+  bool _hasPbrSupport = false;
+  bool _isInstallingPbr = false;
   bool _isLoading = true;
   String? _error;
 
@@ -28,12 +51,17 @@ class _RoutesScreenState extends ConsumerState<RoutesScreen> {
       _error = null;
     });
     try {
-      final routes = await ref
-          .read(appStateProvider)
-          .fetchStaticRoutes(context: context);
+      final appState = ref.read(appStateProvider);
+      final routes = await appState.fetchStaticRoutes(context: context);
+      final hasPbr = await appState.hasPbrSupport();
+      final policies = hasPbr
+          ? await appState.fetchPbrPolicies()
+          : const <OpenwrtPbrPolicy>[];
       if (!mounted) return;
       setState(() {
         _routes = routes;
+        _hasPbrSupport = hasPbr;
+        _pbrPolicies = policies;
         _isLoading = false;
       });
     } catch (_) {
@@ -53,6 +81,137 @@ class _RoutesScreenState extends ConsumerState<RoutesScreen> {
       builder: (context) => const _AddRouteSheet(),
     );
     if (saved == true) await _loadRoutes();
+  }
+
+  Future<void> _showAddPbrSheet() async {
+    final saved = await showAddPbrPolicySheet(context);
+    if (saved == true) await _loadRoutes();
+  }
+
+  Future<void> _installPbr() async {
+    if (_isInstallingPbr) return;
+    setState(() => _isInstallingPbr = true);
+    final console = SshConsoleController(
+      initialOutput: 'Connecting to router...\nInstalling PBR support...',
+      running: true,
+    );
+    unawaited(
+      showSshConsoleSheet(
+        context: context,
+        controller: console,
+        title: 'Install Policy-Based Routing',
+      ).whenComplete(console.dispose),
+    );
+    try {
+      final output = StringBuffer();
+      await ref
+          .read(appStateProvider)
+          .installPbrSupport(
+            onOutput: (chunk) {
+              output.write(chunk);
+              console.setOutput(output.toString().trimRight());
+            },
+          );
+      console.complete();
+      if (!mounted) return;
+      context.showToastSuccess(
+        'PBR installed',
+        subtitle: 'Domain routing policies are ready.',
+        actionKey: 'install-pbr',
+      );
+      await _loadRoutes();
+    } catch (error) {
+      console.setOutput('PBR installation failed.\n\n$error');
+      console.complete();
+      if (!mounted) return;
+      context.showToastError(
+        'PBR installation failed',
+        subtitle: error.toString().replaceFirst('Bad state: ', ''),
+        actionKey: 'install-pbr',
+      );
+    } finally {
+      if (mounted) setState(() => _isInstallingPbr = false);
+    }
+  }
+
+  Future<void> _togglePbrPolicy(OpenwrtPbrPolicy policy, bool enabled) async {
+    final oldPolicies = _pbrPolicies;
+    setState(() {
+      _pbrPolicies = _pbrPolicies
+          .map(
+            (item) => item.section == policy.section
+                ? OpenwrtPbrPolicy(
+                    section: item.section,
+                    name: item.name,
+                    destination: item.destination,
+                    interfaceName: item.interfaceName,
+                    enabled: enabled,
+                  )
+                : item,
+          )
+          .toList();
+    });
+    try {
+      await ref
+          .read(appStateProvider)
+          .setPbrPolicyEnabled(policy.section, enabled);
+      if (!mounted) return;
+      context.showToastSuccess(
+        enabled ? 'Routing policy enabled' : 'Routing policy disabled',
+        subtitle: policy.name,
+        actionKey: 'pbr-${policy.section}',
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _pbrPolicies = oldPolicies);
+      context.showToastError(
+        'Routing policy could not be updated',
+        subtitle: error.toString().replaceFirst('Bad state: ', ''),
+        actionKey: 'pbr-${policy.section}',
+      );
+    }
+  }
+
+  Future<void> _deletePbrPolicy(OpenwrtPbrPolicy policy) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete routing policy?'),
+        content: Text('Delete "${policy.name}" from the router?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await ref.read(appStateProvider).deletePbrPolicy(policy.section);
+      if (!mounted) return;
+      setState(
+        () => _pbrPolicies = _pbrPolicies
+            .where((item) => item.section != policy.section)
+            .toList(),
+      );
+      context.showToastSuccess(
+        'Routing policy deleted',
+        subtitle: policy.name,
+        actionKey: 'pbr-${policy.section}',
+      );
+    } catch (error) {
+      if (!mounted) return;
+      context.showToastError(
+        'Routing policy could not be deleted',
+        subtitle: error.toString().replaceFirst('Bad state: ', ''),
+        actionKey: 'pbr-${policy.section}',
+      );
+    }
   }
 
   @override
@@ -78,6 +237,52 @@ class _RoutesScreenState extends ConsumerState<RoutesScreen> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
             children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Policy-Based Routing',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  if (_hasPbrSupport)
+                    FilledButton.icon(
+                      onPressed: _showAddPbrSheet,
+                      icon: const Icon(Icons.add_rounded),
+                      label: const Text('Add Policy'),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Route domains or addresses through a VPN or another interface.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 12),
+              if (!_hasPbrSupport)
+                _PbrInstallCard(
+                  isInstalling: _isInstallingPbr,
+                  onInstall: _installPbr,
+                )
+              else if (_pbrPolicies.isEmpty)
+                _RouteEmptyCard(
+                  message: 'No domain routing policies found.',
+                  onRefresh: _loadRoutes,
+                )
+              else
+                ..._pbrPolicies.map(
+                  (policy) => _PbrPolicyCard(
+                    policy: policy,
+                    onChanged: (enabled) => _togglePbrPolicy(policy, enabled),
+                    onDelete: () => _deletePbrPolicy(policy),
+                  ),
+                ),
+              const SizedBox(height: 22),
               Row(
                 children: [
                   Expanded(
@@ -114,6 +319,387 @@ class _RoutesScreenState extends ConsumerState<RoutesScreen> {
                 ..._routes.map((route) => _RouteCard(route: route)),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PbrInstallCard extends StatelessWidget {
+  final bool isInstalling;
+  final VoidCallback onInstall;
+
+  const _PbrInstallCard({required this.isInstalling, required this.onInstall});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: colors.outlineVariant.withValues(alpha: 0.42),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: colors.primary.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(Icons.alt_route_rounded, color: colors.primary),
+          ),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'PBR component required',
+                  style: TextStyle(fontWeight: FontWeight.w900),
+                ),
+                SizedBox(height: 3),
+                Text('Install the OpenWrt PBR service to route domains.'),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          FilledButton.icon(
+            onPressed: isInstalling ? null : onInstall,
+            icon: isInstalling
+                ? const SizedBox.square(
+                    dimension: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.download_rounded),
+            label: Text(isInstalling ? 'Installing' : 'Install'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PbrPolicyCard extends StatelessWidget {
+  final OpenwrtPbrPolicy policy;
+  final ValueChanged<bool> onChanged;
+  final VoidCallback onDelete;
+
+  const _PbrPolicyCard({
+    required this.policy,
+    required this.onChanged,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: colors.outlineVariant.withValues(alpha: 0.42),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: colors.primary.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(Icons.language_rounded, color: colors.primary),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  policy.name.isEmpty ? policy.destination : policy.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  '${policy.destination}  ->  ${policy.interfaceName}',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: colors.onSurfaceVariant,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Switch(value: policy.enabled, onChanged: onChanged),
+          IconButton(
+            tooltip: 'Delete policy',
+            onPressed: onDelete,
+            color: colors.error,
+            icon: const Icon(Icons.delete_outline_rounded),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AddPbrPolicySheet extends ConsumerStatefulWidget {
+  final String initialDestination;
+  final String initialName;
+
+  const _AddPbrPolicySheet({
+    required this.initialDestination,
+    required this.initialName,
+  });
+
+  @override
+  ConsumerState<_AddPbrPolicySheet> createState() => _AddPbrPolicySheetState();
+}
+
+class _AddPbrPolicySheetState extends ConsumerState<_AddPbrPolicySheet> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _nameController;
+  late final TextEditingController _destinationController;
+  late List<String> _interfaces;
+  late String _interfaceName;
+  bool _enabled = true;
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.initialName);
+    _destinationController = TextEditingController(
+      text: widget.initialDestination,
+    );
+    _interfaces = ref
+        .read(appStateProvider)
+        .dashboardInterfaceNames()
+        .where((name) => name != 'lan' && name != 'loopback')
+        .toSet()
+        .toList();
+    if (_interfaces.isEmpty) _interfaces = ['wan'];
+    _interfaceName = _interfaces.firstWhere(
+      (name) => name.toLowerCase().contains('wg'),
+      orElse: () => _interfaces.first,
+    );
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _destinationController.dispose();
+    super.dispose();
+  }
+
+  String? _validateDestination(String? value) {
+    final destination = value?.trim().toLowerCase() ?? '';
+    if (destination.isEmpty) return 'Enter a domain or destination address';
+    if (destination.contains('://') || destination.contains('/path')) {
+      return 'Enter a domain only, without http:// or a path';
+    }
+    if (!RegExp(r'^[a-z0-9.*:_/ -]+$').hasMatch(destination)) {
+      return 'Enter a valid domain, IP address, or CIDR';
+    }
+    return null;
+  }
+
+  Future<void> _save() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    setState(() => _isSaving = true);
+    final destination = _destinationController.text.trim();
+    final name = _nameController.text.trim().isEmpty
+        ? 'Route $destination'
+        : _nameController.text.trim();
+    try {
+      await ref
+          .read(appStateProvider)
+          .addPbrPolicy(
+            name: name,
+            destination: destination,
+            interfaceName: _interfaceName,
+            enabled: _enabled,
+          );
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+      context.showToastSuccess(
+        'Routing policy created',
+        subtitle: '$destination through $_interfaceName',
+        actionKey: 'add-pbr-policy',
+      );
+    } catch (error) {
+      if (!mounted) return;
+      context.showToastError(
+        'Routing policy could not be created',
+        subtitle: error.toString().replaceFirst('Bad state: ', ''),
+        actionKey: 'add-pbr-policy',
+      );
+      setState(() => _isSaving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return FractionallySizedBox(
+      heightFactor: 0.82,
+      child: Form(
+        key: _formKey,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 10, 12),
+              child: Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: colors.primary.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(Icons.alt_route_rounded, color: colors.primary),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'New Routing Policy',
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(fontWeight: FontWeight.w900),
+                        ),
+                        Text(
+                          'Send a domain through a selected interface.',
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: colors.onSurfaceVariant),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Close',
+                    onPressed: _isSaving
+                        ? null
+                        : () => Navigator.of(context).pop(false),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: ListView(
+                padding: EdgeInsets.fromLTRB(20, 18, 20, bottomInset + 20),
+                children: [
+                  _RouteFieldGroup(
+                    child: Column(
+                      children: [
+                        TextFormField(
+                          controller: _nameController,
+                          enabled: !_isSaving,
+                          decoration: const InputDecoration(
+                            labelText: 'Policy Name',
+                            hintText: 'Streaming over VPN',
+                            prefixIcon: Icon(Icons.label_outline_rounded),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: _destinationController,
+                          enabled: !_isSaving,
+                          autocorrect: false,
+                          decoration: const InputDecoration(
+                            labelText: 'Domain or Destination',
+                            hintText: 'example.com',
+                            helperText: 'Hostnames, IP addresses, and CIDRs',
+                            prefixIcon: Icon(Icons.language_rounded),
+                          ),
+                          validator: _validateDestination,
+                        ),
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          initialValue: _interfaceName,
+                          decoration: const InputDecoration(
+                            labelText: 'Route Through',
+                            prefixIcon: Icon(Icons.vpn_lock_rounded),
+                          ),
+                          borderRadius: BorderRadius.circular(8),
+                          dropdownColor: colors.surfaceContainerHigh,
+                          items: _interfaces
+                              .map(
+                                (name) => DropdownMenuItem(
+                                  value: name,
+                                  child: Text(name),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: _isSaving
+                              ? null
+                              : (value) => setState(
+                                  () =>
+                                      _interfaceName = value ?? _interfaceName,
+                                ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  SwitchListTile(
+                    title: const Text('Policy Active'),
+                    subtitle: const Text('Apply this policy after saving'),
+                    value: _enabled,
+                    onChanged: _isSaving
+                        ? null
+                        : (value) => setState(() => _enabled = value),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+              child: Row(
+                children: [
+                  TextButton(
+                    onPressed: _isSaving
+                        ? null
+                        : () => Navigator.of(context).pop(false),
+                    child: const Text('Cancel'),
+                  ),
+                  const Spacer(),
+                  FilledButton.icon(
+                    onPressed: _isSaving ? null : _save,
+                    icon: _isSaving
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.add_rounded),
+                    label: Text(_isSaving ? 'Creating' : 'Create Policy'),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

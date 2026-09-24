@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:luci_mobile/main.dart';
 import 'package:luci_mobile/screens/router_setup_screen.dart';
+import 'package:luci_mobile/screens/routes_screen.dart';
 import 'package:luci_mobile/state/app_state.dart';
 import 'package:luci_mobile/widgets/luci_app_bar.dart';
+import 'package:luci_mobile/widgets/luci_toast.dart';
 
 enum _FlowTimeRange {
   oneHour('Last Hour', 1),
@@ -805,13 +807,13 @@ class _FlowRow extends StatelessWidget {
   }
 }
 
-class _FlowDetailsDialog extends StatelessWidget {
+class _FlowDetailsDialog extends ConsumerWidget {
   final _FlowItem flow;
 
   const _FlowDetailsDialog({required this.flow});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final colorScheme = Theme.of(context).colorScheme;
 
     return Dialog.fullscreen(
@@ -907,7 +909,32 @@ class _FlowDetailsDialog extends StatelessWidget {
                   children: [
                     Expanded(
                       child: TextButton.icon(
-                        onPressed: () {},
+                        onPressed: () async {
+                          final appState = ref.read(appStateProvider);
+                          final hasPbr = await appState.hasPbrSupport(
+                            context: context,
+                          );
+                          if (!context.mounted) return;
+                          if (!hasPbr) {
+                            context.showToastWarning(
+                              'PBR component required',
+                              subtitle:
+                                  'Install it from Routes before creating a flow policy.',
+                              actionKey: 'flow-route-pbr',
+                            );
+                            await Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (context) => const RoutesScreen(),
+                              ),
+                            );
+                            return;
+                          }
+                          await showAddPbrPolicySheet(
+                            context,
+                            initialDestination: flow.destination,
+                            initialName: 'Route ${flow.destination}',
+                          );
+                        },
                         icon: const Icon(Icons.alt_route_rounded),
                         label: const Text('Route'),
                         style: TextButton.styleFrom(
