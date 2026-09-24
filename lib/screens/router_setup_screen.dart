@@ -23,7 +23,7 @@ extension on _SetupProfile {
     _SetupProfile.basic =>
       'Core packages and helpers required for Openwalla to function.',
     _SetupProfile.standard =>
-      'Basic plus AdBlock, Parental Controls, Smart Queue, and DDNS.',
+      'Basic plus AdBlock, Parental Controls, Smart Queue, DDNS, and WireGuard.',
     _SetupProfile.advanced => 'Basic and Standard plus PBR.',
     _SetupProfile.everything =>
       'Basic, Standard, and Advanced plus Detailed and Simple Flows.',
@@ -61,6 +61,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
     'scheduler',
     'qos',
     'ddns',
+    'wireguard',
   ];
 
   int _wizardStep = 0;
@@ -501,6 +502,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
         'Parental Controls',
         'Smart Queue (SQM)',
         'Dynamic DNS (DDNS)',
+        'WireGuard tools (no VPN configuration)',
       ],
       _SetupProfile.advanced => [
         ..._installLabels(_SetupProfile.standard),
