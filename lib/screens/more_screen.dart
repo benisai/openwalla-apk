@@ -245,7 +245,7 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
                   icon: Icons.info_outline_rounded,
                   iconColor: Theme.of(context).colorScheme.primary,
                   title: 'About',
-                  subtitle: 'App version and information',
+                  subtitle: 'App version, repository, and credits',
                   onTap: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(builder: (_) => const AboutScreen()),
