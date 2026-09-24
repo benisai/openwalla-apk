@@ -155,6 +155,8 @@ class _TailscaleScreenState extends ConsumerState<TailscaleScreen> {
                 title: 'Tailscale is not installed',
                 message:
                     'Install Tailscale and its Openwalla routing controls. No LAN routes are advertised by default.',
+                warning:
+                    'Tailscale is a large package and needs about 20 MB or more of free router storage. Installation will stop if there is not enough free space.',
                 installLabel: 'Install Tailscale',
                 builder: (_) => _buildContent(),
               ),

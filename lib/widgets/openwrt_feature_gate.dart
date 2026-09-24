@@ -11,6 +11,7 @@ class OpenwrtFeatureGate extends ConsumerStatefulWidget {
   final OpenwrtFeature feature;
   final String title;
   final String message;
+  final String? warning;
   final String installLabel;
   final WidgetBuilder builder;
 
@@ -19,6 +20,7 @@ class OpenwrtFeatureGate extends ConsumerStatefulWidget {
     required this.feature,
     required this.title,
     required this.message,
+    this.warning,
     required this.installLabel,
     required this.builder,
   });
@@ -53,6 +55,27 @@ class _OpenwrtFeatureGateState extends ConsumerState<OpenwrtFeatureGate> {
   }
 
   Future<void> _install() async {
+    if (widget.warning != null) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Storage Warning'),
+          content: Text(widget.warning!),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton.icon(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              icon: const Icon(Icons.download_rounded),
+              label: const Text('Continue'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+    }
     setState(() => _isInstalling = true);
     final console = SshConsoleController(
       initialOutput:
@@ -132,6 +155,7 @@ class _OpenwrtFeatureGateState extends ConsumerState<OpenwrtFeatureGate> {
         return _FeatureInstallPrompt(
           title: widget.title,
           message: widget.message,
+          warning: widget.warning,
           installLabel: widget.installLabel,
           isInstalling: _isInstalling,
           onInstall: _install,
@@ -146,6 +170,7 @@ class _OpenwrtFeatureGateState extends ConsumerState<OpenwrtFeatureGate> {
 class _FeatureInstallPrompt extends StatelessWidget {
   final String title;
   final String message;
+  final String? warning;
   final String installLabel;
   final bool isInstalling;
   final VoidCallback onInstall;
@@ -155,6 +180,7 @@ class _FeatureInstallPrompt extends StatelessWidget {
   const _FeatureInstallPrompt({
     required this.title,
     required this.message,
+    this.warning,
     required this.installLabel,
     required this.isInstalling,
     required this.onInstall,
@@ -202,6 +228,41 @@ class _FeatureInstallPrompt extends StatelessWidget {
                 height: 1.35,
               ),
             ),
+            if (warning != null) ...[
+              const SizedBox(height: 14),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF59E0B).withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: const Color(0xFFF59E0B).withValues(alpha: 0.38),
+                  ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(
+                      Icons.warning_amber_rounded,
+                      color: Color(0xFFF59E0B),
+                      size: 21,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        warning!,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurface,
+                          fontWeight: FontWeight.w800,
+                          height: 1.35,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 18),
             SizedBox(
               width: double.infinity,

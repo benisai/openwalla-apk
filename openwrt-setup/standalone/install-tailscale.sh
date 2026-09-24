@@ -12,6 +12,12 @@ require_file "$RPCD_ACL"
 
 free_kb="$(df -k /overlay 2>/dev/null | awk 'NR == 2 { print $4 }')"
 case "$free_kb" in ''|*[!0-9]*) free_kb=0 ;; esac
+echo "WARNING: Tailscale is a large package and needs about 20 MB or more of free overlay storage."
+if [ "$free_kb" -gt 0 ]; then
+	echo "Available overlay storage: $((free_kb / 1024)) MB."
+else
+	echo "Available overlay storage could not be determined."
+fi
 if [ "$free_kb" -gt 0 ] && [ "$free_kb" -lt 20000 ]; then
 	echo "Tailscale needs about 20 MB of free overlay storage; only $((free_kb / 1024)) MB is available."
 	exit 1
