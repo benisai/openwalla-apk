@@ -100,15 +100,21 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
   Future<void> _setWirelessRadioEnabled(
     BuildContext context,
     String radioName,
-    bool enabled,
-  ) async {
+    bool enabled, {
+    String? interfaceSection,
+  }) async {
     if (radioName.isEmpty || _updatingWirelessRadios.contains(radioName)) {
       return;
     }
     setState(() => _updatingWirelessRadios.add(radioName));
     final success = await ref
         .read(appStateProvider)
-        .setWirelessRadioState(radioName, enabled, context: context);
+        .setWirelessRadioState(
+          radioName,
+          enabled,
+          interfaceSection: interfaceSection,
+          context: context,
+        );
     if (!mounted || !context.mounted) return;
     setState(() => _updatingWirelessRadios.remove(radioName));
     ScaffoldMessenger.of(context).showSnackBar(
@@ -1758,7 +1764,6 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
     final isSta = iface['isSta'] == true;
     final radioName = iface['radioName']?.toString() ?? '';
     final isInterfaceEnabled = iface['isEnabled'] == true;
-    final isRadioEnabled = iface['radioEnabled'] == true;
     final isUpdating = isSta
         ? _updatingWirelessInterfaces.contains(section)
         : _updatingWirelessRadios.contains(radioName);
@@ -1786,12 +1791,12 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
           ? 'Wait'
           : isSta
           ? (isInterfaceEnabled ? 'Disconnect' : 'Connect')
-          : (isRadioEnabled ? 'Enabled' : 'Disabled'),
+          : (isInterfaceEnabled ? 'Enabled' : 'Disabled'),
       icon: isUpdating
           ? Icons.hourglass_top_rounded
           : isSta
           ? (isInterfaceEnabled ? Icons.link_off_rounded : Icons.link_rounded)
-          : (isRadioEnabled
+          : (isInterfaceEnabled
                 ? Icons.check_circle_outline_rounded
                 : Icons.power_settings_new_rounded),
       color: isSta && isInterfaceEnabled
@@ -1812,7 +1817,8 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
                 : () => _setWirelessRadioEnabled(
                     context,
                     radioName,
-                    !isRadioEnabled,
+                    !isInterfaceEnabled,
+                    interfaceSection: section.isEmpty ? null : section,
                   )),
     );
     return Column(

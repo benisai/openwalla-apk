@@ -10126,6 +10126,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
   Future<bool> setWirelessRadioState(
     String device,
     bool enabled, {
+    String? interfaceSection,
     BuildContext? context,
   }) async {
     if (_reviewerModeEnabled) {
@@ -10150,6 +10151,20 @@ done | sort -t "|" -k1,1nr | head -n ''' +
         values: {'disabled': enabled ? '0' : '1'},
         context: context,
       );
+
+      if (interfaceSection != null &&
+          interfaceSection.isNotEmpty &&
+          interfaceSection != device) {
+        await _apiService!.uciSet(
+          _authService!.ipAddress!,
+          _authService!.sysauth!,
+          _authService!.useHttps,
+          config: 'wireless',
+          section: interfaceSection,
+          values: {'disabled': enabled ? '0' : '1'},
+          context: context?.mounted == true ? context : null,
+        );
+      }
 
       // 2. Commit the changes
       await _apiService!.uciCommit(
