@@ -10739,15 +10739,23 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     BuildContext? context,
   }) async {
     final normalized = _normalizeMacAddress(mac);
+    final wasPaused = _parentalPausedMacs.contains(normalized);
+    if (pause) {
+      _parentalPausedMacs.add(normalized);
+    } else {
+      _parentalPausedMacs.remove(normalized);
+    }
+    notifyListeners();
     try {
       await _setClientInternetPaused(normalized, pause, context: context);
-      if (pause) {
+      return true;
+    } catch (e, stack) {
+      if (wasPaused) {
         _parentalPausedMacs.add(normalized);
       } else {
         _parentalPausedMacs.remove(normalized);
       }
-      return true;
-    } catch (e, stack) {
+      notifyListeners();
       Logger.exception('Failed to update parental pause state', e, stack);
       return false;
     }
@@ -10765,57 +10773,63 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       throw StateError('No selected router connection is available');
     }
 
-    final firewall = await _apiService!.call(
+    final ruleName = '$_openwallaPauseRulePrefix${mac.replaceAll(':', '')}';
+    final script =
+        '''
+mac=${_shellQuote(mac)}
+rule_name=${_shellQuote(ruleName)}
+for sec in \$(uci -q show firewall | sed -n 's/^firewall\\.\\([^.=]*\\)=rule\$/\\1/p'); do
+  name=\$(uci -q get firewall.\$sec.name)
+  case "\$name" in
+    $_openwallaPauseRulePrefix*)
+      macs=\$(uci -q get firewall.\$sec.src_mac)
+      echo "\$macs" | tr 'a-f' 'A-F' | grep -Fq "\$mac" && uci -q delete firewall.\$sec
+      ;;
+  esac
+done
+${paused ? '''
+uci set firewall.\$rule_name='rule'
+uci set firewall.\$rule_name.name="\$rule_name"
+uci set firewall.\$rule_name.src='*'
+uci set firewall.\$rule_name.dest='wan'
+uci set firewall.\$rule_name.src_mac="\$mac"
+uci set firewall.\$rule_name.proto='all'
+uci set firewall.\$rule_name.target='DROP'
+uci set firewall.\$rule_name.family='any'
+uci set firewall.\$rule_name.enabled='1'
+''' : ''}
+uci commit firewall
+(
+  sleep 1
+  /etc/init.d/firewall reload >/dev/null 2>&1 || /etc/init.d/firewall restart >/dev/null 2>&1 || true
+  ${paused ? '''
+  if command -v nft >/dev/null 2>&1 && nft list chain inet fw4 forward >/dev/null 2>&1; then
+    nft insert rule inet fw4 forward ether saddr "\$mac" drop >/dev/null 2>&1 || true
+  else
+    iptables -I FORWARD -m mac --mac-source "\$mac" -j DROP >/dev/null 2>&1 || true
+  fi
+  ''' : ''}
+) >/dev/null 2>&1 &
+echo OPENWALLA_PAUSE_OK
+''';
+    final result = await _apiService!.call(
       router.ipAddress,
       sysauth,
       router.useHttps,
-      object: 'uci',
-      method: 'get',
-      params: {'config': 'firewall'},
-      context: context,
+      object: 'file',
+      method: 'exec',
+      params: {
+        'command': '/bin/sh',
+        'params': ['-c', script],
+      },
+      context: context?.mounted == true ? context : null,
     );
-    final values = _extractUciValues(firewall);
-    final sections = _firewallSectionsForMac(
-      values,
-      mac,
-      prefixes: const [_openwallaPauseRulePrefix],
-    );
-    if (paused) {
-      if (sections.isEmpty) {
-        await _addClientFirewallRule(
-          router: router,
-          sysauth: sysauth,
-          mac: mac,
-          name: '$_openwallaPauseRulePrefix${mac.replaceAll(':', '')}',
-          destination: 'wan',
-        );
-      } else {
-        for (final rule in sections) {
-          await _configureClientFirewallRule(
-            router: router,
-            sysauth: sysauth,
-            section: rule.section,
-            mac: mac,
-            name: rule.name,
-            destination: 'wan',
-          );
-        }
-      }
-    } else if (!paused) {
-      await _deleteFirewallSections(
-        router: router,
-        sysauth: sysauth,
-        sections: sections.map((entry) => entry.section),
-      );
+    final data = _extractRpcData(result);
+    if (data is Map && data['code'] != null && data['code'].toString() != '0') {
+      throw StateError(_commandOutput(data));
     }
-    await _commitAndReloadFirewall(router, sysauth);
-    if (paused) {
-      await _applyImmediateClientFirewallBlock(
-        router: router,
-        sysauth: sysauth,
-        mac: mac,
-        blockRouterAccess: false,
-      );
+    if (!_commandOutput(result).contains('OPENWALLA_PAUSE_OK')) {
+      throw StateError('Router did not confirm the pause change');
     }
   }
 
@@ -11371,7 +11385,7 @@ uci commit dhcp
     final deauth = denied
         ? '/usr/sbin/hostapd_cli -p "\$dir" -i "\$iface" deauth "\$mac" >/dev/null 2>&1 || true;'
         : '';
-    final script =
+    final actionScript =
         '''
 mac=${_shellQuote(mac)}
 for socket in /var/run/hostapd/* /var/run/hostapd-*/*; do
@@ -11387,7 +11401,8 @@ exit 0
       router.ipAddress,
       sysauth,
       router.useHttps,
-      command: script,
+      command:
+          '( sleep 1; $actionScript ) >/dev/null 2>&1 & echo OPENWALLA_WIFI_ACL_QUEUED',
     );
   }
 
@@ -11960,7 +11975,7 @@ exit 0
     final iptablesInput = blockRouterAccess
         ? 'iptables -I INPUT -m mac --mac-source "\$mac" -j DROP >/dev/null 2>&1 || true\n'
         : '';
-    final command =
+    final enforcement =
         '''
 mac=$quotedMac
 if command -v nft >/dev/null 2>&1 && nft list chain inet fw4 forward >/dev/null 2>&1; then
@@ -11971,6 +11986,8 @@ else
   $iptablesInput
 fi
 ''';
+    final command =
+        '( sleep 1; $enforcement ) >/dev/null 2>&1 & echo OPENWALLA_BLOCK_QUEUED';
     await _apiService!.systemExec(
       router.ipAddress,
       sysauth,
@@ -12011,7 +12028,7 @@ fi
       sysauth,
       router.useHttps,
       command:
-          '/etc/init.d/firewall reload 2>/dev/null || /etc/init.d/firewall restart 2>/dev/null || true',
+          '( sleep 1; /etc/init.d/firewall reload 2>/dev/null || /etc/init.d/firewall restart 2>/dev/null || true ) >/dev/null 2>&1 & echo OPENWALLA_FIREWALL_RELOAD_QUEUED',
     );
   }
 

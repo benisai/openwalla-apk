@@ -405,6 +405,9 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
                                         ),
                                         child: _UnifiedClientCard(
                                           client: client,
+                                          isPaused: appState.isInternetPaused(
+                                            client.macAddress,
+                                          ),
                                           onOpenSettings: () =>
                                               _showDeviceSettingsSheet(client),
                                           onLongPress: () =>
@@ -1908,11 +1911,13 @@ class _ActiveScheduleNotice extends ConsumerWidget {
 
 class _UnifiedClientCard extends StatelessWidget {
   final Client client;
+  final bool isPaused;
   final VoidCallback onOpenSettings;
   final VoidCallback onLongPress;
 
   const _UnifiedClientCard({
     required this.client,
+    required this.isPaused,
     required this.onOpenSettings,
     required this.onLongPress,
   });
@@ -2002,12 +2007,46 @@ class _UnifiedClientCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      client.hostname,
-                      style: LuciTextStyles.cardTitle(context),
-                      semanticsLabel: 'Client hostname: ${client.hostname}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            client.hostname,
+                            style: LuciTextStyles.cardTitle(context),
+                            semanticsLabel:
+                                'Client hostname: ${client.hostname}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (isPaused) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 7,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(
+                                0xFFE85D8E,
+                              ).withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: const Color(
+                                  0xFFE85D8E,
+                                ).withValues(alpha: 0.45),
+                              ),
+                            ),
+                            child: Text(
+                              'Paused',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: const Color(0xFFE85D8E),
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: LuciSpacing.xs),
                     Container(
