@@ -1,0 +1,15 @@
+#!/bin/sh
+
+# Trigger an immediate quarantine check for new DHCP leases and LAN neighbors.
+
+[ "${ACTION:-}" = "add" ] || [ "${ACTION:-}" = "update" ] || exit 0
+[ -x /usr/bin/openwalla-device-quarantine ] || exit 0
+
+mac="${MACADDR:-${MAC:-}}"
+ip="${IPADDR:-${IP:-}}"
+host="${HOSTNAME:-${DHCP_HOSTNAME:-}}"
+
+[ -n "$mac" ] || exit 0
+/usr/bin/openwalla-device-quarantine --event "$mac" "$ip" "$host" >/dev/null 2>&1 &
+
+exit 0

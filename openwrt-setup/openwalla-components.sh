@@ -5,7 +5,7 @@
 
 set -u
 
-COMPONENT_VERSION="2026.09.25.1"
+COMPONENT_VERSION="2026.09.25.2"
 RAW_BASE="${OPENWALLA_RAW_BASE:-https://raw.githubusercontent.com/benisai/openwalla-apk/main/openwrt-setup}"
 ACTION="${1:-status}"
 TMP_DIR="/tmp/openwalla-component-update.$$"
@@ -109,6 +109,8 @@ files/openwalla-scheduler.sh|/usr/bin/openwalla-scheduler|0755|
 files/openwalla-parental.sh|/usr/bin/openwalla-parental|0755|
 files/openwalla-device-quarantine.sh|/usr/bin/openwalla-device-quarantine|0755|openwalla-device-quarantine
 files/openwalla-device-quarantine.init|/etc/init.d/openwalla-device-quarantine|0755|openwalla-device-quarantine
+files/openwalla-device-quarantine.hotplug|/etc/hotplug.d/dhcp/95-openwalla-quarantine|0755|
+files/openwalla-device-quarantine.hotplug|/etc/hotplug.d/neigh/95-openwalla-quarantine|0755|
 files/openwalla-state-sync.sh|/usr/bin/openwalla-state-sync|0755|openwalla-state-sync
 files/openwalla-state-sync.init|/etc/init.d/openwalla-state-sync|0755|openwalla-state-sync
 files/openwalla-connection-flow-collector.sh|/usr/bin/openwalla-connection-flow-collector|0755|openwalla-connection-flows-collector

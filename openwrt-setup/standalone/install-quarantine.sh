@@ -12,6 +12,7 @@ log "Installing Openwalla device quarantine"
 
 require_file "$FILES_DIR/openwalla-device-quarantine.sh"
 require_file "$FILES_DIR/openwalla-device-quarantine.init"
+require_file "$FILES_DIR/openwalla-device-quarantine.hotplug"
 require_file "$FILES_DIR/openwalla.config"
 require_file "$RPCD_ACL"
 
@@ -20,6 +21,8 @@ ensure_uci_section quarantine quarantine
 
 install_file "$FILES_DIR/openwalla-device-quarantine.sh" /usr/bin/openwalla-device-quarantine 0755
 install_file "$FILES_DIR/openwalla-device-quarantine.init" /etc/init.d/openwalla-device-quarantine 0755
+install_file "$FILES_DIR/openwalla-device-quarantine.hotplug" /etc/hotplug.d/dhcp/95-openwalla-quarantine 0755
+install_file "$FILES_DIR/openwalla-device-quarantine.hotplug" /etc/hotplug.d/neigh/95-openwalla-quarantine 0755
 install_rpcd_acl
 
 set_uci_default openwalla.quarantine.enabled "0"

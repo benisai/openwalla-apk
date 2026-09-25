@@ -17,7 +17,7 @@ OPENWALLA_GITHUB_REPO="${OPENWALLA_GITHUB_REPO:-benisai/openwalla-apk}"
 OPENWALLA_GITHUB_REF="${OPENWALLA_GITHUB_REF:-main}"
 OPENWALLA_RAW_BASE="${OPENWALLA_RAW_BASE:-https://raw.githubusercontent.com/$OPENWALLA_GITHUB_REPO/$OPENWALLA_GITHUB_REF/openwrt-setup}"
 OPENWALLA_ROOT="${OPENWALLA_ROOT:-/root/openwalla}"
-OPENWALLA_COMPONENT_VERSION="2026.09.24.3"
+OPENWALLA_COMPONENT_VERSION="2026.09.25.2"
 STANDALONE_DIR="$OPENWALLA_ROOT/standalone"
 STANDALONE_LIB_DIR="$STANDALONE_DIR/lib"
 
@@ -499,7 +499,8 @@ uninstall_feature() {
 		;;
 	quarantine)
 		stop_disable_service openwalla-device-quarantine
-		rm -f /usr/bin/openwalla-device-quarantine /etc/init.d/openwalla-device-quarantine
+		rm -f /usr/bin/openwalla-device-quarantine /etc/init.d/openwalla-device-quarantine \
+			/etc/hotplug.d/dhcp/95-openwalla-quarantine /etc/hotplug.d/neigh/95-openwalla-quarantine
 		clear_openwalla_section quarantine
 		;;
 	state-sync)

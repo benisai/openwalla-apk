@@ -16,6 +16,7 @@ DEFAULT_LAN_DEVICE="br-lan"
 DEFAULT_NOTIFICATIONS_DB="/tmp/openwalla-notifications.sqlite"
 DEFAULT_DEVICES_DB="/tmp/openwalla-devices.sqlite"
 LOG_FILE="/tmp/openwalla-device-quarantine.log"
+LOCK_DIR="/tmp/openwalla-device-quarantine.lock"
 
 log() {
 	local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $*"
@@ -305,7 +306,31 @@ ensure_state_file() {
 	[ -f "$STATE_FILE" ] || : >"$STATE_FILE"
 }
 
-discover_once() {
+seed_known_devices() {
+	local dir tmp
+	dir="$(dirname "$STATE_FILE")"
+	mkdir -p "$dir" 2>/dev/null || true
+	tmp="${STATE_FILE}.seed.$$"
+	collect_candidates | cut -d'|' -f1 | sort -u >"$tmp"
+	mv "$tmp" "$STATE_FILE"
+	log "initialized known devices baseline at $STATE_FILE"
+}
+
+ensure_initialized() {
+	if [ ! -f "$STATE_FILE" ]; then
+		seed_known_devices
+		return 1
+	fi
+	ensure_state_file
+	return 0
+}
+
+commit_firewall() {
+	uci commit firewall
+	/etc/init.d/firewall reload >/dev/null 2>&1 || /etc/init.d/firewall restart >/dev/null 2>&1 || true
+}
+
+discover_once_unlocked() {
 	local changed tmp lease mac ip host
 	load_config
 	if ! service_enabled; then
@@ -313,12 +338,9 @@ discover_once() {
 		return 0
 	fi
 
-	ensure_state_file
-
-	# First run: seed known list, do not quarantine current devices.
-	if [ ! -s "$STATE_FILE" ]; then
-		collect_candidates | cut -d'|' -f1 | sort -u >"$STATE_FILE"
-		log "initialized known devices state at $STATE_FILE"
+	# A missing comparison file means fresh installation. Seed every visible
+	# client, even when the resulting list is empty, and quarantine nobody.
+	if ! ensure_initialized; then
 		return 0
 	fi
 
@@ -337,29 +359,70 @@ discover_once() {
 	rm -f "$tmp"
 
 	if [ "$changed" = "1" ]; then
-		uci commit firewall
-		/etc/init.d/firewall reload >/dev/null 2>&1 || /etc/init.d/firewall restart >/dev/null 2>&1 || true
+		commit_firewall
 	fi
+}
+
+handle_event_unlocked() {
+	local mac ip host
+	load_config
+	if ! service_enabled; then
+		return 0
+	fi
+
+	mac="$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')"
+	ip="${2:-}"
+	host="${3:-}"
+	case "$mac" in
+	[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]) ;;
+	*) return 0 ;;
+	esac
+
+	# The first event after installation establishes the complete baseline and
+	# includes this device. Existing clients must never be quarantined en masse.
+	if ! ensure_initialized; then
+		grep -qx "$mac" "$STATE_FILE" 2>/dev/null || echo "$mac" >>"$STATE_FILE"
+		return 0
+	fi
+	grep -qx "$mac" "$STATE_FILE" 2>/dev/null && return 0
+
+	quarantine_new_device "$mac" "$ip" "$host"
+	echo "$mac" >>"$STATE_FILE"
+	commit_firewall
+}
+
+run_locked() {
+	if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+		log "scan already running; event deferred to periodic discovery"
+		return 0
+	fi
+	"$@"
+	local result=$?
+	rmdir "$LOCK_DIR" 2>/dev/null || true
+	return "$result"
 }
 
 run_daemon() {
 	log "starting quarantine daemon"
 	while true; do
 		load_config
-		discover_once
+		run_locked discover_once_unlocked
 		sleep "$INTERVAL"
 	done
 }
 
 case "${1:-}" in
 --once)
-	discover_once
+	run_locked discover_once_unlocked
+	;;
+--event)
+	run_locked handle_event_unlocked "${2:-}" "${3:-}" "${4:-}"
 	;;
 --daemon|"")
 	run_daemon
 	;;
 *)
-	echo "Usage: $0 [--once|--daemon]"
+	echo "Usage: $0 [--once|--daemon|--event MAC [IP [HOSTNAME]]]"
 	exit 1
 	;;
 esac
