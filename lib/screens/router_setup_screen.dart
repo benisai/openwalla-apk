@@ -502,7 +502,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
         'Parental Controls',
         'Smart Queue (SQM)',
         'Dynamic DNS (DDNS)',
-        'WireGuard tools (no VPN configuration)',
+        'WireGuard tools and LuCI protocol support',
       ],
       _SetupProfile.advanced => [
         ..._installLabels(_SetupProfile.standard),
@@ -1014,7 +1014,7 @@ class _UninstallComponentsCard extends StatelessWidget {
     (
       feature: 'wireguard',
       title: 'WireGuard',
-      subtitle: 'WireGuard tools only. No VPN configuration is created.',
+      subtitle: 'WireGuard tools and LuCI protocol support.',
       icon: Icons.vpn_key_rounded,
     ),
     (

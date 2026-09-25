@@ -532,7 +532,7 @@ class _VpnScreenState extends ConsumerState<VpnScreen> {
                 feature: OpenwrtFeature.wireguard,
                 title: 'WireGuard is not installed',
                 message:
-                    'Install wireguard-tools on this OpenWrt router before configuring VPN server or client settings.',
+                    'Install WireGuard tools and LuCI protocol support before configuring VPN server or client settings.',
                 installLabel: 'Install WireGuard',
                 builder: (_) => _buildInstalledContent(colorScheme),
               ),

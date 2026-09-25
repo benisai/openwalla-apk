@@ -2535,7 +2535,10 @@ class AppState extends ChangeNotifier {
   String _openwrtFeatureCheckCommand(OpenwrtFeature feature) {
     return switch (feature) {
       OpenwrtFeature.wireguard => _withWireGuardBinaryLookup(
-        '[ -n "\$WG_BIN" ] && echo OK',
+        'LUCI_WG=0; '
+        'opkg status luci-proto-wireguard 2>/dev/null | grep -q "Status:.*installed" && LUCI_WG=1; '
+        'apk info -e luci-proto-wireguard >/dev/null 2>&1 && LUCI_WG=1; '
+        '[ -n "\$WG_BIN" ] && [ "\$LUCI_WG" = "1" ] && echo OK',
       ),
       OpenwrtFeature.adblock =>
         r'([ -x /etc/init.d/adblock ] || command -v adblock >/dev/null 2>&1 || uci -q get adblock.global >/dev/null 2>&1 || opkg list-installed 2>/dev/null | grep -Eq "^(adblock|luci-app-adblock) ") && echo OK',
