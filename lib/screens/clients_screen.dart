@@ -681,7 +681,7 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Remove ${client.displayName}?',
+                          'Delete ${client.displayName}?',
                           style: Theme.of(sheetContext).textTheme.titleLarge
                               ?.copyWith(fontWeight: FontWeight.w900),
                         ),
@@ -712,7 +712,7 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
                     const SizedBox(width: 10),
                     const Expanded(
                       child: Text(
-                        'This hides the device from Openwalla without blocking its network access.',
+                        'This deletes the device from Openwalla and removes its OpenWrt DHCP hostname or static IP reservation. It does not block network access.',
                       ),
                     ),
                   ],

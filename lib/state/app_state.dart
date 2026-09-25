@@ -12746,33 +12746,56 @@ exit 0
       throw ArgumentError('A valid device MAC address is required');
     }
 
-    final escMac = normalizedMac.toLowerCase().replaceAll("'", "''");
-    final escIp = (client.ipAddress == 'N/A' ? '' : client.ipAddress)
-        .replaceAll("'", "''");
-    final escHostname = client.hostname.replaceAll("'", "''");
-    try {
-      await _apiService!.call(
+    final dhcp = await _apiService!.call(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      object: 'uci',
+      method: 'get',
+      params: {'config': 'dhcp'},
+      context: context,
+    );
+    final matchingHostSections = <String>[];
+    _extractUciValues(dhcp).forEach((section, values) {
+      if (values['.type']?.toString() != 'host') return;
+      final configuredMacs = values['mac'] is List
+          ? (values['mac'] as List)
+                .map((value) => _normalizeMacAddress(value.toString()))
+                .toList()
+          : [_normalizeMacAddress(values['mac']?.toString() ?? '')];
+      if (configuredMacs.contains(normalizedMac)) {
+        matchingHostSections.add(section);
+      }
+    });
+
+    for (final section in matchingHostSections) {
+      final deleteResult = await _apiService!.call(
         router.ipAddress,
         sysauth,
         router.useHttps,
-        object: 'file',
-        method: 'exec',
-        params: {
-          'command': '/bin/sh',
-          'params': [
-            '-c',
-            _sqliteCommand(
-              _devicesDbExpression(),
-              'ALTER TABLE devices ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0;',
-            ),
-          ],
-        },
+        object: 'uci',
+        method: 'delete',
+        params: {'config': 'dhcp', 'section': section},
       );
-    } catch (_) {
-      // The column already exists on routers with the current collector.
+      if (!_rpcCallSucceeded(deleteResult)) {
+        throw StateError('Unable to remove the OpenWrt DHCP device entry');
+      }
     }
-    final sql =
-        "INSERT INTO devices (mac, ip, hostname, hidden) VALUES ('$escMac', '$escIp', '$escHostname', 1) ON CONFLICT(mac) DO UPDATE SET hidden = 1;";
+
+    if (matchingHostSections.isNotEmpty) {
+      final commitResult = await _apiService!.uciCommit(
+        router.ipAddress,
+        sysauth,
+        router.useHttps,
+        config: 'dhcp',
+      );
+      if (!_rpcCallSucceeded(commitResult)) {
+        throw StateError('Unable to save the OpenWrt DHCP changes');
+      }
+    }
+
+    final escapedMac = normalizedMac.toLowerCase().replaceAll("'", "''");
+    final sql = "DELETE FROM devices WHERE lower(mac) = '$escapedMac';";
     await _apiService!.call(
       router.ipAddress,
       sysauth,
@@ -12784,6 +12807,23 @@ exit 0
         'params': ['-c', _sqliteCommand(_devicesDbExpression(), sql)],
       },
     );
+    if (matchingHostSections.isNotEmpty) {
+      unawaited(
+        _apiService!
+            .systemExec(
+              router.ipAddress,
+              sysauth,
+              router.useHttps,
+              command:
+                  '/etc/init.d/dnsmasq reload 2>/dev/null || service dnsmasq reload 2>/dev/null || true',
+            )
+            .catchError((Object e, StackTrace stack) {
+              Logger.debug('Background DHCP service reload failed: $e');
+              Logger.debug('Background DHCP service reload stack: $stack');
+              return <String, dynamic>{};
+            }),
+      );
+    }
     notifyListeners();
   }
 
