@@ -2693,30 +2693,54 @@ class AppState extends ChangeNotifier {
     );
   }
 
-  Future<void> saveQuarantineSettings({
+  Future<({bool enabled, bool running, int intervalSeconds})>
+  saveQuarantineSettings({
     required bool enabled,
     required int intervalSeconds,
     BuildContext? context,
   }) async {
     if (_reviewerModeEnabled) {
       notifyListeners();
-      return;
+      return (
+        enabled: enabled,
+        running: enabled,
+        intervalSeconds: intervalSeconds.clamp(10, 3600),
+      );
     }
     final interval = intervalSeconds.clamp(10, 3600);
+    final expectedEnabled = enabled ? '1' : '0';
     final serviceCommand = enabled
         ? '/etc/init.d/openwalla-device-quarantine enable 2>/dev/null || true; '
               '/etc/init.d/openwalla-device-quarantine restart 2>/dev/null || '
               '/etc/init.d/openwalla-device-quarantine start'
         : '/etc/init.d/openwalla-device-quarantine stop 2>/dev/null || true';
-    await runRouterSetupCommand(
+    final output = await runRouterSetupCommand(
       'uci -q get openwalla.quarantine >/dev/null 2>&1 || '
       'uci set openwalla.quarantine=quarantine; '
-      'uci set openwalla.quarantine.enabled=${enabled ? '1' : '0'}; '
+      'uci set openwalla.quarantine.enabled=$expectedEnabled; '
       'uci set openwalla.quarantine.interval=$interval; '
-      'uci commit openwalla; $serviceCommand',
+      'uci commit openwalla || exit 1; '
+      'actual=\$(uci -q get openwalla.quarantine.enabled); '
+      '[ "\$actual" = "$expectedEnabled" ] || exit 1; '
+      '$serviceCommand; '
+      'running=0; '
+      '/etc/init.d/openwalla-device-quarantine running >/dev/null 2>&1 && running=1; '
+      'printf "OPENWALLA_QUARANTINE_SAVED|%s|%s|%s\\n" '
+      '"\$actual" "\$running" "\$(uci -q get openwalla.quarantine.interval)"',
       context: context,
     );
+    final match = RegExp(
+      r'OPENWALLA_QUARANTINE_SAVED\|([01])\|([01])\|(\d+)',
+    ).firstMatch(output);
+    if (match == null || match.group(1) != expectedEnabled) {
+      throw StateError('Router did not confirm the quarantine setting');
+    }
     notifyListeners();
+    return (
+      enabled: match.group(1) == '1',
+      running: match.group(2) == '1',
+      intervalSeconds: int.tryParse(match.group(3) ?? '') ?? interval,
+    );
   }
 
   Future<void> runQuarantineDiscovery({BuildContext? context}) async {

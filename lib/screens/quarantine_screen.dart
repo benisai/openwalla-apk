@@ -4,6 +4,7 @@ import 'package:luci_mobile/main.dart';
 import 'package:luci_mobile/models/client.dart';
 import 'package:luci_mobile/state/app_state.dart';
 import 'package:luci_mobile/widgets/luci_app_bar.dart';
+import 'package:luci_mobile/widgets/luci_toast.dart';
 import 'package:luci_mobile/widgets/openwrt_feature_gate.dart';
 
 class QuarantineScreen extends ConsumerStatefulWidget {
@@ -47,29 +48,49 @@ class _QuarantineScreenState extends ConsumerState<QuarantineScreen> {
     final snapshot = _snapshot;
     if (snapshot == null || _working) return;
     setState(() => _working = true);
+    const actionKey = 'quarantine-toggle';
+    context.showToastLoading(
+      enabled ? 'Enabling quarantine...' : 'Disabling quarantine...',
+      actionKey: actionKey,
+    );
     try {
-      await ref
+      final state = await ref
           .read(appStateProvider)
           .saveQuarantineSettings(
             enabled: enabled,
             intervalSeconds: snapshot.intervalSeconds,
             context: context,
           );
-      await _load();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            enabled
-                ? 'New-device quarantine enabled.'
-                : 'New-device quarantine disabled.',
-          ),
-        ),
-      );
+      setState(() {
+        _snapshot = OpenwallaQuarantineSnapshot(
+          enabled: state.enabled,
+          running: state.running,
+          intervalSeconds: state.intervalSeconds,
+          devices: snapshot.devices,
+        );
+      });
+      if (enabled && !state.running) {
+        context.showToastWarning(
+          'Quarantine enabled, service stopped',
+          subtitle: 'The setting was saved, but monitoring did not start.',
+          actionKey: actionKey,
+        );
+      } else {
+        context.showToastSuccess(
+          enabled ? 'Quarantine enabled' : 'Quarantine disabled',
+          subtitle: enabled
+              ? 'New devices are now being monitored.'
+              : 'Automatic device isolation is off.',
+          actionKey: actionKey,
+        );
+      }
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Unable to update quarantine: $error')),
+      context.showToastError(
+        'Unable to update quarantine',
+        subtitle: error.toString().replaceFirst('Bad state: ', ''),
+        actionKey: actionKey,
       );
     } finally {
       if (mounted) setState(() => _working = false);
@@ -80,19 +101,36 @@ class _QuarantineScreenState extends ConsumerState<QuarantineScreen> {
     final snapshot = _snapshot;
     if (snapshot == null || _working) return;
     setState(() => _working = true);
+    const actionKey = 'quarantine-interval';
+    context.showToastLoading('Saving scan interval...', actionKey: actionKey);
     try {
-      await ref
+      final state = await ref
           .read(appStateProvider)
           .saveQuarantineSettings(
             enabled: snapshot.enabled,
             intervalSeconds: seconds,
             context: context,
           );
-      await _load();
+      if (!mounted) return;
+      setState(() {
+        _snapshot = OpenwallaQuarantineSnapshot(
+          enabled: state.enabled,
+          running: state.running,
+          intervalSeconds: state.intervalSeconds,
+          devices: snapshot.devices,
+        );
+      });
+      context.showToastSuccess(
+        'Scan interval updated',
+        subtitle: 'Checking every ${state.intervalSeconds} seconds.',
+        actionKey: actionKey,
+      );
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Unable to save scan interval: $error')),
+      context.showToastError(
+        'Unable to save scan interval',
+        subtitle: error.toString().replaceFirst('Bad state: ', ''),
+        actionKey: actionKey,
       );
     } finally {
       if (mounted) setState(() => _working = false);
@@ -102,17 +140,22 @@ class _QuarantineScreenState extends ConsumerState<QuarantineScreen> {
   Future<void> _scanNow() async {
     if (_working) return;
     setState(() => _working = true);
+    const actionKey = 'quarantine-scan';
+    context.showToastLoading(
+      'Scanning for new devices...',
+      actionKey: actionKey,
+    );
     try {
       await ref.read(appStateProvider).runQuarantineDiscovery(context: context);
       await _load();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Device discovery completed.')),
-      );
+      context.showToastSuccess('Device scan complete', actionKey: actionKey);
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Device discovery failed: $error')),
+      context.showToastError(
+        'Device scan failed',
+        subtitle: error.toString().replaceFirst('Bad state: ', ''),
+        actionKey: actionKey,
       );
     } finally {
       if (mounted) setState(() => _working = false);
@@ -142,19 +185,29 @@ class _QuarantineScreenState extends ConsumerState<QuarantineScreen> {
     );
     if (confirmed != true || !mounted) return;
     setState(() => _working = true);
+    final actionKey = 'quarantine-release-${client.macAddress}';
+    context.showToastLoading(
+      'Releasing device...',
+      subtitle: client.displayName,
+      actionKey: actionKey,
+    );
     try {
       await ref
           .read(appStateProvider)
           .releaseQuarantinedDevice(client, context: context);
       await _load();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${client.displayName} released.')),
+      context.showToastSuccess(
+        'Device released',
+        subtitle: client.displayName,
+        actionKey: actionKey,
       );
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Unable to release device: $error')),
+      context.showToastError(
+        'Unable to release device',
+        subtitle: error.toString().replaceFirst('Bad state: ', ''),
+        actionKey: actionKey,
       );
     } finally {
       if (mounted) setState(() => _working = false);
