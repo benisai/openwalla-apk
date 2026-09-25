@@ -101,7 +101,7 @@ class _VpnScreenState extends ConsumerState<VpnScreen> {
     }
   }
 
-  Future<void> _saveServer() async {
+  Future<void> _saveServer({bool setup = false}) async {
     final port = int.tryParse(_portController.text.trim());
     final vpnAddress = _vpnAddressController.text.trim();
 
@@ -129,7 +129,11 @@ class _VpnScreenState extends ConsumerState<VpnScreen> {
           .read(appStateProvider)
           .saveWireGuardServerSettings(updated, context: context);
       if (!mounted) return;
-      _showSnack('WireGuard server settings saved.');
+      _showSnack(
+        setup
+            ? 'WireGuard server set up successfully.'
+            : 'WireGuard server settings saved.',
+      );
       await _load();
     } catch (e) {
       if (!mounted) return;
@@ -670,19 +674,36 @@ class _VpnScreenState extends ConsumerState<VpnScreen> {
               ),
               _DetailRow(label: 'Public key', value: _settings.publicKey),
               const SizedBox(height: 18),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: _isSaving ? null : _saveServer,
-                  icon: _isSaving
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.save_rounded),
-                  label: Text(_isSaving ? 'Saving' : 'Save Server'),
-                ),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _isSaving ? null : () => _saveServer(),
+                      icon: const Icon(Icons.save_rounded),
+                      label: const Text('Save Server'),
+                    ),
+                  ),
+                  if (!_settings.configured) ...[
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: _isSaving
+                            ? null
+                            : () => _saveServer(setup: true),
+                        icon: _isSaving
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.build_circle_outlined),
+                        label: Text(_isSaving ? 'Setting Up' : 'Setup'),
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ],
           ),
