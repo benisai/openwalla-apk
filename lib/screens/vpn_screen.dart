@@ -20,6 +20,7 @@ class VpnScreen extends ConsumerStatefulWidget {
 class _VpnScreenState extends ConsumerState<VpnScreen> {
   _VpnPanel _panel = _VpnPanel.server;
   WireGuardServerSettings _settings = WireGuardServerSettings.defaults;
+  List<WireGuardServerProfile> _serverProfiles = const [];
   WireGuardClientSettings _clientSettings = WireGuardClientSettings.defaults;
   bool _isLoading = true;
   bool _isSaving = false;
@@ -75,10 +76,16 @@ class _VpnScreenState extends ConsumerState<VpnScreen> {
     try {
       final appState = ref.read(appStateProvider);
       final settings = await appState.fetchWireGuardServerSettings();
+      final serverProfiles = settings.configured
+          ? await appState.fetchWireGuardServerProfiles(
+              interfaceName: settings.interfaceName,
+            )
+          : const <WireGuardServerProfile>[];
       final clientSettings = await appState.fetchWireGuardClientSettings();
       if (!mounted) return;
       setState(() {
         _settings = settings;
+        _serverProfiles = serverProfiles;
         _clientSettings = clientSettings;
         _portController.text = settings.listenPort.toString();
         _vpnAddressController.text = settings.vpnAddress;
@@ -127,6 +134,107 @@ class _VpnScreenState extends ConsumerState<VpnScreen> {
     } catch (e) {
       if (!mounted) return;
       _showSnack('Failed to save WireGuard server: $e');
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  Future<void> _createServerProfile() async {
+    if (!_settings.configured) {
+      _showSnack('Save the WireGuard server before creating a profile.');
+      return;
+    }
+    final serverIp = _vpnAddressController.text.trim().split('/').first;
+    final octets = serverIp.split('.');
+    final prefix = octets.length == 4 ? octets.take(3).join('.') : '10.8.0';
+    final usedAddresses = _serverProfiles
+        .map((profile) => profile.address.split('/').first)
+        .toSet();
+    var host = 2;
+    while (usedAddresses.contains('$prefix.$host') && host < 255) {
+      host++;
+    }
+    final suggestedAddress = '$prefix.$host/32';
+    final result = await showDialog<_NewServerProfile>(
+      context: context,
+      builder: (context) => _ServerProfileDialog(
+        suggestedAddress: suggestedAddress,
+        suggestedDns: serverIp,
+      ),
+    );
+    if (result == null || !mounted) return;
+    setState(() => _isSaving = true);
+    try {
+      await ref
+          .read(appStateProvider)
+          .createWireGuardServerProfile(
+            interfaceName: _settings.interfaceName,
+            name: result.name,
+            address: result.address,
+            endpoint: result.endpoint,
+            dns: result.dns,
+            allowedIps: result.allowedIps,
+            context: context,
+          );
+      if (!mounted) return;
+      _showSnack('WireGuard profile created.');
+      await _load();
+    } catch (e) {
+      if (mounted) _showSnack('Failed to create profile: $e');
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  Future<void> _downloadServerProfile(WireGuardServerProfile profile) async {
+    try {
+      final safeName = profile.name.replaceAll(RegExp(r'[^A-Za-z0-9_-]+'), '-');
+      final path = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save WireGuard profile',
+        fileName: '$safeName.conf',
+        type: FileType.custom,
+        allowedExtensions: const ['conf'],
+        bytes: utf8.encode(profile.config),
+      );
+      if (mounted && path != null) _showSnack('WireGuard profile saved.');
+    } catch (e) {
+      if (mounted) _showSnack('Unable to save profile: $e');
+    }
+  }
+
+  Future<void> _deleteServerProfile(WireGuardServerProfile profile) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete profile?'),
+        content: Text('${profile.name} will no longer be able to connect.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _isSaving = true);
+    try {
+      await ref
+          .read(appStateProvider)
+          .deleteWireGuardServerProfile(profile.section, context: context);
+      if (!mounted) return;
+      setState(() {
+        _serverProfiles = _serverProfiles
+            .where((item) => item.section != profile.section)
+            .toList();
+      });
+      _showSnack('WireGuard profile deleted.');
+    } catch (e) {
+      if (mounted) _showSnack('Failed to delete profile: $e');
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -487,92 +595,180 @@ class _VpnScreenState extends ConsumerState<VpnScreen> {
 
   Widget _buildServerPanel() {
     final colorScheme = Theme.of(context).colorScheme;
-    return _VpnPanelCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _VpnPanelCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Text(
-                  'WireGuard Server',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0,
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'WireGuard Server',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0,
+                      ),
+                    ),
                   ),
-                ),
+                  _StatusPill(
+                    label: _settings.configured
+                        ? 'Configured'
+                        : 'Not configured',
+                    color: _settings.configured
+                        ? const Color(0xFF20CF70)
+                        : colorScheme.onSurfaceVariant,
+                  ),
+                ],
               ),
-              _StatusPill(
-                label: _settings.configured ? 'Configured' : 'Not configured',
-                color: _settings.configured
-                    ? const Color(0xFF20CF70)
-                    : colorScheme.onSurfaceVariant,
+              const SizedBox(height: 14),
+              if (!_settings.installed)
+                _WarningBox(
+                  message:
+                      'wireguard-tools is not installed. Install it from Router Setup or opkg before saving.',
+                ),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Enable Server'),
+                subtitle: Text(_settings.interfaceName),
+                value: _settings.enabled,
+                onChanged: _isSaving ? null : _updateEnabled,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _portController,
+                decoration: const InputDecoration(
+                  labelText: 'Listen Port',
+                  helperText: 'The UDP port exposed on WAN.',
+                  prefixIcon: Icon(Icons.settings_ethernet_rounded),
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.number,
+                enabled: !_isSaving,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _vpnAddressController,
+                decoration: const InputDecoration(
+                  labelText: 'VPN Address',
+                  helperText: 'Server tunnel address, for example 10.8.0.1/24.',
+                  prefixIcon: Icon(Icons.vpn_key_rounded),
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.text,
+                enabled: !_isSaving,
+              ),
+              const SizedBox(height: 14),
+              _DetailRow(label: 'Interface', value: _settings.interfaceName),
+              _DetailRow(label: 'Firewall zone', value: 'LAN'),
+              _DetailRow(
+                label: 'WAN access',
+                value: 'UDP ${_portController.text.trim()}',
+              ),
+              _DetailRow(label: 'Public key', value: _settings.publicKey),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _isSaving ? null : _saveServer,
+                  icon: _isSaving
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.save_rounded),
+                  label: Text(_isSaving ? 'Saving' : 'Save Server'),
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          if (!_settings.installed)
-            _WarningBox(
-              message:
-                  'wireguard-tools is not installed. Install it from Router Setup or opkg before saving.',
-            ),
-          SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Enable Server'),
-            subtitle: Text(_settings.interfaceName),
-            value: _settings.enabled,
-            onChanged: _isSaving ? null : _updateEnabled,
+        ),
+        const SizedBox(height: 12),
+        _VpnPanelCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Client Profiles',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0,
+                      ),
+                    ),
+                  ),
+                  FilledButton.tonalIcon(
+                    onPressed: _isSaving ? null : _createServerProfile,
+                    icon: const Icon(Icons.person_add_alt_1_rounded),
+                    label: const Text('Add'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Create a separate WireGuard configuration for each user or device.',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+              if (_serverProfiles.isEmpty) ...[
+                const SizedBox(height: 18),
+                Center(
+                  child: Text(
+                    _settings.configured
+                        ? 'No client profiles yet'
+                        : 'Save the server to add profiles',
+                    style: TextStyle(color: colorScheme.onSurfaceVariant),
+                  ),
+                ),
+              ] else ...[
+                const SizedBox(height: 10),
+                for (final profile in _serverProfiles)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: CircleAvatar(
+                      backgroundColor: colorScheme.primary.withValues(
+                        alpha: 0.12,
+                      ),
+                      child: Icon(
+                        Icons.vpn_key_rounded,
+                        color: colorScheme.primary,
+                      ),
+                    ),
+                    title: Text(profile.name),
+                    subtitle: Text(profile.address),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          tooltip: 'Download configuration',
+                          onPressed: () => _downloadServerProfile(profile),
+                          icon: const Icon(Icons.download_rounded),
+                        ),
+                        IconButton(
+                          tooltip: 'Delete profile',
+                          onPressed: _isSaving
+                              ? null
+                              : () => _deleteServerProfile(profile),
+                          icon: Icon(
+                            Icons.delete_outline_rounded,
+                            color: colorScheme.error,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ],
           ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _portController,
-            decoration: const InputDecoration(
-              labelText: 'Listen Port',
-              helperText: 'The UDP port exposed on WAN.',
-              prefixIcon: Icon(Icons.settings_ethernet_rounded),
-              border: OutlineInputBorder(),
-            ),
-            keyboardType: TextInputType.number,
-            enabled: !_isSaving,
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _vpnAddressController,
-            decoration: const InputDecoration(
-              labelText: 'VPN Address',
-              helperText: 'Server tunnel address, for example 10.8.0.1/24.',
-              prefixIcon: Icon(Icons.vpn_key_rounded),
-              border: OutlineInputBorder(),
-            ),
-            keyboardType: TextInputType.text,
-            enabled: !_isSaving,
-          ),
-          const SizedBox(height: 14),
-          _DetailRow(label: 'Interface', value: _settings.interfaceName),
-          _DetailRow(label: 'Firewall zone', value: 'LAN'),
-          _DetailRow(
-            label: 'WAN access',
-            value: 'UDP ${_portController.text.trim()}',
-          ),
-          _DetailRow(label: 'Public key', value: _settings.publicKey),
-          const SizedBox(height: 18),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: _isSaving ? null : _saveServer,
-              icon: _isSaving
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.save_rounded),
-              label: Text(_isSaving ? 'Saving' : 'Save Server'),
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -840,6 +1036,160 @@ class _VpnScreenState extends ConsumerState<VpnScreen> {
           ),
           keyboardType: TextInputType.number,
           enabled: !_isSaving,
+        ),
+      ],
+    );
+  }
+}
+
+class _NewServerProfile {
+  final String name;
+  final String address;
+  final String endpoint;
+  final String dns;
+  final String allowedIps;
+
+  const _NewServerProfile({
+    required this.name,
+    required this.address,
+    required this.endpoint,
+    required this.dns,
+    required this.allowedIps,
+  });
+}
+
+class _ServerProfileDialog extends StatefulWidget {
+  final String suggestedAddress;
+  final String suggestedDns;
+
+  const _ServerProfileDialog({
+    required this.suggestedAddress,
+    required this.suggestedDns,
+  });
+
+  @override
+  State<_ServerProfileDialog> createState() => _ServerProfileDialogState();
+}
+
+class _ServerProfileDialogState extends State<_ServerProfileDialog> {
+  late final TextEditingController _name;
+  late final TextEditingController _address;
+  late final TextEditingController _endpoint;
+  late final TextEditingController _dns;
+  bool _fullTunnel = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _name = TextEditingController();
+    _address = TextEditingController(text: widget.suggestedAddress);
+    _endpoint = TextEditingController();
+    _dns = TextEditingController(text: widget.suggestedDns);
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _address.dispose();
+    _endpoint.dispose();
+    _dns.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final name = _name.text.trim();
+    final address = _address.text.trim();
+    final endpoint = _endpoint.text.trim();
+    final dns = _dns.text.trim();
+    if (name.isEmpty || address.isEmpty || endpoint.isEmpty || dns.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Complete all profile fields.')),
+      );
+      return;
+    }
+    Navigator.pop(
+      context,
+      _NewServerProfile(
+        name: name,
+        address: address,
+        endpoint: endpoint,
+        dns: dns,
+        allowedIps: _fullTunnel
+            ? '0.0.0.0/0, ::/0'
+            : widget.suggestedDns.replaceAll(RegExp(r'\.\d+$'), '.0/24'),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('New Client Profile'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _name,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Profile Name',
+                prefixIcon: Icon(Icons.person_outline_rounded),
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _endpoint,
+              decoration: const InputDecoration(
+                labelText: 'Public Endpoint',
+                helperText: 'Public IP address or DDNS hostname.',
+                prefixIcon: Icon(Icons.public_rounded),
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _address,
+              decoration: const InputDecoration(
+                labelText: 'Client VPN Address',
+                prefixIcon: Icon(Icons.tag_rounded),
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _dns,
+              decoration: const InputDecoration(
+                labelText: 'DNS Server',
+                prefixIcon: Icon(Icons.dns_rounded),
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 8),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Route All Traffic'),
+              subtitle: Text(
+                _fullTunnel
+                    ? 'Internet and LAN traffic use the VPN.'
+                    : 'Only the WireGuard network uses the tunnel.',
+              ),
+              value: _fullTunnel,
+              onChanged: (value) => setState(() => _fullTunnel = value),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton.icon(
+          onPressed: _submit,
+          icon: const Icon(Icons.add_rounded),
+          label: const Text('Create'),
         ),
       ],
     );

@@ -1253,6 +1253,45 @@ class WireGuardServerSettings {
   );
 }
 
+class WireGuardServerProfile {
+  final String section;
+  final String name;
+  final String address;
+  final String endpoint;
+  final String dns;
+  final String allowedIps;
+  final String privateKey;
+  final String publicKey;
+  final String serverPublicKey;
+  final int listenPort;
+
+  const WireGuardServerProfile({
+    required this.section,
+    required this.name,
+    required this.address,
+    required this.endpoint,
+    required this.dns,
+    required this.allowedIps,
+    required this.privateKey,
+    required this.publicKey,
+    required this.serverPublicKey,
+    required this.listenPort,
+  });
+
+  String get config =>
+      '''[Interface]
+PrivateKey = $privateKey
+Address = $address
+DNS = $dns
+
+[Peer]
+PublicKey = $serverPublicKey
+Endpoint = $endpoint:$listenPort
+AllowedIPs = $allowedIps
+PersistentKeepalive = 25
+''';
+}
+
 class WireGuardClientSettings {
   final bool installed;
   final bool configured;
@@ -9354,29 +9393,6 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       throw StateError('WireGuard could not generate a server private key.');
     }
 
-    final interfaceResult = await _apiService!.call(
-      router.ipAddress,
-      sysauth,
-      router.useHttps,
-      object: 'uci',
-      method: 'set',
-      params: {
-        'config': 'network',
-        'section': interfaceName,
-        'type': 'interface',
-        'values': {
-          'proto': 'wireguard',
-          'private_key': privateKey,
-          'listen_port': settings.listenPort.clamp(1, 65535).toString(),
-          'addresses': [settings.vpnAddress.trim()],
-          'disabled': settings.enabled ? '0' : '1',
-        },
-      },
-    );
-    if (!_rpcCallSucceeded(interfaceResult)) {
-      throw StateError('The WireGuard interface update was rejected.');
-    }
-
     final firewallResult = await _apiService!.call(
       router.ipAddress,
       sysauth,
@@ -9399,76 +9415,204 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     if (lanSection == null) {
       throw StateError('The LAN firewall zone was not found.');
     }
-    final lanConfig = firewall[lanSection] as Map;
-    final networks = <String>{};
-    final rawNetworks = lanConfig['network'];
-    if (rawNetworks is List) {
-      networks.addAll(rawNetworks.map((item) => item.toString()));
-    } else if (rawNetworks != null) {
-      networks.addAll(rawNetworks.toString().split(RegExp(r'\s+')));
+    final command = _withWireGuardBinaryLookup(
+      'IFACE=${_shellQuote(interfaceName)}; '
+      'PRIVATE_KEY=${_shellQuote(privateKey)}; '
+      'ADDRESS=${_shellQuote(settings.vpnAddress.trim())}; '
+      'PORT=${settings.listenPort.clamp(1, 65535)}; '
+      'DISABLED=${settings.enabled ? '0' : '1'}; '
+      'LAN_SECTION=${_shellQuote(lanSection)}; '
+      '[ -n "\$WG_BIN" ] || { echo "wireguard-tools is not installed"; exit 1; }; '
+      'uci set network.\$IFACE="interface"; '
+      'uci set network.\$IFACE.proto="wireguard"; '
+      'uci set network.\$IFACE.private_key="\$PRIVATE_KEY"; '
+      'uci set network.\$IFACE.listen_port="\$PORT"; '
+      'uci set network.\$IFACE.disabled="\$DISABLED"; '
+      'uci -q delete network.\$IFACE.addresses; '
+      'uci add_list network.\$IFACE.addresses="\$ADDRESS"; '
+      'uci commit network; '
+      r'''for zone in $(uci -q show firewall | sed -n "s/^firewall\.\([^=]*\)=['\"]\{0,1\}zone['\"]\{0,1\}$/\1/p"); do uci -q del_list "firewall.$zone.network=$IFACE" 2>/dev/null || true; done; '''
+      r'''uci add_list "firewall.$LAN_SECTION.network=$IFACE"; '''
+      'uci set firewall.owrt_wg_server="rule"; '
+      'uci set firewall.owrt_wg_server.name="Allow-WireGuard"; '
+      'uci set firewall.owrt_wg_server.src="wan"; '
+      'uci set firewall.owrt_wg_server.proto="udp"; '
+      'uci set firewall.owrt_wg_server.dest_port="\$PORT"; '
+      'uci set firewall.owrt_wg_server.target="ACCEPT"; '
+      'uci set firewall.owrt_wg_server.enabled="${settings.enabled ? '1' : '0'}"; '
+      'uci commit firewall; '
+      '/etc/init.d/firewall reload >/dev/null 2>&1 || /etc/init.d/firewall restart >/dev/null 2>&1 || true; '
+      'if [ "\$DISABLED" = "0" ]; then ifdown "\$IFACE" >/dev/null 2>&1 || true; ifup "\$IFACE" >/dev/null 2>&1 || /etc/init.d/network reload >/dev/null 2>&1 || true; else ifdown "\$IFACE" >/dev/null 2>&1 || true; fi; '
+      'echo OPENWALLA_WG_SERVER_OK',
+    );
+    final saveResult = await _apiService!.call(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      object: 'file',
+      method: 'exec',
+      params: {
+        'command': '/bin/sh',
+        'params': ['-c', command],
+      },
+    );
+    if (!_commandOutput(saveResult).contains('OPENWALLA_WG_SERVER_OK')) {
+      throw StateError('The router did not confirm the WireGuard update.');
     }
-    networks.add(interfaceName);
-    final zoneResult = await _apiService!.call(
+  }
+
+  Future<List<WireGuardServerProfile>> fetchWireGuardServerProfiles({
+    String interfaceName = 'wg0',
+  }) async {
+    if (_reviewerModeEnabled) return const [];
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) {
+      return const [];
+    }
+    final result = await _apiService!.call(
       router.ipAddress,
       sysauth,
       router.useHttps,
       object: 'uci',
-      method: 'set',
-      params: {
-        'config': 'firewall',
-        'section': lanSection,
-        'values': {
-          'network': networks.where((item) => item.isNotEmpty).toList(),
-        },
-      },
+      method: 'get',
+      params: {'config': 'network'},
     );
-    if (!_rpcCallSucceeded(zoneResult)) {
-      throw StateError('The LAN firewall zone update was rejected.');
+    final values = _extractUciValues(result);
+    final server = values[interfaceName] as Map?;
+    final privateKey = server?['private_key']?.toString() ?? '';
+    var serverPublicKey = '';
+    if (privateKey.isNotEmpty) {
+      final keyResult = await _apiService!.systemExec(
+        router.ipAddress,
+        sysauth,
+        router.useHttps,
+        command: _withWireGuardBinaryLookup(
+          'printf %s ${_shellQuote(privateKey)} | "\$WG_BIN" pubkey',
+        ),
+      );
+      serverPublicKey = _commandOutput(keyResult).trim();
     }
-    final ruleResult = await _apiService!.call(
-      router.ipAddress,
-      sysauth,
-      router.useHttps,
-      object: 'uci',
-      method: 'set',
-      params: {
-        'config': 'firewall',
-        'section': 'owrt_wg_server',
-        'type': 'rule',
-        'values': {
-          'name': 'Allow-WireGuard',
-          'src': 'wan',
-          'proto': 'udp',
-          'dest_port': settings.listenPort.clamp(1, 65535).toString(),
-          'target': 'ACCEPT',
-          'enabled': settings.enabled ? '1' : '0',
-        },
-      },
-    );
-    if (!_rpcCallSucceeded(ruleResult)) {
-      throw StateError('The WireGuard firewall rule update was rejected.');
+    final port =
+        int.tryParse(server?['listen_port']?.toString() ?? '') ?? 51820;
+    final profiles = <WireGuardServerProfile>[];
+    for (final entry in values.entries) {
+      final value = entry.value;
+      if (value['.type']?.toString() != 'wireguard_$interfaceName') {
+        continue;
+      }
+      final clientPrivateKey = value['openwalla_private_key']?.toString() ?? '';
+      if (clientPrivateKey.isEmpty) continue;
+      final rawAddress = value['allowed_ips'];
+      final peerAddress = rawAddress is List && rawAddress.isNotEmpty
+          ? rawAddress.first.toString()
+          : rawAddress?.toString().split(' ').first ?? '';
+      profiles.add(
+        WireGuardServerProfile(
+          section: entry.key.toString(),
+          name: value['description']?.toString() ?? entry.key.toString(),
+          address: value['openwalla_address']?.toString() ?? peerAddress,
+          endpoint: value['openwalla_endpoint']?.toString() ?? '',
+          dns: value['openwalla_dns']?.toString() ?? '1.1.1.1',
+          allowedIps:
+              value['openwalla_client_allowed_ips']?.toString() ??
+              '0.0.0.0/0, ::/0',
+          privateKey: clientPrivateKey,
+          publicKey: value['public_key']?.toString() ?? '',
+          serverPublicKey: serverPublicKey,
+          listenPort: port,
+        ),
+      );
     }
-    await _apiService!.uciCommit(
+    profiles.sort(
+      (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+    );
+    return profiles;
+  }
+
+  Future<void> createWireGuardServerProfile({
+    required String interfaceName,
+    required String name,
+    required String address,
+    required String endpoint,
+    required String dns,
+    required String allowedIps,
+    BuildContext? context,
+  }) async {
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) {
+      throw Exception('Router is not connected');
+    }
+    final section = 'owrt_wg_peer_${DateTime.now().millisecondsSinceEpoch}';
+    final command = _withWireGuardBinaryLookup(
+      'IFACE=${_shellQuote(interfaceName)}; SECTION=${_shellQuote(section)}; '
+      'NAME=${_shellQuote(name)}; ADDRESS=${_shellQuote(address)}; '
+      'ENDPOINT=${_shellQuote(endpoint)}; DNS=${_shellQuote(dns)}; '
+      'CLIENT_ALLOWED=${_shellQuote(allowedIps)}; '
+      '[ "\$(uci -q get network.\$IFACE.proto)" = "wireguard" ] || { echo "Save the WireGuard server first"; exit 1; }; '
+      'PRIVATE_KEY="\$("\$WG_BIN" genkey)"; '
+      'PUBLIC_KEY="\$(printf %s "\$PRIVATE_KEY" | "\$WG_BIN" pubkey)"; '
+      '[ -n "\$PUBLIC_KEY" ] || exit 1; '
+      'uci set network.\$SECTION="wireguard_\$IFACE"; '
+      'uci set network.\$SECTION.description="\$NAME"; '
+      'uci set network.\$SECTION.public_key="\$PUBLIC_KEY"; '
+      'uci add_list network.\$SECTION.allowed_ips="\$ADDRESS"; '
+      'uci set network.\$SECTION.route_allowed_ips="0"; '
+      'uci set network.\$SECTION.openwalla_private_key="\$PRIVATE_KEY"; '
+      'uci set network.\$SECTION.openwalla_address="\$ADDRESS"; '
+      'uci set network.\$SECTION.openwalla_endpoint="\$ENDPOINT"; '
+      'uci set network.\$SECTION.openwalla_dns="\$DNS"; '
+      'uci set network.\$SECTION.openwalla_client_allowed_ips="\$CLIENT_ALLOWED"; '
+      'uci commit network; '
+      'ifup "\$IFACE" >/dev/null 2>&1 || /etc/init.d/network reload >/dev/null 2>&1 || true; '
+      'echo OPENWALLA_WG_PROFILE_OK',
+    );
+    final result = await _apiService!.call(
       router.ipAddress,
       sysauth,
       router.useHttps,
-      config: 'network',
+      object: 'file',
+      method: 'exec',
+      params: {
+        'command': '/bin/sh',
+        'params': ['-c', command],
+      },
+      context: context,
     );
-    await _apiService!.uciCommit(
+    if (!_commandOutput(result).contains('OPENWALLA_WG_PROFILE_OK')) {
+      throw StateError('The router did not create the WireGuard profile.');
+    }
+  }
+
+  Future<void> deleteWireGuardServerProfile(
+    String section, {
+    BuildContext? context,
+  }) async {
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) {
+      throw Exception('Router is not connected');
+    }
+    final command =
+        'SECTION=${_shellQuote(section)}; uci -q delete network.\$SECTION; uci commit network; '
+        '/etc/init.d/network reload >/dev/null 2>&1 || true; '
+        'echo OPENWALLA_WG_PROFILE_DELETED';
+    final result = await _apiService!.call(
       router.ipAddress,
       sysauth,
       router.useHttps,
-      config: 'firewall',
+      object: 'file',
+      method: 'exec',
+      params: {
+        'command': '/bin/sh',
+        'params': ['-c', command],
+      },
+      context: context,
     );
-    await _reloadFirewall(router, sysauth);
-    await _apiService!.systemExec(
-      router.ipAddress,
-      sysauth,
-      router.useHttps,
-      command: settings.enabled
-          ? 'ifup ${_shellQuote(interfaceName)} >/dev/null 2>&1 || /etc/init.d/network reload >/dev/null 2>&1'
-          : 'ifdown ${_shellQuote(interfaceName)} >/dev/null 2>&1 || true',
-    );
+    if (!_commandOutput(result).contains('OPENWALLA_WG_PROFILE_DELETED')) {
+      throw StateError('The router did not delete the profile.');
+    }
   }
 
   Future<WireGuardClientSettings> fetchWireGuardClientSettings({
