@@ -1278,8 +1278,14 @@ class WireGuardServerProfile {
     required this.listenPort,
   });
 
-  String get config =>
-      '''[Interface]
+  bool get hasValidServerPublicKey =>
+      RegExp(r'^[A-Za-z0-9+/]{43}=$').hasMatch(serverPublicKey);
+
+  String get config {
+    if (!hasValidServerPublicKey) {
+      throw StateError('The server public key is missing or invalid.');
+    }
+    return '''[Interface]
 PrivateKey = $privateKey
 Address = $address
 DNS = $dns
@@ -1290,6 +1296,7 @@ Endpoint = $endpoint:$listenPort
 AllowedIPs = $allowedIps
 PersistentKeepalive = 25
 ''';
+  }
 }
 
 class WireGuardClientSettings {
@@ -9325,18 +9332,11 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       }
 
       final privateKey = config['private_key']?.toString().trim() ?? '';
-      var publicKey = '';
-      if (privateKey.isNotEmpty) {
-        final keyResult = await _apiService!.systemExec(
-          router.ipAddress,
-          sysauth,
-          router.useHttps,
-          command: _withWireGuardBinaryLookup(
-            'printf %s ${_shellQuote(privateKey)} | "\$WG_BIN" pubkey',
-          ),
-        );
-        publicKey = _commandOutput(keyResult).trim();
-      }
+      final publicKey = await _deriveWireGuardPublicKey(
+        router: router,
+        sysauth: sysauth,
+        privateKey: privateKey,
+      );
       return WireGuardServerSettings(
         installed: feature.installed,
         configured: true,
@@ -9461,6 +9461,35 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     }
   }
 
+  Future<String> _deriveWireGuardPublicKey({
+    required model.Router router,
+    required String sysauth,
+    required String privateKey,
+  }) async {
+    if (privateKey.isEmpty || _apiService == null) return '';
+    final command = _withWireGuardBinaryLookup(
+      'PRIVATE_KEY=${_shellQuote(privateKey)}; '
+      '[ -n "\$WG_BIN" ] || exit 1; '
+      'PUBLIC_KEY="\$(printf %s "\$PRIVATE_KEY" | "\$WG_BIN" pubkey)"; '
+      'printf "OPENWALLA_WG_PUBLIC_KEY=%s\\n" "\$PUBLIC_KEY"',
+    );
+    final result = await _apiService!.call(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      object: 'file',
+      method: 'exec',
+      params: {
+        'command': '/bin/sh',
+        'params': ['-c', command],
+      },
+    );
+    final match = RegExp(
+      r'OPENWALLA_WG_PUBLIC_KEY=([A-Za-z0-9+/]{43}=)',
+    ).firstMatch(_commandOutput(result));
+    return match?.group(1) ?? '';
+  }
+
   Future<List<WireGuardServerProfile>> fetchWireGuardServerProfiles({
     String interfaceName = 'wg0',
   }) async {
@@ -9481,18 +9510,11 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     final values = _extractUciValues(result);
     final server = values[interfaceName] as Map?;
     final privateKey = server?['private_key']?.toString() ?? '';
-    var serverPublicKey = '';
-    if (privateKey.isNotEmpty) {
-      final keyResult = await _apiService!.systemExec(
-        router.ipAddress,
-        sysauth,
-        router.useHttps,
-        command: _withWireGuardBinaryLookup(
-          'printf %s ${_shellQuote(privateKey)} | "\$WG_BIN" pubkey',
-        ),
-      );
-      serverPublicKey = _commandOutput(keyResult).trim();
-    }
+    final serverPublicKey = await _deriveWireGuardPublicKey(
+      router: router,
+      sysauth: sysauth,
+      privateKey: privateKey,
+    );
     final port =
         int.tryParse(server?['listen_port']?.toString() ?? '') ?? 51820;
     final profiles = <WireGuardServerProfile>[];
