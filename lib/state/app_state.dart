@@ -2763,27 +2763,26 @@ class AppState extends ChangeNotifier {
 
   Future<({bool enabled, bool running, int intervalSeconds})>
   _readQuarantineServiceState({BuildContext? context}) async {
+    final values = await _fetchOpenwallaUciValues(context: context);
+    final rawSection = values?['quarantine'];
+    final section = rawSection is Map ? rawSection : const <String, dynamic>{};
+    final enabledValue = section['enabled']?.toString().toLowerCase() ?? '0';
+    final enabled = const {
+      '1',
+      'true',
+      'yes',
+      'on',
+      'enabled',
+    }.contains(enabledValue);
+    final interval = int.tryParse(section['interval']?.toString() ?? '') ?? 15;
     final output = await runRouterSetupCommand(
-      "enabled=\$(uci -q get openwalla.quarantine.enabled 2>/dev/null || echo 0); "
-      "interval=\$(uci -q get openwalla.quarantine.interval 2>/dev/null || echo 15); "
-      "running=0; "
       "if /etc/init.d/openwalla-device-quarantine running >/dev/null 2>&1 || "
-      "pgrep -f '[o]penwalla-device-quarantine.*--daemon' >/dev/null 2>&1; then running=1; fi; "
-      "printf 'OPENWALLA_QUARANTINE|%s|%s|%s\\n' \"\$enabled\" \"\$running\" \"\$interval\"",
-      context: context,
+      "pgrep -f '[o]penwalla-device-quarantine.*--daemon' >/dev/null 2>&1; "
+      "then echo OPENWALLA_QUARANTINE_RUNNING; else echo OPENWALLA_QUARANTINE_STOPPED; fi",
     );
-    final statusLine = output
-        .split('\n')
-        .map((line) => line.trim())
-        .firstWhere(
-          (line) => line.startsWith('OPENWALLA_QUARANTINE|'),
-          orElse: () => 'OPENWALLA_QUARANTINE|0|0|15',
-        );
-    final parts = statusLine.split('|');
-    final interval = int.tryParse(parts.length > 3 ? parts[3] : '') ?? 15;
     return (
-      enabled: parts.length > 1 && parts[1] == '1',
-      running: parts.length > 2 && parts[2] == '1',
+      enabled: enabled,
+      running: output.contains('OPENWALLA_QUARANTINE_RUNNING'),
       intervalSeconds: interval.clamp(10, 3600),
     );
   }
@@ -2810,7 +2809,7 @@ class AppState extends ChangeNotifier {
       throw StateError('No selected router connection is available');
     }
 
-    await _apiService!.uciSet(
+    final setResult = await _apiService!.uciSet(
       router.ipAddress,
       sysauth,
       router.useHttps,
@@ -2818,12 +2817,18 @@ class AppState extends ChangeNotifier {
       section: 'quarantine',
       values: {'enabled': expectedEnabled, 'interval': interval.toString()},
     );
-    await _apiService!.uciCommit(
+    if (!_rpcCallSucceeded(setResult)) {
+      throw StateError('Router rejected the quarantine setting');
+    }
+    final commitResult = await _apiService!.uciCommit(
       router.ipAddress,
       sysauth,
       router.useHttps,
       config: 'openwalla',
     );
+    if (!_rpcCallSucceeded(commitResult)) {
+      throw StateError('Router could not commit the quarantine setting');
+    }
 
     final serviceCommand = enabled
         ? '/etc/init.d/openwalla-device-quarantine enable 2>/dev/null || true; '
@@ -2833,7 +2838,9 @@ class AppState extends ChangeNotifier {
     await runRouterSetupCommand('$serviceCommand; sleep 1; true');
     final state = await _readQuarantineServiceState();
     if (state.enabled != enabled) {
-      throw StateError('Router did not confirm the quarantine setting');
+      throw StateError(
+        'Router saved quarantine as ${state.enabled ? 'enabled' : 'disabled'}',
+      );
     }
     notifyListeners();
     return state;
