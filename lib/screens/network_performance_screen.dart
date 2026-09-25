@@ -887,26 +887,38 @@ class _SpeedTestCard extends StatelessWidget {
       return matches.last;
     }).toList();
     final labels = slots.map(_formatDay).toList();
-    final validDownloads = slotSamples
-        .map((sample) => sample?.downloadMbps)
+    final validSpeeds = slotSamples
+        .expand((sample) => [sample?.downloadMbps, sample?.uploadMbps])
         .whereType<double>()
         .toList();
-    final maxDownload = validDownloads.isEmpty
+    final maxSpeed = validSpeeds.isEmpty
         ? 100.0
-        : validDownloads.reduce((a, b) => a > b ? a : b).clamp(1, 10000);
-    final latestDownload = slotSamples.reversed
-        .map((sample) => sample?.downloadMbps)
-        .whereType<double>()
+        : validSpeeds.reduce((a, b) => a > b ? a : b).clamp(1, 10000);
+    final latestSample = slotSamples.reversed
+        .whereType<SpeedtestMonitorSample>()
+        .where(
+          (sample) => sample.downloadMbps != null || sample.uploadMbps != null,
+        )
         .firstOrNull;
-    final bars = slotSamples
+    final downloadBars = slotSamples
         .map(
           (sample) => sample?.downloadMbps == null
               ? 0.16
-              : (sample!.downloadMbps! / maxDownload).clamp(0.04, 1.0),
+              : (sample!.downloadMbps! / maxSpeed).clamp(0.04, 1.0),
+        )
+        .toList();
+    final uploadBars = slotSamples
+        .map(
+          (sample) => sample?.uploadMbps == null
+              ? 0.16
+              : (sample!.uploadMbps! / maxSpeed).clamp(0.04, 1.0),
         )
         .toList();
     final hasData = slotSamples
-        .map((sample) => sample?.downloadMbps != null)
+        .map(
+          (sample) =>
+              sample?.downloadMbps != null || sample?.uploadMbps != null,
+        )
         .toList();
     final tooltips = slotSamples.asMap().entries.map((entry) {
       final sample = entry.value;
@@ -925,16 +937,33 @@ class _SpeedTestCard extends StatelessWidget {
 
     return _ChartPanel(
       title: 'Speed Test',
-      value: latestDownload == null
+      value: latestSample?.downloadMbps == null
           ? 'No data'
-          : '${latestDownload.toStringAsFixed(0)} Mbps',
-      label: 'Latest result',
-      bars: bars,
+          : '${latestSample!.downloadMbps!.toStringAsFixed(0)} Mbps',
+      label: 'Latest download',
+      bars: downloadBars,
+      secondaryBars: uploadBars,
       hasData: hasData,
       color: NetworkPerformanceScreen._cyan,
       secondaryColor: NetworkPerformanceScreen._orange,
+      primaryLegend: 'Download',
+      secondaryLegend: 'Upload',
       labels: labels,
       tooltips: tooltips,
+      stats: [
+        (
+          label: 'Download',
+          value: latestSample?.downloadMbps == null
+              ? 'N/A'
+              : '${latestSample!.downloadMbps!.toStringAsFixed(1)} Mbps',
+        ),
+        (
+          label: 'Upload',
+          value: latestSample?.uploadMbps == null
+              ? 'N/A'
+              : '${latestSample!.uploadMbps!.toStringAsFixed(1)} Mbps',
+        ),
+      ],
       trailing: OutlinedButton.icon(
         onPressed: isRunning ? null : onRun,
         icon: isRunning
@@ -1115,11 +1144,14 @@ class _ChartPanel extends StatelessWidget {
   final String value;
   final String label;
   final List<double> bars;
+  final List<double> secondaryBars;
   final List<bool> hasData;
   final Color color;
   final Color secondaryColor;
   final List<String> labels;
   final List<String> tooltips;
+  final String? primaryLegend;
+  final String? secondaryLegend;
   final List<({String label, String value})> stats;
   final Widget? trailing;
 
@@ -1128,11 +1160,14 @@ class _ChartPanel extends StatelessWidget {
     required this.value,
     required this.label,
     required this.bars,
+    this.secondaryBars = const [],
     required this.hasData,
     required this.color,
     required this.secondaryColor,
     required this.labels,
     this.tooltips = const [],
+    this.primaryLegend,
+    this.secondaryLegend,
     this.stats = const [],
     this.trailing,
   });
@@ -1193,6 +1228,16 @@ class _ChartPanel extends StatelessWidget {
                   .toList(),
             ),
           ],
+          if (primaryLegend != null && secondaryLegend != null) ...[
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                _ChartLegend(color: color, label: primaryLegend!),
+                const SizedBox(width: 18),
+                _ChartLegend(color: secondaryColor, label: secondaryLegend!),
+              ],
+            ),
+          ],
           const SizedBox(height: 22),
           SizedBox(
             height: 128,
@@ -1201,6 +1246,9 @@ class _ChartPanel extends StatelessWidget {
               children: List.generate(bars.length, (index) {
                 final height = 112 * bars[index].clamp(0, 1).toDouble();
                 final hasSample = index < hasData.length && hasData[index];
+                final secondaryHeight = index < secondaryBars.length
+                    ? 112 * secondaryBars[index].clamp(0, 1).toDouble()
+                    : null;
                 return Expanded(
                   child: Tooltip(
                     message: index < tooltips.length
@@ -1211,19 +1259,33 @@ class _ChartPanel extends StatelessWidget {
                     preferBelow: false,
                     child: Align(
                       alignment: Alignment.bottomCenter,
-                      child: Container(
-                        width: 12,
-                        height: height < 3 ? 3 : height,
-                        decoration: BoxDecoration(
-                          color: !hasSample
-                              ? colorScheme.onSurfaceVariant.withValues(
-                                  alpha: 0.28,
-                                )
-                              : index == bars.length - 2
-                              ? secondaryColor
-                              : color,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          _ChartBar(
+                            height: height,
+                            color: !hasSample
+                                ? colorScheme.onSurfaceVariant.withValues(
+                                    alpha: 0.28,
+                                  )
+                                : secondaryHeight == null &&
+                                      index == bars.length - 2
+                                ? secondaryColor
+                                : color,
+                          ),
+                          if (secondaryHeight != null) ...[
+                            const SizedBox(width: 4),
+                            _ChartBar(
+                              height: secondaryHeight,
+                              color: hasSample
+                                  ? secondaryColor
+                                  : colorScheme.onSurfaceVariant.withValues(
+                                      alpha: 0.18,
+                                    ),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
                   ),
@@ -1252,6 +1314,54 @@ class _ChartPanel extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _ChartBar extends StatelessWidget {
+  final double height;
+  final Color color;
+
+  const _ChartBar({required this.height, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 10,
+      height: height < 3 ? 3 : height,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(4),
+      ),
+    );
+  }
+}
+
+class _ChartLegend extends StatelessWidget {
+  final Color color;
+  final String label;
+
+  const _ChartLegend({required this.color, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 9,
+          height: 9,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 7),
+        Text(
+          label,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
     );
   }
 }
