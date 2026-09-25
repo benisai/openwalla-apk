@@ -2746,10 +2746,29 @@ class AppState extends ChangeNotifier {
       );
     }
 
+    final state = await _readQuarantineServiceState(context: context);
+    final clients = await fetchClientsForSelectedRouter();
+    final quarantined = clients.where((client) => client.isQuarantined).toList()
+      ..sort(
+        (a, b) =>
+            a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()),
+      );
+    return OpenwallaQuarantineSnapshot(
+      enabled: state.enabled,
+      running: state.running,
+      intervalSeconds: state.intervalSeconds,
+      devices: quarantined,
+    );
+  }
+
+  Future<({bool enabled, bool running, int intervalSeconds})>
+  _readQuarantineServiceState({BuildContext? context}) async {
     final output = await runRouterSetupCommand(
       "enabled=\$(uci -q get openwalla.quarantine.enabled 2>/dev/null || echo 0); "
       "interval=\$(uci -q get openwalla.quarantine.interval 2>/dev/null || echo 15); "
-      "running=0; /etc/init.d/openwalla-device-quarantine running >/dev/null 2>&1 && running=1; "
+      "running=0; "
+      "if /etc/init.d/openwalla-device-quarantine running >/dev/null 2>&1 || "
+      "pgrep -f '[o]penwalla-device-quarantine.*--daemon' >/dev/null 2>&1; then running=1; fi; "
       "printf 'OPENWALLA_QUARANTINE|%s|%s|%s\\n' \"\$enabled\" \"\$running\" \"\$interval\"",
       context: context,
     );
@@ -2762,17 +2781,10 @@ class AppState extends ChangeNotifier {
         );
     final parts = statusLine.split('|');
     final interval = int.tryParse(parts.length > 3 ? parts[3] : '') ?? 15;
-    final clients = await fetchClientsForSelectedRouter();
-    final quarantined = clients.where((client) => client.isQuarantined).toList()
-      ..sort(
-        (a, b) =>
-            a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()),
-      );
-    return OpenwallaQuarantineSnapshot(
+    return (
       enabled: parts.length > 1 && parts[1] == '1',
       running: parts.length > 2 && parts[2] == '1',
       intervalSeconds: interval.clamp(10, 3600),
-      devices: quarantined,
     );
   }
 
@@ -2792,38 +2804,39 @@ class AppState extends ChangeNotifier {
     }
     final interval = intervalSeconds.clamp(10, 3600);
     final expectedEnabled = enabled ? '1' : '0';
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) {
+      throw StateError('No selected router connection is available');
+    }
+
+    await _apiService!.uciSet(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      config: 'openwalla',
+      section: 'quarantine',
+      values: {'enabled': expectedEnabled, 'interval': interval.toString()},
+    );
+    await _apiService!.uciCommit(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      config: 'openwalla',
+    );
+
     final serviceCommand = enabled
         ? '/etc/init.d/openwalla-device-quarantine enable 2>/dev/null || true; '
               '/etc/init.d/openwalla-device-quarantine restart 2>/dev/null || '
-              '/etc/init.d/openwalla-device-quarantine start'
+              '/etc/init.d/openwalla-device-quarantine start 2>/dev/null || true'
         : '/etc/init.d/openwalla-device-quarantine stop 2>/dev/null || true';
-    final output = await runRouterSetupCommand(
-      'uci -q get openwalla.quarantine >/dev/null 2>&1 || '
-      'uci set openwalla.quarantine=quarantine; '
-      'uci set openwalla.quarantine.enabled=$expectedEnabled; '
-      'uci set openwalla.quarantine.interval=$interval; '
-      'uci commit openwalla || exit 1; '
-      'actual=\$(uci -q get openwalla.quarantine.enabled); '
-      '[ "\$actual" = "$expectedEnabled" ] || exit 1; '
-      '$serviceCommand; '
-      'running=0; '
-      '/etc/init.d/openwalla-device-quarantine running >/dev/null 2>&1 && running=1; '
-      'printf "OPENWALLA_QUARANTINE_SAVED|%s|%s|%s\\n" '
-      '"\$actual" "\$running" "\$(uci -q get openwalla.quarantine.interval)"',
-      context: context,
-    );
-    final match = RegExp(
-      r'OPENWALLA_QUARANTINE_SAVED\|([01])\|([01])\|(\d+)',
-    ).firstMatch(output);
-    if (match == null || match.group(1) != expectedEnabled) {
+    await runRouterSetupCommand('$serviceCommand; sleep 1; true');
+    final state = await _readQuarantineServiceState();
+    if (state.enabled != enabled) {
       throw StateError('Router did not confirm the quarantine setting');
     }
     notifyListeners();
-    return (
-      enabled: match.group(1) == '1',
-      running: match.group(2) == '1',
-      intervalSeconds: int.tryParse(match.group(3) ?? '') ?? interval,
-    );
+    return state;
   }
 
   Future<void> runQuarantineDiscovery({BuildContext? context}) async {

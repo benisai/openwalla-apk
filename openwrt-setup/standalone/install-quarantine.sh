@@ -18,6 +18,7 @@ require_file "$RPCD_ACL"
 
 ensure_openwalla_config
 ensure_uci_section quarantine quarantine
+ensure_uci_section features ui
 
 install_file "$FILES_DIR/openwalla-device-quarantine.sh" /usr/bin/openwalla-device-quarantine 0755
 install_file "$FILES_DIR/openwalla-device-quarantine.init" /etc/init.d/openwalla-device-quarantine 0755
@@ -30,6 +31,7 @@ set_uci_default openwalla.quarantine.interval "15"
 set_uci_default openwalla.quarantine.leases_file "/tmp/dhcp.leases"
 set_uci_default openwalla.quarantine.state_file "/tmp/openwalla-quarantine-known.txt"
 set_uci_default openwalla.quarantine.rule_prefix "openwalla_quarantine_"
+set_uci openwalla.features.quarantine "1"
 uci commit openwalla
 
 enable_restart_service openwalla-device-quarantine
