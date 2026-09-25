@@ -124,7 +124,29 @@ class OpenwallaStateBackupStatus {
   }
 }
 
-enum OpenwrtFeature { wireguard, adblock, sqm, tor, tailscale, mwan3 }
+enum OpenwrtFeature {
+  wireguard,
+  adblock,
+  sqm,
+  tor,
+  tailscale,
+  mwan3,
+  quarantine,
+}
+
+class OpenwallaQuarantineSnapshot {
+  final bool enabled;
+  final bool running;
+  final int intervalSeconds;
+  final List<Client> devices;
+
+  const OpenwallaQuarantineSnapshot({
+    required this.enabled,
+    required this.running,
+    required this.intervalSeconds,
+    required this.devices,
+  });
+}
 
 enum RouterPackageManager { opkg, apk, none }
 
@@ -331,6 +353,7 @@ class OpenwallaNotification {
     if (lower.contains('threshold') || lower.contains('latency')) {
       return 'warning';
     }
+    if (lower.contains('quarantined')) return 'warning';
     return 'info';
   }
 
@@ -2579,6 +2602,7 @@ class AppState extends ChangeNotifier {
       OpenwrtFeature.tor => 'Tor',
       OpenwrtFeature.tailscale => 'Tailscale',
       OpenwrtFeature.mwan3 => 'Multi-WAN',
+      OpenwrtFeature.quarantine => 'Device Quarantine',
     };
   }
 
@@ -2590,6 +2614,7 @@ class AppState extends ChangeNotifier {
       OpenwrtFeature.tor => 'tor',
       OpenwrtFeature.tailscale => 'tailscale',
       OpenwrtFeature.mwan3 => 'mwan3',
+      OpenwrtFeature.quarantine => 'quarantine',
     };
   }
 
@@ -2611,7 +2636,95 @@ class AppState extends ChangeNotifier {
         r'([ -x /usr/bin/openwalla-tailscale ] && command -v tailscale >/dev/null 2>&1) && echo OK',
       OpenwrtFeature.mwan3 =>
         r'([ -x /etc/init.d/mwan3 ] && command -v mwan3 >/dev/null 2>&1 && [ -f /etc/config/mwan3 ]) && echo OK',
+      OpenwrtFeature.quarantine =>
+        r'([ -x /usr/bin/openwalla-device-quarantine ] && [ -x /etc/init.d/openwalla-device-quarantine ] && uci -q get openwalla.quarantine >/dev/null 2>&1) && echo OK',
     };
+  }
+
+  Future<OpenwallaQuarantineSnapshot> fetchQuarantineSnapshot({
+    BuildContext? context,
+  }) async {
+    if (_reviewerModeEnabled) {
+      return OpenwallaQuarantineSnapshot(
+        enabled: true,
+        running: true,
+        intervalSeconds: 15,
+        devices: [_mockQuarantinedClient()],
+      );
+    }
+
+    final output = await runRouterSetupCommand(
+      "enabled=\$(uci -q get openwalla.quarantine.enabled 2>/dev/null || echo 0); "
+      "interval=\$(uci -q get openwalla.quarantine.interval 2>/dev/null || echo 15); "
+      "running=0; /etc/init.d/openwalla-device-quarantine running >/dev/null 2>&1 && running=1; "
+      "printf 'OPENWALLA_QUARANTINE|%s|%s|%s\\n' \"\$enabled\" \"\$running\" \"\$interval\"",
+      context: context,
+    );
+    final statusLine = output
+        .split('\n')
+        .map((line) => line.trim())
+        .firstWhere(
+          (line) => line.startsWith('OPENWALLA_QUARANTINE|'),
+          orElse: () => 'OPENWALLA_QUARANTINE|0|0|15',
+        );
+    final parts = statusLine.split('|');
+    final interval = int.tryParse(parts.length > 3 ? parts[3] : '') ?? 15;
+    final clients = await fetchClientsForSelectedRouter();
+    final quarantined = clients.where((client) => client.isQuarantined).toList()
+      ..sort(
+        (a, b) =>
+            a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()),
+      );
+    return OpenwallaQuarantineSnapshot(
+      enabled: parts.length > 1 && parts[1] == '1',
+      running: parts.length > 2 && parts[2] == '1',
+      intervalSeconds: interval.clamp(10, 3600),
+      devices: quarantined,
+    );
+  }
+
+  Future<void> saveQuarantineSettings({
+    required bool enabled,
+    required int intervalSeconds,
+    BuildContext? context,
+  }) async {
+    if (_reviewerModeEnabled) {
+      notifyListeners();
+      return;
+    }
+    final interval = intervalSeconds.clamp(10, 3600);
+    final serviceCommand = enabled
+        ? '/etc/init.d/openwalla-device-quarantine enable 2>/dev/null || true; '
+              '/etc/init.d/openwalla-device-quarantine restart 2>/dev/null || '
+              '/etc/init.d/openwalla-device-quarantine start'
+        : '/etc/init.d/openwalla-device-quarantine stop 2>/dev/null || true';
+    await runRouterSetupCommand(
+      'uci -q get openwalla.quarantine >/dev/null 2>&1 || '
+      'uci set openwalla.quarantine=quarantine; '
+      'uci set openwalla.quarantine.enabled=${enabled ? '1' : '0'}; '
+      'uci set openwalla.quarantine.interval=$interval; '
+      'uci commit openwalla; $serviceCommand',
+      context: context,
+    );
+    notifyListeners();
+  }
+
+  Future<void> runQuarantineDiscovery({BuildContext? context}) async {
+    if (_reviewerModeEnabled) return;
+    await runRouterSetupCommand(
+      '/usr/bin/openwalla-device-quarantine --once && '
+      '/usr/bin/openwalla-devices-collector --once 2>/dev/null || true',
+      context: context,
+    );
+    notifyListeners();
+  }
+
+  Future<void> releaseQuarantinedDevice(
+    Client client, {
+    BuildContext? context,
+  }) async {
+    await setClientInternetBlocked(client, false);
+    notifyListeners();
   }
 
   Future<Mwan3Snapshot> fetchMwan3Snapshot({BuildContext? context}) async {
@@ -4778,6 +4891,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
                 record.status == 'blocked' ||
                 record.status == 'block-scheduled' ||
                 record.scheduledBlock,
+            isQuarantined: record.quarantined,
             totalUploadBytes: record.totalUploadBytes,
             totalDownloadBytes: record.totalDownloadBytes,
             staticIpAddress: null,
@@ -11316,6 +11430,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       dnsName: 'mock-quarantine.local',
       connectionType: ConnectionType.wireless,
       isBlocked: true,
+      isQuarantined: true,
     );
   }
 
@@ -11337,6 +11452,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       final blocked = client.isBlocked || normalizedBlocked.contains(mac);
       clientMap[mac] = client.copyWith(
         isBlocked: blocked,
+        isQuarantined: client.isQuarantined,
         status: blocked ? 'blocked' : client.status,
       );
     }
@@ -11371,6 +11487,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       yield client.copyWith(
         hostname: hostname.isEmpty ? client.hostname : hostname,
         isBlocked: isBlocked,
+        isQuarantined: record.quarantined,
         totalUploadBytes: record.totalUploadBytes,
         totalDownloadBytes: record.totalDownloadBytes,
         staticIpAddress: client.staticIpAddress,

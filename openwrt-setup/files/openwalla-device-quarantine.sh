@@ -14,6 +14,7 @@ DEFAULT_RULE_PREFIX="openwalla_quarantine_"
 DEFAULT_LAN_NETWORK="lan"
 DEFAULT_LAN_DEVICE="br-lan"
 DEFAULT_NOTIFICATIONS_DB="/tmp/openwalla-notifications.sqlite"
+DEFAULT_DEVICES_DB="/tmp/openwalla-devices.sqlite"
 LOG_FILE="/tmp/openwalla-device-quarantine.log"
 
 log() {
@@ -74,6 +75,10 @@ load_config() {
 	v="$(uci_get openwalla.notifications.db_path)"
 	if [ -z "$v" ]; then v="$DEFAULT_NOTIFICATIONS_DB"; fi
 	NOTIFICATIONS_DB="$v"
+
+	v="$(uci_get openwalla.devices.db_path)"
+	if [ -z "$v" ]; then v="$DEFAULT_DEVICES_DB"; fi
+	DEVICES_DB="$v"
 }
 
 service_enabled() {
@@ -240,6 +245,20 @@ write_notification() {
 	fi
 }
 
+write_device_state() {
+	local mac="$1"
+	local ip="$2"
+	local host="$3"
+	local sqlite_bin esc_mac esc_ip esc_host
+	sqlite_bin="$(find_sqlite_bin 2>/dev/null || true)"
+	[ -n "$sqlite_bin" ] || return 0
+	esc_mac="$(sql_escape "$mac")"
+	esc_ip="$(sql_escape "$ip")"
+	esc_host="$(sql_escape "$host")"
+	mkdir -p "$(dirname "$DEVICES_DB")" 2>/dev/null || true
+	"$sqlite_bin" "$DEVICES_DB" "CREATE TABLE IF NOT EXISTS devices (mac TEXT PRIMARY KEY, ip TEXT NOT NULL DEFAULT '', hostname TEXT NOT NULL DEFAULT '', vendor TEXT NOT NULL DEFAULT '', quarantined INTEGER NOT NULL DEFAULT 0, last_seen INTEGER NOT NULL DEFAULT 0, total_up INTEGER NOT NULL DEFAULT 0, total_down INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'offline', static_ip TEXT NOT NULL DEFAULT '', icon TEXT NOT NULL DEFAULT '', scheduled_block INTEGER NOT NULL DEFAULT 0, schedule_until TEXT NOT NULL DEFAULT '', hidden INTEGER NOT NULL DEFAULT 0); INSERT INTO devices (mac, ip, hostname, quarantined, last_seen, status) VALUES ('$esc_mac', '$esc_ip', '$esc_host', 1, CAST(strftime('%s','now') AS INTEGER), 'blocked') ON CONFLICT(mac) DO UPDATE SET ip=CASE WHEN excluded.ip != '' THEN excluded.ip ELSE devices.ip END, hostname=CASE WHEN devices.hostname = '' AND excluded.hostname != '' AND excluded.hostname != '*' THEN excluded.hostname ELSE devices.hostname END, quarantined=1, last_seen=excluded.last_seen, status='blocked';" >/dev/null 2>&1 || log "device state update failed for mac=$mac"
+}
+
 add_fw_rule() {
 	local name="$1"
 	local mac="$2"
@@ -275,6 +294,7 @@ quarantine_new_device() {
 	fi
 
 	log "quarantined new device mac=$mac ip=$ip host=$host rules=[$lan,$wan]"
+	write_device_state "$mac" "$ip" "$host"
 	write_notification "New device quarantined mac=$mac ip=${ip:-unknown} host=${host:-unknown}"
 }
 

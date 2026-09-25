@@ -57,5 +57,17 @@ void main() {
       expect(notification.effectiveSeverity, 'resolved');
       expect(notification.effectiveCategory, 'vpn');
     });
+
+    test('presents new quarantine events as device warnings', () {
+      final notification = OpenwallaNotification.fromSqliteRow(
+        '11|1789849887|device-quarantine|New device quarantined '
+        'mac=AA:BB:CC:DD:EE:FF ip=192.168.1.42 host=phone|0|0',
+      );
+
+      expect(notification, isNotNull);
+      expect(notification!.displayTitle, 'New device detected');
+      expect(notification.effectiveSeverity, 'warning');
+      expect(notification.effectiveCategory, 'device');
+    });
   });
 }

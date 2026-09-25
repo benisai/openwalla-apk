@@ -20,6 +20,7 @@ import 'package:luci_mobile/screens/live_throughput_screen.dart';
 import 'package:luci_mobile/screens/multi_wan_screen.dart';
 import 'package:luci_mobile/screens/network_performance_screen.dart';
 import 'package:luci_mobile/screens/notifications_screen.dart';
+import 'package:luci_mobile/screens/quarantine_screen.dart';
 import 'package:luci_mobile/screens/rules_screen.dart';
 import 'package:luci_mobile/screens/router_setup_screen.dart';
 import 'package:luci_mobile/modules/parental_controls/screens/parental_controls_screen.dart';
@@ -1341,6 +1342,20 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                 Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (context) => const MultiWanScreen(),
+                  ),
+                );
+              },
+            ),
+          if (preferences.showQuarantineShortcut)
+            _DashboardShortcutData(
+              id: 'quarantine',
+              label: 'Quarantine',
+              icon: Icons.gpp_bad_rounded,
+              color: _shortcutRed,
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const QuarantineScreen(),
                   ),
                 );
               },

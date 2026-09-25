@@ -17,6 +17,7 @@ class Client {
   final String? wirelessBand;
   final List<String>? ipv6Addresses;
   final bool isBlocked;
+  final bool isQuarantined;
   final int totalUploadBytes;
   final int totalDownloadBytes;
   final String? staticIpAddress;
@@ -41,6 +42,7 @@ class Client {
     this.wirelessBand,
     this.ipv6Addresses,
     this.isBlocked = false,
+    this.isQuarantined = false,
     this.totalUploadBytes = 0,
     this.totalDownloadBytes = 0,
     this.staticIpAddress,
@@ -281,6 +283,7 @@ class Client {
     String? wirelessBand,
     List<String>? ipv6Addresses,
     bool? isBlocked,
+    bool? isQuarantined,
     int? totalUploadBytes,
     int? totalDownloadBytes,
     String? staticIpAddress,
@@ -305,6 +308,7 @@ class Client {
       wirelessBand: wirelessBand ?? this.wirelessBand,
       ipv6Addresses: ipv6Addresses ?? this.ipv6Addresses,
       isBlocked: isBlocked ?? this.isBlocked,
+      isQuarantined: isQuarantined ?? this.isQuarantined,
       totalUploadBytes: totalUploadBytes ?? this.totalUploadBytes,
       totalDownloadBytes: totalDownloadBytes ?? this.totalDownloadBytes,
       staticIpAddress: staticIpAddress ?? this.staticIpAddress,

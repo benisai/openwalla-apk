@@ -556,6 +556,7 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
       if (_normalizeMac(client.macAddress) != mac) return client;
       return client.copyWith(
         isBlocked: blocked,
+        isQuarantined: blocked ? client.isQuarantined : false,
         status: blocked ? 'blocked' : 'online',
       );
     }
@@ -2047,6 +2048,17 @@ class _UnifiedClientCard extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
+                        if (client.isQuarantined) ...[
+                          const SizedBox(width: 8),
+                          const Tooltip(
+                            message: 'Quarantined',
+                            child: Icon(
+                              Icons.gpp_bad_rounded,
+                              size: 20,
+                              color: Color(0xFFFF4D5A),
+                            ),
+                          ),
+                        ],
                         if (isPaused) ...[
                           const SizedBox(width: 8),
                           Container(

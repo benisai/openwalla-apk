@@ -925,6 +925,20 @@ class _RouterDashboardSettingsScreenState
                   _onPreferenceChanged();
                 },
               ),
+              _buildCardVisibilitySwitch(
+                title: 'Quarantine Shortcut',
+                subtitle: 'Show automatic new-device protection',
+                icon: Icons.gpp_bad_rounded,
+                value: _preferences.showQuarantineShortcut,
+                onChanged: (value) {
+                  setState(() {
+                    _preferences = _preferences.copyWith(
+                      showQuarantineShortcut: value,
+                    );
+                  });
+                  _onPreferenceChanged();
+                },
+              ),
               const Divider(height: 1),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
@@ -993,6 +1007,7 @@ class _RouterDashboardSettingsScreenState
       'tor' => 'Tor',
       'tailscale' => 'Tailscale',
       'multi_wan' => 'Multi-WAN',
+      'quarantine' => 'Quarantine',
       _ => id,
     };
   }
@@ -1012,6 +1027,8 @@ class _RouterDashboardSettingsScreenState
       'ddns' => Icons.cloud_sync_rounded,
       'tor' => Icons.hub_rounded,
       'tailscale' => Icons.device_hub_rounded,
+      'multi_wan' => Icons.alt_route_rounded,
+      'quarantine' => Icons.gpp_bad_rounded,
       _ => Icons.apps_rounded,
     };
   }

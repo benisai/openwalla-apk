@@ -16,6 +16,8 @@ void main() {
     expect(preferences.shortcutOrder, contains('tor'));
     expect(preferences.showTailscaleShortcut, isTrue);
     expect(preferences.shortcutOrder, contains('tailscale'));
+    expect(preferences.showQuarantineShortcut, isTrue);
+    expect(preferences.shortcutOrder, contains('quarantine'));
   });
 
   TestWidgetsFlutterBinding.ensureInitialized();

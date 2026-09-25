@@ -20,6 +20,7 @@ class DashboardPreferences {
   final bool showTorShortcut;
   final bool showTailscaleShortcut;
   final bool showMultiWanShortcut;
+  final bool showQuarantineShortcut;
   final bool showInactiveWirelessNetworks;
   final int shortcutPanelVisibleCount;
   final List<String> shortcutOrder;
@@ -46,6 +47,7 @@ class DashboardPreferences {
     this.showTorShortcut = true,
     this.showTailscaleShortcut = true,
     this.showMultiWanShortcut = true,
+    this.showQuarantineShortcut = true,
     this.showInactiveWirelessNetworks = false,
     this.shortcutPanelVisibleCount = 6,
     List<String>? shortcutOrder,
@@ -70,6 +72,7 @@ class DashboardPreferences {
     'tor',
     'tailscale',
     'multi_wan',
+    'quarantine',
   ];
 
   DashboardPreferences copyWith({
@@ -92,6 +95,7 @@ class DashboardPreferences {
     bool? showTorShortcut,
     bool? showTailscaleShortcut,
     bool? showMultiWanShortcut,
+    bool? showQuarantineShortcut,
     bool? showInactiveWirelessNetworks,
     int? shortcutPanelVisibleCount,
     List<String>? shortcutOrder,
@@ -129,6 +133,8 @@ class DashboardPreferences {
       showTailscaleShortcut:
           showTailscaleShortcut ?? this.showTailscaleShortcut,
       showMultiWanShortcut: showMultiWanShortcut ?? this.showMultiWanShortcut,
+      showQuarantineShortcut:
+          showQuarantineShortcut ?? this.showQuarantineShortcut,
       showInactiveWirelessNetworks:
           showInactiveWirelessNetworks ?? this.showInactiveWirelessNetworks,
       shortcutPanelVisibleCount:
@@ -161,6 +167,7 @@ class DashboardPreferences {
     'showTorShortcut': showTorShortcut,
     'showTailscaleShortcut': showTailscaleShortcut,
     'showMultiWanShortcut': showMultiWanShortcut,
+    'showQuarantineShortcut': showQuarantineShortcut,
     'showInactiveWirelessNetworks': showInactiveWirelessNetworks,
     'shortcutPanelVisibleCount': shortcutPanelVisibleCount,
     'shortcutOrder': shortcutOrder,
@@ -196,6 +203,7 @@ class DashboardPreferences {
       showTorShortcut: json['showTorShortcut'] ?? true,
       showTailscaleShortcut: json['showTailscaleShortcut'] ?? true,
       showMultiWanShortcut: json['showMultiWanShortcut'] ?? true,
+      showQuarantineShortcut: json['showQuarantineShortcut'] ?? true,
       showInactiveWirelessNetworks:
           json['showInactiveWirelessNetworks'] == true,
       shortcutPanelVisibleCount: _parseShortcutPanelVisibleCount(
