@@ -106,6 +106,12 @@ class _OpenwrtFeatureGateState extends ConsumerState<OpenwrtFeatureGate> {
             },
           );
       if (!mounted) return;
+      if (status.installed) {
+        await ref
+            .read(appStateProvider)
+            .refreshRouterAuthenticationAfterSetup(context: context);
+      }
+      if (!mounted) return;
       console.setOutput(
         outputBuffer.toString().trim().isEmpty
             ? '${status.label} install finished. The router did not return console output.'

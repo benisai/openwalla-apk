@@ -2308,6 +2308,7 @@ class AppState extends ChangeNotifier {
   Future<String> runRouterSetupCommand(
     String command, {
     BuildContext? context,
+    bool allowAuthRetry = true,
   }) async {
     final router = _routerService?.selectedRouter;
     final sysauth = _authService?.sysauth;
@@ -2315,14 +2316,23 @@ class AppState extends ChangeNotifier {
       throw StateError('No selected router connection is available');
     }
 
-    final result = await _apiService!.systemExec(
-      router.ipAddress,
-      sysauth,
-      router.useHttps,
-      command: command,
-      context: context,
-    );
-    return _commandOutput(result);
+    try {
+      final result = await _apiService!.systemExec(
+        router.ipAddress,
+        sysauth,
+        router.useHttps,
+        command: command,
+        context: context,
+      );
+      return _commandOutput(result);
+    } catch (error) {
+      if (allowAuthRetry &&
+          _looksLikeExpiredSession(error) &&
+          await refreshRouterAuthenticationAfterSetup()) {
+        return runRouterSetupCommand(command, allowAuthRetry: false);
+      }
+      rethrow;
+    }
   }
 
   Future<String> runRouterSetupCommandViaSsh(
