@@ -22,8 +22,8 @@ install_file "$FILES_DIR/openwalla-state-sync.sh" /usr/bin/openwalla-state-sync 
 install_file "$FILES_DIR/openwalla-state-sync.init" /etc/init.d/openwalla-state-sync 0755
 install_rpcd_acl
 
-set_uci openwalla.state_backup.backup_time "720"
-set_uci openwalla.state_backup.state_dir "/overlay/openwalla-state"
+set_uci_default openwalla.state_backup.backup_time "720"
+set_uci_default openwalla.state_backup.state_dir "/overlay/openwalla-state"
 uci commit openwalla
 
 # Preserve the current runtime state before restarting the sync service. A

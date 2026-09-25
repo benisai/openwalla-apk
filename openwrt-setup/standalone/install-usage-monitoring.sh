@@ -24,9 +24,9 @@ ensure_openwalla_config
 ensure_uci_section dashboard dashboard
 install_rpcd_acl
 
-set_uci openwalla.dashboard.provider "auto"
-set_uci openwalla.dashboard.window_seconds "900"
-set_uci openwalla.dashboard.vnstat_interface "br-lan"
+set_uci_default openwalla.dashboard.provider "auto"
+set_uci_default openwalla.dashboard.window_seconds "900"
+set_uci_default openwalla.dashboard.vnstat_interface "br-lan"
 uci commit openwalla
 
 NLBW_CONF="/etc/config/nlbwmon"

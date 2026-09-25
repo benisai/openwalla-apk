@@ -166,6 +166,12 @@ set_uci() {
 	uci set "$key=$value"
 }
 
+set_uci_default() {
+	key="$1"
+	value="$2"
+	uci -q get "$key" >/dev/null 2>&1 || set_uci "$key" "$value"
+}
+
 ensure_openwalla_config() {
 	if [ ! -f /etc/config/openwalla ]; then
 		install_file "$FILES_DIR/openwalla.config" /etc/config/openwalla 0644

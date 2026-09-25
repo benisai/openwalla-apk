@@ -5,7 +5,7 @@
 
 set -u
 
-COMPONENT_VERSION="2026.09.24.2"
+COMPONENT_VERSION="2026.09.24.3"
 RAW_BASE="${OPENWALLA_RAW_BASE:-https://raw.githubusercontent.com/benisai/openwalla-apk/main/openwrt-setup}"
 ACTION="${1:-status}"
 TMP_DIR="/tmp/openwalla-component-update.$$"

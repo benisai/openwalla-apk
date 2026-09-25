@@ -22,13 +22,13 @@ install_file "$FILES_DIR/openwalla-dns-monitor.sh" /usr/bin/openwalla-dns-monito
 install_file "$FILES_DIR/openwalla-dns-monitor.init" /etc/init.d/openwalla-dns-monitor 0755
 install_rpcd_acl
 
-set_uci openwalla.dns_monitor.enabled "1"
-set_uci openwalla.dns_monitor.target "openwrt.org"
-set_uci openwalla.dns_monitor.interval "60"
-set_uci openwalla.dns_monitor.threshold "1000"
-set_uci openwalla.dns_monitor.timeout "3"
-set_uci openwalla.dns_monitor.output_file "/tmp/openwalla-dns-monitor.txt"
-set_uci openwalla.dns_monitor.max_lines "2000"
+set_uci_default openwalla.dns_monitor.enabled "1"
+set_uci_default openwalla.dns_monitor.target "openwrt.org"
+set_uci_default openwalla.dns_monitor.interval "60"
+set_uci_default openwalla.dns_monitor.threshold "1000"
+set_uci_default openwalla.dns_monitor.timeout "3"
+set_uci_default openwalla.dns_monitor.output_file "/tmp/openwalla-dns-monitor.txt"
+set_uci_default openwalla.dns_monitor.max_lines "2000"
 uci commit openwalla
 
 /usr/bin/openwalla-dns-monitor --once || true

@@ -23,13 +23,13 @@ ensure_uci_section speedtest_monitor speedtest
 install_file "$FILES_DIR/openwalla-speedtest-monitor.sh" /usr/bin/openwalla-speedtest-monitor 0755
 install_rpcd_acl
 
-set_uci openwalla.speedtest_monitor.enabled "1"
-set_uci openwalla.speedtest_monitor.run_date "$(date +%Y-%m-%d)"
-set_uci openwalla.speedtest_monitor.run_hour "3"
-set_uci openwalla.speedtest_monitor.run_minute "15"
-set_uci openwalla.speedtest_monitor.bin "/usr/bin/speedtest"
-set_uci openwalla.speedtest_monitor.output_file "/tmp/openwalla-speedtest-monitor.txt"
-set_uci openwalla.speedtest_monitor.max_lines "365"
+set_uci_default openwalla.speedtest_monitor.enabled "1"
+set_uci_default openwalla.speedtest_monitor.run_date "$(date +%Y-%m-%d)"
+set_uci_default openwalla.speedtest_monitor.run_hour "3"
+set_uci_default openwalla.speedtest_monitor.run_minute "15"
+set_uci_default openwalla.speedtest_monitor.bin "/usr/bin/speedtest"
+set_uci_default openwalla.speedtest_monitor.output_file "/tmp/openwalla-speedtest-monitor.txt"
+set_uci_default openwalla.speedtest_monitor.max_lines "365"
 uci commit openwalla
 
 /usr/bin/openwalla-speedtest-monitor --init-file || true
