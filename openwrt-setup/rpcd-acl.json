@@ -3,6 +3,7 @@
 		"description": "ACL permissions for openwalla OpenWrt interface",
 		"read": {
 			"file": {
+				"/lib/apk/db/installed": ["read"],
 				"/usr/lib/opkg/status": ["read"],
 				"/var/lib/opkg/status": ["read"],
 				"/proc/net/dev": ["read"],

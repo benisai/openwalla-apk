@@ -164,6 +164,89 @@ class RouterPackageSnapshot {
   const RouterPackageSnapshot({required this.manager, required this.packages});
 }
 
+List<RouterPackage> parseInstalledRouterPackages(
+  String output,
+  RouterPackageManager manager,
+) {
+  final packages = <String, RouterPackage>{};
+
+  void addPackage(String? name, String? version) {
+    final cleanName = name?.trim() ?? '';
+    if (cleanName.isEmpty) return;
+    packages[cleanName] = RouterPackage(
+      name: cleanName,
+      version: version?.trim().isNotEmpty == true
+          ? version!.trim()
+          : 'installed',
+    );
+  }
+
+  for (final block in output.split(RegExp(r'\n\s*\n'))) {
+    String? name;
+    String? version;
+    String? status;
+    for (final rawLine in block.split('\n')) {
+      final line = rawLine.trim();
+      if (line.startsWith('Package: ')) name = line.substring(9);
+      if (line.startsWith('Version: ')) version = line.substring(9);
+      if (line.startsWith('Status: ')) status = line.substring(8);
+    }
+    if (name != null && (status == null || status.contains(' installed'))) {
+      addPackage(name, version);
+    }
+  }
+
+  for (final block in output.split(RegExp(r'\n\s*\n'))) {
+    String? name;
+    String? version;
+    for (final rawLine in block.split('\n')) {
+      final line = rawLine.trim();
+      if (line.startsWith('P:')) name = line.substring(2);
+      if (line.startsWith('V:')) version = line.substring(2);
+    }
+    if (name != null) addPackage(name, version);
+  }
+
+  for (final rawLine in output.split('\n')) {
+    final line = rawLine.trim();
+    if (line.isEmpty ||
+        line.startsWith('__MANAGER__|') ||
+        line.startsWith('#') ||
+        line.startsWith('WARNING:') ||
+        line.startsWith('ERROR:') ||
+        RegExp(r'^[A-Z][A-Za-z-]*:').hasMatch(line) ||
+        RegExp(r'^[A-Z]:').hasMatch(line)) {
+      continue;
+    }
+
+    final opkgSeparator = line.indexOf(' - ');
+    if (opkgSeparator > 0) {
+      final remainder = line.substring(opkgSeparator + 3);
+      addPackage(
+        line.substring(0, opkgSeparator),
+        remainder.split(' - ').first,
+      );
+      continue;
+    }
+
+    final firstToken = line.split(RegExp(r'\s+')).first;
+    final apkMatch = RegExp(
+      r'^([A-Za-z0-9+_.@-]+?)-([0-9][^\s]*)$',
+    ).firstMatch(firstToken);
+    if (apkMatch != null) {
+      addPackage(apkMatch.group(1), apkMatch.group(2));
+      continue;
+    }
+
+    if (manager == RouterPackageManager.opkg) {
+      final fields = line.split(RegExp(r'\s+'));
+      if (fields.length >= 2) addPackage(fields[0], fields[1]);
+    }
+  }
+
+  return packages.values.toList()..sort((a, b) => a.name.compareTo(b.name));
+}
+
 class Mwan3Section {
   final String name;
   final String type;
@@ -2873,13 +2956,18 @@ class AppState extends ChangeNotifier {
       );
     }
     final output = await runRouterSetupCommand(
-      "if command -v apk >/dev/null 2>&1; then echo '__MANAGER__|apk'; apk info -v; "
-      "elif command -v opkg >/dev/null 2>&1; then echo '__MANAGER__|opkg'; opkg list-installed; "
+      "if command -v apk >/dev/null 2>&1 && { [ -d /etc/apk ] || [ -f /lib/apk/db/installed ]; }; then "
+      "echo '__MANAGER__|apk'; apk info -v 2>/dev/null || true; "
+      "apk list --installed 2>/dev/null || true; "
+      "[ ! -r /lib/apk/db/installed ] || cat /lib/apk/db/installed; "
+      "elif command -v opkg >/dev/null 2>&1; then echo '__MANAGER__|opkg'; "
+      "opkg list-installed 2>/dev/null || true; "
+      "if [ -r /usr/lib/opkg/status ]; then cat /usr/lib/opkg/status; "
+      "elif [ -r /var/lib/opkg/status ]; then cat /var/lib/opkg/status; fi; "
       "else echo '__MANAGER__|none'; fi",
       context: context,
     );
     var manager = RouterPackageManager.none;
-    final packages = <RouterPackage>[];
     for (final rawLine in output.split('\n')) {
       final line = rawLine.trim();
       if (line.startsWith('__MANAGER__|')) {
@@ -2888,27 +2976,9 @@ class AppState extends ChangeNotifier {
           'opkg' => RouterPackageManager.opkg,
           _ => RouterPackageManager.none,
         };
-        continue;
-      }
-      if (line.isEmpty || line.startsWith('WARNING:')) continue;
-      if (manager == RouterPackageManager.opkg) {
-        final separator = line.indexOf(' - ');
-        if (separator <= 0) continue;
-        packages.add(
-          RouterPackage(
-            name: line.substring(0, separator).trim(),
-            version: line.substring(separator + 3).trim(),
-          ),
-        );
-      } else if (manager == RouterPackageManager.apk) {
-        final match = RegExp(r'^(.+)-([0-9][^\s]*)$').firstMatch(line);
-        if (match == null) continue;
-        packages.add(
-          RouterPackage(name: match.group(1)!, version: match.group(2)!),
-        );
       }
     }
-    packages.sort((a, b) => a.name.compareTo(b.name));
+    final packages = parseInstalledRouterPackages(output, manager);
     return RouterPackageSnapshot(manager: manager, packages: packages);
   }
 
