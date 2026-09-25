@@ -112,7 +112,7 @@ class _NetworkPerformanceScreenState
         context: mounted ? context : null,
       ),
       appState.fetchNotifications(
-        limit: 1,
+        limit: 50,
         includeArchived: true,
         context: mounted ? context : null,
       ),
@@ -121,7 +121,9 @@ class _NetworkPerformanceScreenState
     setState(() {
       _freshSamples = results[0] as List<PingMonitorSample>;
       _speedtestSamples = results[1] as List<SpeedtestMonitorSample>;
-      _recentNotifications = results[2] as List<OpenwallaNotification>;
+      _recentNotifications = (results[2] as List<OpenwallaNotification>)
+          .where((event) => event.isNetworkPerformanceEvent)
+          .toList();
     });
   }
 
@@ -274,9 +276,11 @@ class _NetworkPerformanceScreenState
   }
 
   void _openRecentEvents() {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (context) => const RecentEventsScreen()));
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => const RecentEventsScreen(networkIssuesOnly: true),
+      ),
+    );
   }
 
   Future<void> _runSpeedtest() async {

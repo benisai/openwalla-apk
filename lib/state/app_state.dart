@@ -469,6 +469,13 @@ class OpenwallaNotification {
     if (app.toLowerCase().contains('quarantine')) return 'device';
     return 'system';
   }
+
+  bool get isNetworkPerformanceEvent => const {
+    'network_health',
+    'interface',
+    'dns',
+    'speedtest',
+  }.contains(effectiveCategory);
 }
 
 class OpenwrtFirewallRule {

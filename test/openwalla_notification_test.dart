@@ -18,6 +18,7 @@ void main() {
       );
       expect(notification.effectiveSeverity, 'resolved');
       expect(notification.effectiveCategory, 'network_health');
+      expect(notification.isNetworkPerformanceEvent, isTrue);
     });
 
     test('presents legacy ping rows with a useful title', () {
@@ -68,6 +69,7 @@ void main() {
       expect(notification!.displayTitle, 'New device detected');
       expect(notification.effectiveSeverity, 'warning');
       expect(notification.effectiveCategory, 'device');
+      expect(notification.isNetworkPerformanceEvent, isFalse);
     });
   });
 }

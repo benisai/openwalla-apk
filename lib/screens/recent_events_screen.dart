@@ -5,7 +5,9 @@ import 'package:luci_mobile/state/app_state.dart';
 import 'package:luci_mobile/widgets/luci_app_bar.dart';
 
 class RecentEventsScreen extends ConsumerStatefulWidget {
-  const RecentEventsScreen({super.key});
+  final bool networkIssuesOnly;
+
+  const RecentEventsScreen({super.key, this.networkIssuesOnly = false});
 
   @override
   ConsumerState<RecentEventsScreen> createState() => _RecentEventsScreenState();
@@ -33,7 +35,9 @@ class _RecentEventsScreenState extends ConsumerState<RecentEventsScreen> {
         );
     if (!mounted) return;
     setState(() {
-      _events = events;
+      _events = widget.networkIssuesOnly
+          ? events.where((event) => event.isNetworkPerformanceEvent).toList()
+          : events;
       _isLoading = false;
     });
   }

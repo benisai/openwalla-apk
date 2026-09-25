@@ -567,6 +567,31 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
     }
   }
 
+  void _applyCachedClientIdentity(
+    String mac, {
+    required String hostname,
+    required String deviceIcon,
+    required String staticIpAddress,
+  }) {
+    final normalizedMac = _normalizeMac(mac);
+    Client updateClient(Client client) {
+      if (_normalizeMac(client.macAddress) != normalizedMac) return client;
+      return client.copyWith(
+        hostname: hostname,
+        deviceIcon: deviceIcon,
+        staticIpAddress: staticIpAddress,
+      );
+    }
+
+    setState(() {
+      _visibleClients = _visibleClients.map(updateClient).toList();
+      for (final entry in _clientCache.entries.toList()) {
+        _clientCache[entry.key] = entry.value.map(updateClient).toList();
+      }
+      _clientsFuture = Future.value(_visibleClients);
+    });
+  }
+
   Future<void> _setClientInternetBlocked(Client client, bool blocked) async {
     final mac = _normalizeMac(client.macAddress);
     if (mac.isEmpty || mac == 'N/A') return;
@@ -613,7 +638,7 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
   }
 
   Future<void> _showDeviceSettingsSheet(Client client) async {
-    final updated = await showModalBottomSheet<bool>(
+    await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -624,6 +649,20 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
       ),
       builder: (context) => _DeviceSettingsSheet(
         client: client,
+        onIdentityUpdated:
+            ({
+              required hostname,
+              required deviceIcon,
+              required staticIpAddress,
+            }) {
+              if (!mounted) return;
+              _applyCachedClientIdentity(
+                client.macAddress,
+                hostname: hostname,
+                deviceIcon: deviceIcon,
+                staticIpAddress: staticIpAddress,
+              );
+            },
         onToggleInternetPause: (paused) async {
           final success = await ref
               .read(appStateProvider)
@@ -638,11 +677,6 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
             _setClientInternetBlocked(client, blocked),
       ),
     );
-    if (updated == true && mounted) {
-      setState(() {
-        _computeClientsFuture();
-      });
-    }
   }
 
   Future<void> _showDeleteDeviceSheet(Client client) async {
@@ -885,11 +919,18 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
 
 class _DeviceSettingsSheet extends ConsumerStatefulWidget {
   final Client client;
+  final void Function({
+    required String hostname,
+    required String deviceIcon,
+    required String staticIpAddress,
+  })
+  onIdentityUpdated;
   final Future<void> Function(bool paused) onToggleInternetPause;
   final Future<void> Function(bool blocked) onToggleInternetBlock;
 
   const _DeviceSettingsSheet({
     required this.client,
+    required this.onIdentityUpdated,
     required this.onToggleInternetPause,
     required this.onToggleInternetBlock,
   });
@@ -993,6 +1034,11 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
         _isSavingName = false;
         _hasSavedChanges = true;
       });
+      widget.onIdentityUpdated(
+        hostname: name,
+        deviceIcon: _selectedIconKey,
+        staticIpAddress: _currentStaticIp,
+      );
       context.showToastSuccess(
         'Device name saved',
         actionKey: 'device-name-${widget.client.macAddress}',
@@ -1081,6 +1127,11 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
         _isSaving = false;
         _hasSavedChanges = true;
       });
+      widget.onIdentityUpdated(
+        hostname: deviceName,
+        deviceIcon: _selectedIconKey,
+        staticIpAddress: nextStaticIp,
+      );
       OpenwallaToast.showSuccess(
         context,
         key: toastKey,
