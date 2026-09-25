@@ -28,6 +28,9 @@ typedef _WirelessConnection = ({
   String ssid,
 });
 
+bool _isValidWireGuardKey(String value) =>
+    RegExp(r'^[A-Za-z0-9+/]{43}=$').hasMatch(value);
+
 const int kOpenwallaPingTimelineSampleLimit = 420;
 
 enum OpenwallaThemeAccent {
@@ -1280,8 +1283,7 @@ class WireGuardServerProfile {
     required this.listenPort,
   });
 
-  bool get hasValidServerPublicKey =>
-      RegExp(r'^[A-Za-z0-9+/]{43}=$').hasMatch(serverPublicKey);
+  bool get hasValidServerPublicKey => _isValidWireGuardKey(serverPublicKey);
 
   String get config {
     if (!hasValidServerPublicKey) {
@@ -9344,7 +9346,8 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       );
       return WireGuardServerSettings(
         installed: feature.installed,
-        configured: true,
+        configured:
+            _isValidWireGuardKey(privateKey) && _isValidWireGuardKey(publicKey),
         enabled: config['disabled']?.toString() != '1',
         interfaceName: interfaceName,
         listenPort:
@@ -9385,16 +9388,13 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     );
     final current = _extractUciValues(networkResult)[interfaceName] ?? const {};
     var privateKey = current['private_key']?.toString().trim() ?? '';
-    if (privateKey.isEmpty) {
-      final keyResult = await _apiService!.systemExec(
-        router.ipAddress,
-        sysauth,
-        router.useHttps,
-        command: _withWireGuardBinaryLookup('"\$WG_BIN" genkey'),
+    if (!_isValidWireGuardKey(privateKey)) {
+      privateKey = await _generateWireGuardPrivateKey(
+        router: router,
+        sysauth: sysauth,
       );
-      privateKey = _commandOutput(keyResult).trim();
     }
-    if (privateKey.isEmpty) {
+    if (!_isValidWireGuardKey(privateKey)) {
       throw StateError('WireGuard could not generate a server private key.');
     }
 
@@ -9491,6 +9491,33 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     );
     final match = RegExp(
       r'OPENWALLA_WG_PUBLIC_KEY=([A-Za-z0-9+/]{43}=)',
+    ).firstMatch(_commandOutput(result));
+    return match?.group(1) ?? '';
+  }
+
+  Future<String> _generateWireGuardPrivateKey({
+    required model.Router router,
+    required String sysauth,
+  }) async {
+    if (_apiService == null) return '';
+    final command = _withWireGuardBinaryLookup(
+      '[ -n "\$WG_BIN" ] || exit 1; '
+      'PRIVATE_KEY="\$("\$WG_BIN" genkey)"; '
+      'printf "OPENWALLA_WG_PRIVATE_KEY=%s\\n" "\$PRIVATE_KEY"',
+    );
+    final result = await _apiService!.call(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      object: 'file',
+      method: 'exec',
+      params: {
+        'command': '/bin/sh',
+        'params': ['-c', command],
+      },
+    );
+    final match = RegExp(
+      r'OPENWALLA_WG_PRIVATE_KEY=([A-Za-z0-9+/]{43}=)',
     ).firstMatch(_commandOutput(result));
     return match?.group(1) ?? '';
   }
