@@ -23,7 +23,7 @@ extension on _SetupProfile {
     _SetupProfile.basic =>
       'Core packages and helpers required for Openwalla to function.',
     _SetupProfile.standard =>
-      'Basic plus AdBlock, Parental Controls, Smart Queue, DDNS, and WireGuard.',
+      'Basic plus AdBlock, Parental Controls, Quarantine, Smart Queue, DDNS, and WireGuard.',
     _SetupProfile.advanced => 'Basic and Standard plus PBR.',
     _SetupProfile.everything =>
       'Basic, Standard, and Advanced plus Detailed and Simple Flows.',
@@ -59,6 +59,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
     'adblock',
     'blocking',
     'scheduler',
+    'quarantine',
     'qos',
     'ddns',
     'wireguard',
@@ -500,6 +501,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
         ...basic,
         'AdBlock',
         'Parental Controls',
+        'Device Quarantine',
         'Smart Queue (SQM)',
         'Dynamic DNS (DDNS)',
         'WireGuard tools and LuCI protocol support',
@@ -962,6 +964,12 @@ class _UninstallComponentsCard extends StatelessWidget {
       title: 'Internet Blocking',
       subtitle: 'Manual parental block helper.',
       icon: Icons.block_rounded,
+    ),
+    (
+      feature: 'quarantine',
+      title: 'Device Quarantine',
+      subtitle: 'New-device detection and automatic isolation service.',
+      icon: Icons.gpp_bad_rounded,
     ),
     (
       feature: 'notifications',
