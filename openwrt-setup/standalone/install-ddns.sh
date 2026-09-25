@@ -9,9 +9,13 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 
 log "Installing OpenWrt Dynamic DNS support"
 
-install_pkg_if_available "ddns-scripts"
-install_pkg_if_available "ddns-scripts-services"
-install_pkg_if_available "luci-app-ddns"
+update_package_feeds
+if ! install_pkg_if_available "ddns-scripts"; then
+	echo "DDNS installation failed: ddns-scripts is unavailable from this router package feed."
+	exit 1
+fi
+install_pkg_if_available "ddns-scripts-services" || true
+install_pkg_if_available "luci-app-ddns" || true
 
 ensure_uci_section features features
 set_uci openwalla.features.ddns "1"

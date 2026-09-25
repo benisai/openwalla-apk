@@ -11325,7 +11325,11 @@ done | sort -t "|" -k1,1nr | head -n ''' +
           'command': 'sh',
           'params': [
             '-c',
-            "opkg list-installed 2>/dev/null | awk '{print \$1}' | grep -E '^(ddns-scripts|luci-app-ddns)' || true",
+            "if command -v apk >/dev/null 2>&1 && { [ -d /etc/apk ] || [ -f /lib/apk/db/installed ]; }; then "
+                "apk info 2>/dev/null | grep -E '^(ddns-scripts|luci-app-ddns)(\$|-)' || true; "
+                "elif command -v opkg >/dev/null 2>&1; then "
+                "opkg list-installed 2>/dev/null | awk '{print \$1}' | grep -E '^(ddns-scripts|luci-app-ddns)(\$|-)' || true; fi; "
+                "[ ! -x /etc/init.d/ddns ] || echo ddns-service",
           ],
         },
       );
