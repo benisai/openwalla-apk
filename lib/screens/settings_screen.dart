@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:luci_mobile/main.dart';
 import 'package:luci_mobile/state/app_state.dart';
 import 'package:luci_mobile/widgets/luci_app_bar.dart';
+import 'package:luci_mobile/widgets/luci_toast.dart';
 import 'package:luci_mobile/screens/router_dashboard_settings_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -701,7 +702,6 @@ class _SpeedtestSettingsScreenState
   bool _enabled = true;
   bool _isLoading = true;
   bool _isSaving = false;
-  DateTime _selectedDate = DateTime.now();
   TimeOfDay _selectedTime = const TimeOfDay(hour: 3, minute: 0);
 
   @override
@@ -719,7 +719,6 @@ class _SpeedtestSettingsScreenState
 
     setState(() {
       _enabled = settings.enabled;
-      _selectedDate = settings.runDate ?? DateTime.now();
       _selectedTime = TimeOfDay(
         hour: settings.runHour,
         minute: settings.runMinute,
@@ -730,44 +729,42 @@ class _SpeedtestSettingsScreenState
 
   Future<void> _saveSettings() async {
     setState(() => _isSaving = true);
+    const actionKey = 'speedtest-schedule';
+    context.showToastLoading(
+      'Saving speedtest schedule...',
+      actionKey: actionKey,
+    );
     try {
       await ref
           .read(appStateProvider)
           .saveSpeedtestMonitorSettings(
             SpeedtestMonitorSettings(
               enabled: _enabled,
-              runDate: _selectedDate,
+              runDate: null,
               runHour: _selectedTime.hour,
               runMinute: _selectedTime.minute,
             ),
             context: context,
           );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Speedtest settings saved.')),
+      context.showToastSuccess(
+        'Speedtest schedule saved',
+        subtitle: _enabled
+            ? 'Runs every day at ${_selectedTime.format(context)}.'
+            : 'Scheduled speedtests are disabled.',
+        actionKey: actionKey,
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to save speedtest settings: $e')),
+      context.showToastError(
+        'Speedtest schedule was not saved',
+        subtitle: e.toString().replaceFirst('Bad state: ', ''),
+        actionKey: actionKey,
       );
     } finally {
       if (mounted) {
         setState(() => _isSaving = false);
       }
-    }
-  }
-
-  Future<void> _selectDate() async {
-    final pickedDate = await showDatePicker(
-      context: context,
-      initialDate: _selectedDate,
-      firstDate: DateTime.now().subtract(const Duration(days: 1)),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
-    );
-
-    if (pickedDate != null && mounted) {
-      setState(() => _selectedDate = pickedDate);
     }
   }
 
@@ -804,14 +801,8 @@ class _SpeedtestSettingsScreenState
                     ),
                     const Divider(height: 24),
                     _PickerTile(
-                      icon: Icons.calendar_month_rounded,
-                      title: 'Date',
-                      value: _formatDate(_selectedDate),
-                      onTap: _isSaving ? null : _selectDate,
-                    ),
-                    _PickerTile(
                       icon: Icons.schedule_rounded,
-                      title: 'Time',
+                      title: 'Every day at',
                       value: _selectedTime.format(context),
                       onTap: _isSaving ? null : _selectTime,
                     ),

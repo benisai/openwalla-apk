@@ -4,6 +4,7 @@ import 'package:luci_mobile/design/luci_design_system.dart';
 import 'package:luci_mobile/main.dart';
 import 'package:luci_mobile/state/app_state.dart';
 import 'package:luci_mobile/widgets/luci_app_bar.dart';
+import 'package:luci_mobile/widgets/luci_toast.dart';
 
 class NetworkPerformanceSettingsScreen extends ConsumerStatefulWidget {
   const NetworkPerformanceSettingsScreen({super.key});
@@ -21,7 +22,6 @@ class _NetworkPerformanceSettingsScreenState
   bool _speedtestEnabled = true;
   bool _isLoading = true;
   bool _isSaving = false;
-  DateTime _speedtestDate = DateTime.now();
   TimeOfDay _speedtestTime = const TimeOfDay(hour: 3, minute: 15);
 
   @override
@@ -56,7 +56,6 @@ class _NetworkPerformanceSettingsScreenState
       _pingThresholdController.text = ping.thresholdMs.toString();
       _dnsHostnameController.text = dns.hostname;
       _speedtestEnabled = speedtest.enabled;
-      _speedtestDate = speedtest.runDate ?? DateTime.now();
       _speedtestTime = TimeOfDay(
         hour: speedtest.runHour,
         minute: speedtest.runMinute,
@@ -91,7 +90,7 @@ class _NetworkPerformanceSettingsScreenState
       await appState.saveSpeedtestMonitorSettings(
         SpeedtestMonitorSettings(
           enabled: _speedtestEnabled,
-          runDate: _speedtestDate,
+          runDate: null,
           runHour: _speedtestTime.hour,
           runMinute: _speedtestTime.minute,
         ),
@@ -107,20 +106,10 @@ class _NetworkPerformanceSettingsScreenState
   }
 
   void _showSnack(String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
-  }
-
-  Future<void> _selectSpeedtestDate() async {
-    final pickedDate = await showDatePicker(
-      context: context,
-      initialDate: _speedtestDate,
-      firstDate: DateTime.now().subtract(const Duration(days: 1)),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
-    );
-    if (pickedDate != null && mounted) {
-      setState(() => _speedtestDate = pickedDate);
+    if (message.startsWith('Failed') || message.startsWith('Enter')) {
+      context.showToastError(message, actionKey: 'performance-settings');
+    } else {
+      context.showToastSuccess(message, actionKey: 'performance-settings');
     }
   }
 
@@ -209,14 +198,8 @@ class _NetworkPerformanceSettingsScreenState
                     ),
                     const Divider(height: 24),
                     _PickerTile(
-                      icon: Icons.calendar_month_rounded,
-                      title: 'Date',
-                      value: _formatDate(_speedtestDate),
-                      onTap: _isSaving ? null : _selectSpeedtestDate,
-                    ),
-                    _PickerTile(
                       icon: Icons.schedule_rounded,
-                      title: 'Time',
+                      title: 'Every day at',
                       value: _speedtestTime.format(context),
                       onTap: _isSaving ? null : _selectSpeedtestTime,
                     ),
@@ -338,8 +321,4 @@ class _SettingsSaveBar extends StatelessWidget {
       ),
     );
   }
-}
-
-String _formatDate(DateTime date) {
-  return '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
 }

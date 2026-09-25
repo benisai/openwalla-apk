@@ -9002,7 +9002,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
   }) async {
     final defaults = SpeedtestMonitorSettings(
       enabled: true,
-      runDate: DateTime.now(),
+      runDate: null,
       runHour: 3,
       runMinute: 15,
     );
@@ -9019,12 +9019,9 @@ done | sort -t "|" -k1,1nr | head -n ''' +
         final runMinute =
             int.tryParse(speedtest['run_minute']?.toString() ?? '') ??
             defaults.runMinute;
-        final runDate = DateTime.tryParse(
-          speedtest['run_date']?.toString() ?? '',
-        );
         return SpeedtestMonitorSettings(
           enabled: enabled,
-          runDate: runDate ?? defaults.runDate,
+          runDate: null,
           runHour: runHour.clamp(0, 23),
           runMinute: runMinute.clamp(0, 59),
         );
@@ -9049,7 +9046,6 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       throw Exception('Router is not connected');
     }
 
-    final runDate = settings.runDate;
     await _apiService!.uciSet(
       router.ipAddress,
       sysauth,
@@ -9060,9 +9056,6 @@ done | sort -t "|" -k1,1nr | head -n ''' +
         'enabled': settings.enabled ? '1' : '0',
         'run_hour': settings.runHour.clamp(0, 23).toString(),
         'run_minute': settings.runMinute.clamp(0, 59).toString(),
-        if (runDate != null)
-          'run_date':
-              '${runDate.year.toString().padLeft(4, '0')}-${runDate.month.toString().padLeft(2, '0')}-${runDate.day.toString().padLeft(2, '0')}',
       },
       context: context,
     );
@@ -9072,13 +9065,12 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       router.useHttps,
       config: 'openwalla',
     );
-    await _apiService!.systemExec(
-      router.ipAddress,
-      sysauth,
-      router.useHttps,
-      command:
-          r'MARKER="# OPENWALLA_SPEEDTEST_MONITOR"; CRON="/etc/crontabs/root"; TMP="/tmp/.openwalla_cron_app.$$"; HOUR="$(uci -q get openwalla.speedtest_monitor.run_hour 2>/dev/null || echo 3)"; MINUTE="$(uci -q get openwalla.speedtest_monitor.run_minute 2>/dev/null || echo 15)"; RUN_DATE="$(uci -q get openwalla.speedtest_monitor.run_date 2>/dev/null || date +%Y-%m-%d)"; ENABLED="$(uci -q get openwalla.speedtest_monitor.enabled 2>/dev/null || echo 1)"; MONTH="$(printf "%s" "$RUN_DATE" | cut -d- -f2 | sed "s/^0*//")"; DAY="$(printf "%s" "$RUN_DATE" | cut -d- -f3 | sed "s/^0*//")"; case "$HOUR" in ""|*[!0-9]*) HOUR=3 ;; esac; case "$MINUTE" in ""|*[!0-9]*) MINUTE=15 ;; esac; case "$MONTH" in ""|*[!0-9]*) MONTH="$(date +%m | sed "s/^0*//")" ;; esac; case "$DAY" in ""|*[!0-9]*) DAY="$(date +%d | sed "s/^0*//")" ;; esac; [ "$HOUR" -gt 23 ] && HOUR=3; [ "$MINUTE" -gt 59 ] && MINUTE=15; if [ -f "$CRON" ]; then grep -v "$MARKER" "$CRON" >"$TMP" 2>/dev/null || : >"$TMP"; else : >"$TMP"; fi; if [ "$ENABLED" = "1" ]; then echo "$MINUTE $HOUR $DAY $MONTH * /usr/bin/openwalla-speedtest-monitor --scheduled >/tmp/openwalla-speedtest-monitor.last.log 2>&1 $MARKER" >>"$TMP"; fi; mv "$TMP" "$CRON"; /etc/init.d/cron reload >/dev/null 2>&1 || /etc/init.d/cron restart >/dev/null 2>&1 || true',
+    final output = await runRouterSetupCommand(
+      r'MARKER="# OPENWALLA_SPEEDTEST_MONITOR"; CRON="/etc/crontabs/root"; TMP="/tmp/.openwalla_cron_app.$$"; HOUR="$(uci -q get openwalla.speedtest_monitor.run_hour 2>/dev/null || echo 3)"; MINUTE="$(uci -q get openwalla.speedtest_monitor.run_minute 2>/dev/null || echo 15)"; ENABLED="$(uci -q get openwalla.speedtest_monitor.enabled 2>/dev/null || echo 1)"; uci -q delete openwalla.speedtest_monitor.run_date >/dev/null 2>&1 || true; uci commit openwalla; case "$HOUR" in ""|*[!0-9]*) HOUR=3 ;; esac; case "$MINUTE" in ""|*[!0-9]*) MINUTE=15 ;; esac; [ "$HOUR" -gt 23 ] && HOUR=3; [ "$MINUTE" -gt 59 ] && MINUTE=15; if [ -f "$CRON" ]; then grep -v "$MARKER" "$CRON" >"$TMP" 2>/dev/null || : >"$TMP"; else : >"$TMP"; fi; if [ "$ENABLED" = "1" ]; then echo "$MINUTE $HOUR * * * /usr/bin/openwalla-speedtest-monitor --scheduled >/tmp/openwalla-speedtest-monitor.last.log 2>&1 $MARKER" >>"$TMP"; fi; mv "$TMP" "$CRON"; if [ -x /etc/init.d/cron ]; then /etc/init.d/cron enable >/dev/null 2>&1 || true; /etc/init.d/cron restart >/dev/null 2>&1 || /etc/init.d/cron start >/dev/null 2>&1 || true; elif [ -x /etc/init.d/crond ]; then /etc/init.d/crond enable >/dev/null 2>&1 || true; /etc/init.d/crond restart >/dev/null 2>&1 || /etc/init.d/crond start >/dev/null 2>&1 || true; fi; if [ "$ENABLED" = "1" ]; then grep -Fq "$MARKER" "$CRON" || exit 1; fi; echo OPENWALLA_SPEEDTEST_CRON_OK',
     );
+    if (!output.contains('OPENWALLA_SPEEDTEST_CRON_OK')) {
+      throw StateError('Router did not confirm the speedtest schedule');
+    }
   }
 
   Future<MonthlyUsageSettings> fetchMonthlyUsageSettings({

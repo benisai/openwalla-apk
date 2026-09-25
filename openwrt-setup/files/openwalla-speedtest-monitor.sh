@@ -5,6 +5,9 @@
 
 set -u
 
+PATH="/usr/sbin:/usr/bin:/sbin:/bin"
+export PATH
+
 DEFAULT_OUTPUT="/tmp/openwalla-speedtest-monitor.txt"
 DEFAULT_MAX_LINES="365"
 DEFAULT_BIN="/usr/bin/speedtest"
@@ -171,32 +174,11 @@ run_speedtest_once() {
 	[ "$status" = "OK" ]
 }
 
-finish_scheduled_run() {
-	local cron_path tmp_cron
-	cron_path="/etc/crontabs/root"
-	tmp_cron="/tmp/.openwalla_speedtest_finish.$$"
-	if command -v uci >/dev/null 2>&1; then
-		uci set openwalla.speedtest_monitor.enabled='0' 2>/dev/null || true
-		uci commit openwalla 2>/dev/null || true
-	fi
-	if [ -f "$cron_path" ]; then
-		grep -v "OPENWALLA_SPEEDTEST_MONITOR" "$cron_path" >"$tmp_cron" 2>/dev/null || : >"$tmp_cron"
-		mv "$tmp_cron" "$cron_path"
-	fi
-	/bin/sh -c '/etc/init.d/cron reload 2>/dev/null || /etc/init.d/cron restart 2>/dev/null || true'
-}
-
 run_scheduled_once() {
-	local enabled run_date today result
+	local enabled
 	enabled="$(uci -q get openwalla.speedtest_monitor.enabled 2>/dev/null || echo 0)"
-	run_date="$(uci -q get openwalla.speedtest_monitor.run_date 2>/dev/null || true)"
-	today="$(date +%Y-%m-%d)"
 	[ "$enabled" = "1" ] || return 0
-	[ -z "$run_date" ] || [ "$run_date" = "$today" ] || return 0
 	run_speedtest_once
-	result=$?
-	finish_scheduled_run
-	return "$result"
 }
 
 main() {

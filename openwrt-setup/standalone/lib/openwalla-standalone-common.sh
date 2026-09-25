@@ -225,5 +225,15 @@ configure_vnstat_interface() {
 }
 
 reload_cron() {
-	/bin/sh -c '/etc/init.d/cron reload 2>/dev/null || /etc/init.d/cron restart 2>/dev/null || /etc/init.d/crond reload 2>/dev/null || /etc/init.d/crond restart 2>/dev/null || killall -HUP crond 2>/dev/null || true'
+	if [ -x /etc/init.d/cron ]; then
+		/etc/init.d/cron enable >/dev/null 2>&1 || true
+		/etc/init.d/cron restart >/dev/null 2>&1 || /etc/init.d/cron start >/dev/null 2>&1 || true
+		return 0
+	fi
+	if [ -x /etc/init.d/crond ]; then
+		/etc/init.d/crond enable >/dev/null 2>&1 || true
+		/etc/init.d/crond restart >/dev/null 2>&1 || /etc/init.d/crond start >/dev/null 2>&1 || true
+		return 0
+	fi
+	killall -HUP crond 2>/dev/null || true
 }

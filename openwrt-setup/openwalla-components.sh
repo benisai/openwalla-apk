@@ -5,7 +5,7 @@
 
 set -u
 
-COMPONENT_VERSION="2026.09.25.2"
+COMPONENT_VERSION="2026.09.25.3"
 RAW_BASE="${OPENWALLA_RAW_BASE:-https://raw.githubusercontent.com/benisai/openwalla-apk/main/openwrt-setup}"
 ACTION="${1:-status}"
 TMP_DIR="/tmp/openwalla-component-update.$$"
@@ -19,6 +19,43 @@ cleanup() {
 	rm -rf "$TMP_DIR"
 }
 trap cleanup EXIT INT TERM
+
+migrate_speedtest_schedule() {
+	local marker cron_path tmp_cron hour minute enabled
+	uci -q get openwalla.speedtest_monitor >/dev/null 2>&1 || return 0
+	[ -x /usr/bin/openwalla-speedtest-monitor ] || return 0
+
+	marker="# OPENWALLA_SPEEDTEST_MONITOR"
+	cron_path="/etc/crontabs/root"
+	tmp_cron="/tmp/.openwalla_speedtest_migrate.$$"
+	hour="$(uci -q get openwalla.speedtest_monitor.run_hour 2>/dev/null || echo 3)"
+	minute="$(uci -q get openwalla.speedtest_monitor.run_minute 2>/dev/null || echo 15)"
+	enabled="$(uci -q get openwalla.speedtest_monitor.enabled 2>/dev/null || echo 1)"
+	case "$hour" in ''|*[!0-9]*) hour=3 ;; esac
+	case "$minute" in ''|*[!0-9]*) minute=15 ;; esac
+	[ "$hour" -le 23 ] || hour=3
+	[ "$minute" -le 59 ] || minute=15
+
+	mkdir -p "$(dirname "$cron_path")"
+	if [ -f "$cron_path" ]; then
+		grep -v "$marker" "$cron_path" >"$tmp_cron" 2>/dev/null || : >"$tmp_cron"
+	else
+		: >"$tmp_cron"
+	fi
+	if [ "$enabled" = "1" ]; then
+		echo "$minute $hour * * * /usr/bin/openwalla-speedtest-monitor --scheduled >/tmp/openwalla-speedtest-monitor.last.log 2>&1 $marker" >>"$tmp_cron"
+	fi
+	mv "$tmp_cron" "$cron_path"
+	uci -q delete openwalla.speedtest_monitor.run_date >/dev/null 2>&1 || true
+
+	if [ -x /etc/init.d/cron ]; then
+		/etc/init.d/cron enable >/dev/null 2>&1 || true
+		/etc/init.d/cron restart >/dev/null 2>&1 || /etc/init.d/cron start >/dev/null 2>&1 || true
+	elif [ -x /etc/init.d/crond ]; then
+		/etc/init.d/crond enable >/dev/null 2>&1 || true
+		/etc/init.d/crond restart >/dev/null 2>&1 || /etc/init.d/crond start >/dev/null 2>&1 || true
+	fi
+}
 
 download() {
 	url="$1"
@@ -127,6 +164,7 @@ if [ "$ACTION" = "update" ] && [ "$FAILED" -eq 0 ]; then
 		[ -x "/etc/init.d/$service" ] || continue
 		/etc/init.d/"$service" restart >/dev/null 2>&1 || true
 	done
+	migrate_speedtest_schedule
 	uci -q get openwalla.core >/dev/null 2>&1 || uci set openwalla.core='core'
 	uci set openwalla.core.component_version="$COMPONENT_VERSION"
 	uci commit openwalla
