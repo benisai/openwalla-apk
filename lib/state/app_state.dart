@@ -12604,6 +12604,93 @@ exit 0
     final cleanName = hostname.trim().isEmpty
         ? client.hostname
         : hostname.trim();
+    final dhcp = await _apiService!.call(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      object: 'uci',
+      method: 'get',
+      params: {'config': 'dhcp'},
+      context: context,
+    );
+    final dhcpValues = _extractUciValues(dhcp);
+    String? hostSection;
+    dhcpValues.forEach((section, values) {
+      if (hostSection != null || values['.type']?.toString() != 'host') {
+        return;
+      }
+      final configuredMacs = values['mac'] is List
+          ? (values['mac'] as List)
+                .map((value) => _normalizeMacAddress(value.toString()))
+                .toList()
+          : [_normalizeMacAddress(values['mac']?.toString() ?? '')];
+      if (configuredMacs.contains(normalizedMac)) hostSection = section;
+    });
+
+    final dhcpIdentity = {
+      'name': _sanitizeDhcpHostName(cleanName),
+      'mac': normalizedMac,
+    };
+    if (hostSection == null || hostSection!.isEmpty) {
+      var addResult = await _apiService!.call(
+        router.ipAddress,
+        sysauth,
+        router.useHttps,
+        object: 'uci',
+        method: 'add',
+        params: {'config': 'dhcp', 'type': 'host', 'values': dhcpIdentity},
+      );
+      if (!_rpcCallSucceeded(addResult)) {
+        addResult = await _apiService!.call(
+          router.ipAddress,
+          sysauth,
+          router.useHttps,
+          object: 'uci',
+          method: 'add',
+          params: {'config': 'dhcp', 'type': 'host'},
+        );
+        hostSection = _extractAddedSection(addResult);
+        if (!_rpcCallSucceeded(addResult) ||
+            hostSection == null ||
+            hostSection!.isEmpty) {
+          throw StateError('Unable to create the OpenWrt device name');
+        }
+        final setResult = await _apiService!.uciSet(
+          router.ipAddress,
+          sysauth,
+          router.useHttps,
+          config: 'dhcp',
+          section: hostSection!,
+          values: dhcpIdentity,
+        );
+        if (!_rpcCallSucceeded(setResult)) {
+          throw StateError('Unable to configure the OpenWrt device name');
+        }
+      }
+    } else {
+      final setResult = await _apiService!.uciSet(
+        router.ipAddress,
+        sysauth,
+        router.useHttps,
+        config: 'dhcp',
+        section: hostSection!,
+        values: dhcpIdentity,
+      );
+      if (!_rpcCallSucceeded(setResult)) {
+        throw StateError('Unable to update the OpenWrt device name');
+      }
+    }
+
+    final commitResult = await _apiService!.uciCommit(
+      router.ipAddress,
+      sysauth,
+      router.useHttps,
+      config: 'dhcp',
+    );
+    if (!_rpcCallSucceeded(commitResult)) {
+      throw StateError('Unable to save the OpenWrt device name');
+    }
+
     final dbCommand = _deviceIdentityDbCommand(
       mac: normalizedMac,
       ip: client.ipAddress == 'N/A' ? '' : client.ipAddress,
@@ -12620,7 +12707,21 @@ exit 0
         'command': '/bin/sh',
         'params': ['-c', dbCommand],
       },
-      context: context,
+    );
+    unawaited(
+      _apiService!
+          .systemExec(
+            router.ipAddress,
+            sysauth,
+            router.useHttps,
+            command:
+                '/etc/init.d/dnsmasq reload 2>/dev/null || service dnsmasq reload 2>/dev/null || true',
+          )
+          .catchError((Object e, StackTrace stack) {
+            Logger.debug('Background DHCP service reload failed: $e');
+            Logger.debug('Background DHCP service reload stack: $stack');
+            return <String, dynamic>{};
+          }),
     );
     notifyListeners();
   }
