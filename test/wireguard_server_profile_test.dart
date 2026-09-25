@@ -48,4 +48,22 @@ void main() {
     expect(profile.hasValidServerPublicKey, isFalse);
     expect(() => profile.config, throwsStateError);
   });
+
+  test('server profile brackets an IPv6 endpoint', () {
+    const profile = WireGuardServerProfile(
+      section: 'owrt_wg_peer_ipv6',
+      name: 'Tablet',
+      address: '10.8.0.3/32',
+      endpoint: '2001:db8::10',
+      dns: '10.8.0.1',
+      allowedIps: '0.0.0.0/0, ::/0',
+      privateKey: 'client-private-key',
+      publicKey: 'client-public-key',
+      presharedKey: 'client-preshared-key',
+      serverPublicKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+      listenPort: 51820,
+    );
+
+    expect(profile.config, contains('Endpoint = [2001:db8::10]:51820'));
+  });
 }

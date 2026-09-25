@@ -1292,6 +1292,9 @@ class WireGuardServerProfile {
     final presharedKeyLine = presharedKey.isEmpty
         ? ''
         : 'PresharedKey = $presharedKey\n';
+    final endpointHost = endpoint.contains(':') && !endpoint.startsWith('[')
+        ? '[$endpoint]'
+        : endpoint;
     return '''[Interface]
 PrivateKey = $privateKey
 Address = $address
@@ -1299,7 +1302,7 @@ DNS = $dns
 
 [Peer]
 PublicKey = $serverPublicKey
-${presharedKeyLine}Endpoint = $endpoint:$listenPort
+${presharedKeyLine}Endpoint = $endpointHost:$listenPort
 AllowedIPs = $allowedIps
 PersistentKeepalive = 25
 ''';
@@ -1740,6 +1743,9 @@ class NetifyFlow {
 
 class AppState extends ChangeNotifier {
   static AppState? _instance;
+  String? _cachedPublicIp;
+  String? _cachedPublicIpRouterId;
+  DateTime? _cachedPublicIpAt;
   late final Future<void> _initializationFuture;
   static const String _openwrtShellPath =
       r'PATH=/usr/sbin:/usr/bin:/sbin:/bin:$PATH; ';
@@ -1752,6 +1758,61 @@ class AppState extends ChangeNotifier {
 
   String _withWireGuardBinaryLookup(String command) {
     return '$_openwrtShellPath$_wireGuardBinaryLookup$command';
+  }
+
+  Future<String?> fetchRouterPublicIp({bool forceRefresh = false}) async {
+    if (_reviewerModeEnabled) return '203.0.113.10';
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    if (router == null || sysauth == null || _apiService == null) return null;
+
+    final now = DateTime.now();
+    if (!forceRefresh &&
+        _cachedPublicIp != null &&
+        _cachedPublicIpRouterId == router.id &&
+        _cachedPublicIpAt != null &&
+        now.difference(_cachedPublicIpAt!) < const Duration(minutes: 5)) {
+      return _cachedPublicIp;
+    }
+
+    const endpoints =
+        'https://api.ipify.org https://icanhazip.com https://ipinfo.io/ip https://ifconfig.me/ip';
+    final command =
+        'for url in $endpoints; do '
+        'if command -v curl >/dev/null 2>&1; then '
+        'value="\$(curl -fsS --connect-timeout 3 --max-time 5 "\$url" 2>/dev/null || true)"; '
+        'elif command -v wget >/dev/null 2>&1; then '
+        'value="\$(wget -qO- -T 5 "\$url" 2>/dev/null || true)"; '
+        'else exit 1; fi; '
+        'value="\$(printf %s "\$value" | tr -d "\\r\\n\\t ")"; '
+        '[ -n "\$value" ] && { printf "OPENWALLA_PUBLIC_IP=%s\\n" "\$value"; exit 0; }; '
+        'done; exit 1';
+    try {
+      final result = await _apiService!.call(
+        router.ipAddress,
+        sysauth,
+        router.useHttps,
+        object: 'file',
+        method: 'exec',
+        params: {
+          'command': '/bin/sh',
+          'params': ['-c', command],
+        },
+      );
+      final match = RegExp(
+        r'OPENWALLA_PUBLIC_IP=([^\s]+)',
+      ).firstMatch(_commandOutput(result));
+      final candidate = match?.group(1) ?? '';
+      if (InternetAddress.tryParse(candidate) == null) return null;
+      _cachedPublicIp = candidate;
+      _cachedPublicIpRouterId = router.id;
+      _cachedPublicIpAt = now;
+      return candidate;
+    } catch (error, stack) {
+      Logger.debug('Optional public IP lookup failed: $error');
+      Logger.debug('Optional public IP lookup stack: $stack');
+      return null;
+    }
   }
 
   static const List<({String name, String label, String category})>

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
@@ -29,6 +30,7 @@ class _VpnScreenState extends ConsumerState<VpnScreen> {
   bool _pasteConfigExpanded = false;
   bool _configFieldsExpanded = false;
   String? _importedFileName;
+  String? _routerPublicIp;
   String? _error;
 
   final _portController = TextEditingController(text: '51820');
@@ -49,6 +51,16 @@ class _VpnScreenState extends ConsumerState<VpnScreen> {
   @override
   void initState() {
     super.initState();
+    unawaited(_loadRouterPublicIp());
+  }
+
+  Future<void> _loadRouterPublicIp({bool forceRefresh = false}) async {
+    final publicIp = await ref
+        .read(appStateProvider)
+        .fetchRouterPublicIp(forceRefresh: forceRefresh);
+    if (mounted && publicIp != null) {
+      setState(() => _routerPublicIp = publicIp);
+    }
   }
 
   @override
@@ -159,11 +171,19 @@ class _VpnScreenState extends ConsumerState<VpnScreen> {
       host++;
     }
     final suggestedAddress = '$prefix.$host/32';
+    final publicIp =
+        _routerPublicIp ??
+        await ref.read(appStateProvider).fetchRouterPublicIp();
+    if (mounted && publicIp != null) {
+      setState(() => _routerPublicIp = publicIp);
+    }
+    if (!mounted) return;
     final result = await showDialog<_NewServerProfile>(
       context: context,
       builder: (context) => _ServerProfileDialog(
         suggestedAddress: suggestedAddress,
         suggestedDns: serverIp,
+        suggestedEndpoint: publicIp ?? '',
       ),
     );
     if (result == null || !mounted) return;
@@ -1082,10 +1102,12 @@ class _NewServerProfile {
 class _ServerProfileDialog extends StatefulWidget {
   final String suggestedAddress;
   final String suggestedDns;
+  final String suggestedEndpoint;
 
   const _ServerProfileDialog({
     required this.suggestedAddress,
     required this.suggestedDns,
+    required this.suggestedEndpoint,
   });
 
   @override
@@ -1104,7 +1126,7 @@ class _ServerProfileDialogState extends State<_ServerProfileDialog> {
     super.initState();
     _name = TextEditingController();
     _address = TextEditingController(text: widget.suggestedAddress);
-    _endpoint = TextEditingController();
+    _endpoint = TextEditingController(text: widget.suggestedEndpoint);
     _dns = TextEditingController(text: widget.suggestedDns);
   }
 

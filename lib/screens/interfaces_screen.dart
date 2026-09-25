@@ -58,6 +58,8 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
   int _wirelessPanelIndex = 0;
   bool _isLoadingNetworkPanels = false;
   bool _isRefreshingWireless = false;
+  String? _routerPublicIp;
+  bool _isLoadingPublicIp = false;
   final Set<String> _updatingWirelessRadios = <String>{};
   final Set<String> _updatingWirelessInterfaces = <String>{};
   List<OpenwrtPortForward> _portForwards = const [];
@@ -215,7 +217,10 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
     super.initState();
     _targetInterface = widget.scrollToInterface;
     if (!widget.wirelessOnly) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _loadNetworkPanels());
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _loadNetworkPanels();
+        _loadRouterPublicIp();
+      });
     }
     if (_targetInterface != null) {
       // Delay scrolling to allow the widget to build
@@ -258,7 +263,25 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
 
   Future<void> _refreshNetworkData() async {
     await ref.read(appStateProvider).fetchDashboardData();
-    if (!widget.wirelessOnly) await _loadNetworkPanels();
+    if (!widget.wirelessOnly) {
+      await Future.wait([
+        _loadNetworkPanels(),
+        _loadRouterPublicIp(forceRefresh: true),
+      ]);
+    }
+  }
+
+  Future<void> _loadRouterPublicIp({bool forceRefresh = false}) async {
+    if (_isLoadingPublicIp) return;
+    if (mounted) setState(() => _isLoadingPublicIp = true);
+    try {
+      final publicIp = await ref
+          .read(appStateProvider)
+          .fetchRouterPublicIp(forceRefresh: forceRefresh);
+      if (mounted) setState(() => _routerPublicIp = publicIp);
+    } finally {
+      if (mounted) setState(() => _isLoadingPublicIp = false);
+    }
   }
 
   Future<void> _refreshWirelessData() async {
@@ -1861,6 +1884,7 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
 
   Widget _buildWiredDetails(BuildContext context, NetworkInterface interface) {
     final canEditLan = _normalizeInterfaceKey(interface.name) == 'lan';
+    final isWan = _normalizeInterfaceKey(interface.name) == 'wan';
     return Column(
       children: [
         _buildDetailRow(context, 'Device', interface.device),
@@ -1872,6 +1896,17 @@ class _InterfacesScreenState extends ConsumerState<InterfacesScreen> {
             interface.ipAddress!,
             onTap: () =>
                 _copyToClipboard(context, interface.ipAddress!, 'IP Address'),
+          ),
+        if (isWan)
+          _buildDetailRow(
+            context,
+            'Public IP',
+            _routerPublicIp ??
+                (_isLoadingPublicIp ? 'Checking...' : 'Unavailable'),
+            onTap: _routerPublicIp == null
+                ? () => _loadRouterPublicIp(forceRefresh: true)
+                : () =>
+                      _copyToClipboard(context, _routerPublicIp!, 'Public IP'),
           ),
         if (interface.ipv6Addresses != null &&
             interface.ipv6Addresses!.isNotEmpty)
