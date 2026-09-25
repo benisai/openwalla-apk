@@ -6720,7 +6720,12 @@ done | sort -t "|" -k1,1nr | head -n ''' +
     }
 
     final uciRadioNames = <String>[];
-    final uciValues = (_dashboardData?['uciWirelessConfig'] as Map?)?['values'];
+    final rawUciWireless = _dashboardData?['uciWirelessConfig'];
+    final uciValues = rawUciWireless is Map
+        ? (rawUciWireless['values'] is Map
+              ? rawUciWireless['values'] as Map
+              : rawUciWireless)
+        : null;
     if (uciValues is Map) {
       uciValues.forEach((name, value) {
         if (value is Map && value['.type']?.toString() == 'wifi-device') {
@@ -6933,11 +6938,11 @@ done | sort -t "|" -k1,1nr | head -n ''' +
         'ENC=${_shellQuote(encryption)}; '
         'KEY=${_shellQuote(password)}; '
         'BSSID=${_shellQuote(bssid)}; '
-        'if [ "\$(uci -q get wireless.\$RADIO.type)" != "wifi-device" ]; then '
+        'if [ "\$(uci -q get wireless.\$RADIO)" != "wifi-device" ]; then '
         'RADIO_INDEX=${_shellQuote(radioIndex.toString())}; '
         'RADIO=\$(uci -q show wireless | sed -n "s/^wireless\\.\\([^.=]*\\)=wifi-device\$/\\1/p" | sed -n "\$((RADIO_INDEX + 1))p"); '
         'fi; '
-        '[ -n "\$RADIO" ] && [ "\$(uci -q get wireless.\$RADIO.type)" = "wifi-device" ] || { echo "Wireless radio not found: $radioDevice"; exit 1; }; '
+        '[ -n "\$RADIO" ] && [ "\$(uci -q get wireless.\$RADIO)" = "wifi-device" ] || { echo "Wireless radio not found: $radioDevice"; exit 1; }; '
         '[ "\$(uci -q get wireless.\$RADIO.disabled)" = "1" ] && { echo "Enable $radioDevice before joining another Wi-Fi network"; exit 1; }; '
         'uci set network.\$NET="interface"; '
         'uci set network.\$NET.proto="dhcp"; '
