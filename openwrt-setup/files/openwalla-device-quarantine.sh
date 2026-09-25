@@ -86,6 +86,30 @@ service_enabled() {
 	is_enabled_flag "$QUARANTINE_ENABLED"
 }
 
+collect_router_macs() {
+	local address_file mac
+	for address_file in /sys/class/net/*/address; do
+		[ -r "$address_file" ] || continue
+		mac="$(tr '[:upper:]' '[:lower:]' <"$address_file" 2>/dev/null || true)"
+		case "$mac" in
+		[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f])
+			[ "$mac" = "00:00:00:00:00:00" ] || echo "$mac"
+			;;
+		esac
+	done | sort -u
+}
+
+is_router_mac() {
+	local candidate own_mac
+	candidate="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+	while IFS= read -r own_mac; do
+		[ "$candidate" = "$own_mac" ] && return 0
+	done <<EOF
+$(collect_router_macs)
+EOF
+	return 1
+}
+
 collect_leases() {
 	if [ ! -f "$LEASES_FILE" ]; then
 		return 0
@@ -171,7 +195,10 @@ collect_candidates() {
 				}
 			}
 		}
-	'
+	' | while IFS='|' read -r mac ip host; do
+		is_router_mac "$mac" && continue
+		printf '%s|%s|%s\n' "$mac" "$ip" "$host"
+	done
 }
 
 rule_name_for() {
@@ -260,6 +287,48 @@ write_device_state() {
 	"$sqlite_bin" "$DEVICES_DB" "CREATE TABLE IF NOT EXISTS devices (mac TEXT PRIMARY KEY, ip TEXT NOT NULL DEFAULT '', hostname TEXT NOT NULL DEFAULT '', vendor TEXT NOT NULL DEFAULT '', quarantined INTEGER NOT NULL DEFAULT 0, last_seen INTEGER NOT NULL DEFAULT 0, total_up INTEGER NOT NULL DEFAULT 0, total_down INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'offline', static_ip TEXT NOT NULL DEFAULT '', icon TEXT NOT NULL DEFAULT '', scheduled_block INTEGER NOT NULL DEFAULT 0, schedule_until TEXT NOT NULL DEFAULT '', hidden INTEGER NOT NULL DEFAULT 0); INSERT INTO devices (mac, ip, hostname, quarantined, last_seen, status) VALUES ('$esc_mac', '$esc_ip', '$esc_host', 1, CAST(strftime('%s','now') AS INTEGER), 'blocked') ON CONFLICT(mac) DO UPDATE SET ip=CASE WHEN excluded.ip != '' THEN excluded.ip ELSE devices.ip END, hostname=CASE WHEN devices.hostname = '' AND excluded.hostname != '' AND excluded.hostname != '*' THEN excluded.hostname ELSE devices.hostname END, quarantined=1, last_seen=excluded.last_seen, status='blocked';" >/dev/null 2>&1 || log "device state update failed for mac=$mac"
 }
 
+release_router_identities() {
+	local mac sqlite_bin esc_mac section name changed pass
+	changed=0
+	while IFS= read -r mac; do
+		[ -n "$mac" ] || continue
+		# Run multiple passes because deleting anonymous UCI sections renumbers the
+		# remaining @rule indexes. Quarantine currently creates two rules per MAC.
+		for pass in 1 2 3; do
+			for section in $(uci -q show firewall 2>/dev/null | awk -F'[.=]' -v mac="$mac" '
+				$3 == "src_mac" {
+					value=$0
+					sub(/^[^=]*=/, "", value)
+					gsub(/\047/, "", value)
+					if (tolower(value) == mac) print $2
+				}
+			'); do
+				name="$(uci_get firewall."$section".name)"
+				case "$name" in
+				"${RULE_PREFIX}"*)
+					uci -q delete firewall."$section" >/dev/null 2>&1 || true
+					changed=1
+					log "removed router-owned quarantine rule mac=$mac name=$name"
+					;;
+				esac
+			done
+		done
+
+		sqlite_bin="$(find_sqlite_bin 2>/dev/null || true)"
+		if [ -n "$sqlite_bin" ] && [ -f "$DEVICES_DB" ]; then
+			esc_mac="$(sql_escape "$mac")"
+			"$sqlite_bin" "$DEVICES_DB" "UPDATE devices SET quarantined=0, status='online' WHERE lower(mac)='$esc_mac' AND quarantined=1;" >/dev/null 2>&1 || true
+		fi
+	done <<EOF
+$(collect_router_macs)
+EOF
+
+	if [ "$changed" = "1" ]; then
+		uci commit firewall
+		/etc/init.d/firewall reload >/dev/null 2>&1 || true
+	fi
+}
+
 add_fw_rule() {
 	local name="$1"
 	local mac="$2"
@@ -337,6 +406,7 @@ discover_once_unlocked() {
 		log "quarantine disabled (enabled=$QUARANTINE_ENABLED); skipping scan"
 		return 0
 	fi
+	release_router_identities
 
 	# A missing comparison file means fresh installation. Seed every visible
 	# client, even when the resulting list is empty, and quarantine nobody.
@@ -377,6 +447,10 @@ handle_event_unlocked() {
 	[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]) ;;
 	*) return 0 ;;
 	esac
+	if is_router_mac "$mac"; then
+		log "ignored router-owned event mac=$mac ip=$ip host=$host"
+		return 0
+	fi
 
 	# The first event after installation establishes the complete baseline and
 	# includes this device. Existing clients must never be quarantined en masse.

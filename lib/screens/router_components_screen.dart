@@ -16,7 +16,7 @@ class RouterComponentsScreen extends ConsumerStatefulWidget {
 
 class _RouterComponentsScreenState
     extends ConsumerState<RouterComponentsScreen> {
-  static const _availableVersion = '2026.09.25.8';
+  static const _availableVersion = '2026.09.25.9';
   static const _rawBase =
       'https://raw.githubusercontent.com/benisai/openwalla-apk/main/openwrt-setup';
 
