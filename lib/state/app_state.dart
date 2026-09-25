@@ -7995,7 +7995,11 @@ done | sort -t "|" -k1,1nr | head -n ''' +
         'params': [
           '-c',
           '[ -x /usr/bin/openwalla-speedtest-monitor ] || { echo "Speedtest monitor is not installed"; exit 1; }; '
-              'nohup /usr/bin/openwalla-speedtest-monitor --once >/tmp/openwalla-speedtest-monitor.last.log 2>&1 </dev/null & '
+              'LOG=/tmp/openwalla-speedtest-monitor.last.log; '
+              ': >"\$LOG"; '
+              '/usr/bin/openwalla-speedtest-monitor --once >"\$LOG" 2>&1 </dev/null & '
+              'PID=\$!; sleep 1; '
+              'if ! kill -0 "\$PID" 2>/dev/null; then wait "\$PID"; CODE=\$?; if [ "\$CODE" != "0" ]; then cat "\$LOG"; exit "\$CODE"; fi; fi; '
               'echo OPENWALLA_SPEEDTEST_STARTED',
         ],
       },

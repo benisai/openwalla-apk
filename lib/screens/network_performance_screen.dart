@@ -282,18 +282,19 @@ class _NetworkPerformanceScreenState
   Future<void> _runSpeedtest() async {
     if (_isSpeedtestRunning) return;
     setState(() => _isSpeedtestRunning = true);
+    var waitDialogOpen = true;
+    unawaited(
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const _SpeedtestWaitDialog(),
+      ).whenComplete(() => waitDialogOpen = false),
+    );
     try {
       await ref
           .read(appStateProvider)
           .runSpeedtestMonitorOnce(context: context);
       if (!mounted) return;
-      unawaited(
-        showDialog<void>(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) => const _SpeedtestWaitDialog(),
-        ),
-      );
       await Future<void>.delayed(const Duration(seconds: 30));
       if (!mounted) return;
       await _refreshSamples();
@@ -305,6 +306,9 @@ class _NetworkPerformanceScreenState
       );
     } catch (error) {
       if (!mounted) return;
+      if (waitDialogOpen) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
       context.showToastError(
         'Speed test could not be started',
         subtitle: error.toString().replaceFirst('Bad state: ', ''),
