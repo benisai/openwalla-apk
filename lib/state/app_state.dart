@@ -164,6 +164,18 @@ class RouterPackageSnapshot {
   const RouterPackageSnapshot({required this.manager, required this.packages});
 }
 
+bool routerServiceResponseIsRunning(dynamic value) {
+  if (value is Map) {
+    final running = value['running'];
+    if (running == true || running == 1 || running == '1') return true;
+    return value.values.any(routerServiceResponseIsRunning);
+  }
+  if (value is List) {
+    return value.any(routerServiceResponseIsRunning);
+  }
+  return false;
+}
+
 List<RouterPackage> parseInstalledRouterPackages(
   String output,
   RouterPackageManager manager,
@@ -2775,14 +2787,27 @@ class AppState extends ChangeNotifier {
       'enabled',
     }.contains(enabledValue);
     final interval = int.tryParse(section['interval']?.toString() ?? '') ?? 15;
-    final output = await runRouterSetupCommand(
-      "if /etc/init.d/openwalla-device-quarantine running >/dev/null 2>&1 || "
-      "pgrep -f '[o]penwalla-device-quarantine.*--daemon' >/dev/null 2>&1; "
-      "then echo OPENWALLA_QUARANTINE_RUNNING; else echo OPENWALLA_QUARANTINE_STOPPED; fi",
-    );
+    final router = _routerService?.selectedRouter;
+    final sysauth = _authService?.sysauth;
+    var running = false;
+    if (router != null && sysauth != null && _apiService != null) {
+      try {
+        final result = await _apiService!.call(
+          router.ipAddress,
+          sysauth,
+          router.useHttps,
+          object: 'service',
+          method: 'list',
+          params: {'name': 'openwalla-device-quarantine'},
+        );
+        running = routerServiceResponseIsRunning(result);
+      } catch (error) {
+        Logger.debug('Quarantine procd status read failed: $error');
+      }
+    }
     return (
       enabled: enabled,
-      running: output.contains('OPENWALLA_QUARANTINE_RUNNING'),
+      running: running,
       intervalSeconds: interval.clamp(10, 3600),
     );
   }
