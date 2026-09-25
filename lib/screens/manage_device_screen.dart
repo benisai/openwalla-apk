@@ -3,6 +3,7 @@ import 'package:luci_mobile/design/luci_design_system.dart';
 import 'package:luci_mobile/screens/backup_restore_screen.dart';
 import 'package:luci_mobile/screens/package_manager_screen.dart';
 import 'package:luci_mobile/screens/reset_router_screen.dart';
+import 'package:luci_mobile/screens/router_components_screen.dart';
 import 'package:luci_mobile/screens/router_setup_screen.dart';
 import 'package:luci_mobile/screens/ssh_terminal_screen.dart';
 import 'package:luci_mobile/widgets/luci_app_bar.dart';
@@ -49,8 +50,15 @@ class ManageDeviceScreen extends StatelessWidget {
                 icon: Icons.construction_rounded,
                 color: colors.primary,
                 title: 'Router Setup',
-                subtitle: 'Install and update Openwalla router components',
+                subtitle: 'Install Openwalla features and packages',
                 onTap: () => _open(context, const RouterSetupScreen()),
+              ),
+              _DeviceManagementTile(
+                icon: Icons.system_update_alt_rounded,
+                color: colors.primary,
+                title: 'Router Components',
+                subtitle: 'Verify and update installed helper files',
+                onTap: () => _open(context, const RouterComponentsScreen()),
               ),
               _DeviceManagementTile(
                 icon: Icons.settings_backup_restore_rounded,

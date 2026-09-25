@@ -17,6 +17,7 @@ OPENWALLA_GITHUB_REPO="${OPENWALLA_GITHUB_REPO:-benisai/openwalla-apk}"
 OPENWALLA_GITHUB_REF="${OPENWALLA_GITHUB_REF:-main}"
 OPENWALLA_RAW_BASE="${OPENWALLA_RAW_BASE:-https://raw.githubusercontent.com/$OPENWALLA_GITHUB_REPO/$OPENWALLA_GITHUB_REF/openwrt-setup}"
 OPENWALLA_ROOT="${OPENWALLA_ROOT:-/root/openwalla}"
+OPENWALLA_COMPONENT_VERSION="2026.09.24.1"
 STANDALONE_DIR="$OPENWALLA_ROOT/standalone"
 STANDALONE_LIB_DIR="$STANDALONE_DIR/lib"
 
@@ -695,6 +696,10 @@ fi
 update_package_feeds_once
 download_standalone_runtime
 run_installers
+
+uci -q get openwalla.core >/dev/null 2>&1 || uci set openwalla.core='core'
+uci set openwalla.core.component_version="$OPENWALLA_COMPONENT_VERSION"
+uci commit openwalla
 
 log "Setup complete."
 log "Installed feature bundles:$FEATURES"
