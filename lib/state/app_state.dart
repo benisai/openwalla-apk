@@ -1262,6 +1262,7 @@ class WireGuardServerProfile {
   final String allowedIps;
   final String privateKey;
   final String publicKey;
+  final String presharedKey;
   final String serverPublicKey;
   final int listenPort;
 
@@ -1274,6 +1275,7 @@ class WireGuardServerProfile {
     required this.allowedIps,
     required this.privateKey,
     required this.publicKey,
+    required this.presharedKey,
     required this.serverPublicKey,
     required this.listenPort,
   });
@@ -1285,6 +1287,9 @@ class WireGuardServerProfile {
     if (!hasValidServerPublicKey) {
       throw StateError('The server public key is missing or invalid.');
     }
+    final presharedKeyLine = presharedKey.isEmpty
+        ? ''
+        : 'PresharedKey = $presharedKey\n';
     return '''[Interface]
 PrivateKey = $privateKey
 Address = $address
@@ -1292,7 +1297,7 @@ DNS = $dns
 
 [Peer]
 PublicKey = $serverPublicKey
-Endpoint = $endpoint:$listenPort
+${presharedKeyLine}Endpoint = $endpoint:$listenPort
 AllowedIPs = $allowedIps
 PersistentKeepalive = 25
 ''';
@@ -9541,6 +9546,7 @@ done | sort -t "|" -k1,1nr | head -n ''' +
               '0.0.0.0/0, ::/0',
           privateKey: clientPrivateKey,
           publicKey: value['public_key']?.toString() ?? '',
+          presharedKey: value['preshared_key']?.toString() ?? '',
           serverPublicKey: serverPublicKey,
           listenPort: port,
         ),
@@ -9575,10 +9581,12 @@ done | sort -t "|" -k1,1nr | head -n ''' +
       '[ "\$(uci -q get network.\$IFACE.proto)" = "wireguard" ] || { echo "Save the WireGuard server first"; exit 1; }; '
       'PRIVATE_KEY="\$("\$WG_BIN" genkey)"; '
       'PUBLIC_KEY="\$(printf %s "\$PRIVATE_KEY" | "\$WG_BIN" pubkey)"; '
-      '[ -n "\$PUBLIC_KEY" ] || exit 1; '
+      'PRESHARED_KEY="\$("\$WG_BIN" genpsk)"; '
+      '[ -n "\$PUBLIC_KEY" ] && [ -n "\$PRESHARED_KEY" ] || exit 1; '
       'uci set network.\$SECTION="wireguard_\$IFACE"; '
       'uci set network.\$SECTION.description="\$NAME"; '
       'uci set network.\$SECTION.public_key="\$PUBLIC_KEY"; '
+      'uci set network.\$SECTION.preshared_key="\$PRESHARED_KEY"; '
       'uci add_list network.\$SECTION.allowed_ips="\$ADDRESS"; '
       'uci set network.\$SECTION.route_allowed_ips="0"; '
       'uci set network.\$SECTION.openwalla_private_key="\$PRIVATE_KEY"; '

@@ -12,6 +12,7 @@ void main() {
       allowedIps: '0.0.0.0/0, ::/0',
       privateKey: 'client-private-key',
       publicKey: 'client-public-key',
+      presharedKey: 'client-preshared-key',
       serverPublicKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
       listenPort: 51820,
     );
@@ -24,6 +25,7 @@ void main() {
       profile.config,
       contains('PublicKey = AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='),
     );
+    expect(profile.config, contains('PresharedKey = client-preshared-key'));
     expect(profile.config, contains('Endpoint = vpn.example.com:51820'));
     expect(profile.config, contains('AllowedIPs = 0.0.0.0/0, ::/0'));
   });
@@ -38,6 +40,7 @@ void main() {
       allowedIps: '0.0.0.0/0',
       privateKey: 'client-private-key',
       publicKey: 'client-public-key',
+      presharedKey: 'client-preshared-key',
       serverPublicKey: '[3]',
       listenPort: 51820,
     );
