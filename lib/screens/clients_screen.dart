@@ -910,6 +910,7 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
   late String _savedIconKey;
   late String _currentStaticIp;
   late bool _isBlocked;
+  late bool _isQuarantined;
   late bool _isPaused;
   bool _isEditingName = false;
   bool _isSaving = false;
@@ -931,6 +932,7 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
     _staticIpEnabled = widget.client.staticIpAddress?.isNotEmpty == true;
     _currentStaticIp = _staticIpEnabled ? _ipController.text.trim() : '';
     _isBlocked = widget.client.isBlocked;
+    _isQuarantined = widget.client.isQuarantined;
     _isPaused = ref
         .read(appStateProvider)
         .isInternetPaused(widget.client.macAddress);
@@ -1104,6 +1106,7 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
 
   Future<void> _toggleInternetBlock() async {
     final nextBlocked = !_isBlocked;
+    final wasQuarantined = _isQuarantined;
     if (nextBlocked) {
       final safe = await SelfDeviceGuard.checkSelfActionGuardrail(
         context,
@@ -1116,6 +1119,7 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
     }
     setState(() {
       _isBlocked = nextBlocked;
+      if (!nextBlocked) _isQuarantined = false;
       _isBlocking = true;
     });
     try {
@@ -1129,6 +1133,7 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
       if (!mounted) return;
       setState(() {
         _isBlocked = !nextBlocked;
+        _isQuarantined = wasQuarantined;
         _isBlocking = false;
       });
     }
@@ -1511,7 +1516,11 @@ class _DeviceSettingsSheetState extends ConsumerState<_DeviceSettingsSheet> {
         _isBlocking
             ? 'Wait'
             : _isBlocked
-            ? 'Unblock'
+            ? _isQuarantined
+                  ? 'Unquarantine'
+                  : widget.client.status.toLowerCase() == 'block-scheduled'
+                  ? 'Unblock'
+                  : 'Unban'
             : 'Block',
       ),
       style: OutlinedButton.styleFrom(
@@ -1957,6 +1966,18 @@ class _UnifiedClientCard extends StatelessWidget {
     final colorScheme = theme.colorScheme;
 
     final isBlocked = client.isBlocked;
+    final stateLabel = client.isQuarantined
+        ? 'Quarantined'
+        : isPaused
+        ? 'Paused'
+        : isBlocked
+        ? client.status.toLowerCase() == 'block-scheduled'
+              ? 'Blocked'
+              : 'Banned'
+        : null;
+    final stateColor = client.isQuarantined || isBlocked
+        ? const Color(0xFFFF4D5A)
+        : const Color(0xFFE85D8E);
     final borderColor = isBlocked
         ? const Color(0xFFFF4D5A).withValues(alpha: 0.45)
         : colorScheme.surfaceContainerHighest.withValues(alpha: 0.10);
@@ -2048,42 +2069,11 @@ class _UnifiedClientCard extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        if (client.isQuarantined) ...[
+                        if (stateLabel != null) ...[
                           const SizedBox(width: 8),
-                          const Tooltip(
-                            message: 'Quarantined',
-                            child: Icon(
-                              Icons.gpp_bad_rounded,
-                              size: 20,
-                              color: Color(0xFFFF4D5A),
-                            ),
-                          ),
-                        ],
-                        if (isPaused) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 7,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: const Color(
-                                0xFFE85D8E,
-                              ).withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(
-                                color: const Color(
-                                  0xFFE85D8E,
-                                ).withValues(alpha: 0.45),
-                              ),
-                            ),
-                            child: Text(
-                              'Paused',
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                color: const Color(0xFFE85D8E),
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
+                          _ClientStateBadge(
+                            label: stateLabel,
+                            color: stateColor,
                           ),
                         ],
                       ],
@@ -2144,5 +2134,32 @@ class _UnifiedClientCard extends StatelessWidget {
     } else {
       return shown;
     }
+  }
+}
+
+class _ClientStateBadge extends StatelessWidget {
+  final String label;
+  final Color color;
+
+  const _ClientStateBadge({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withValues(alpha: 0.45)),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: color,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
   }
 }
