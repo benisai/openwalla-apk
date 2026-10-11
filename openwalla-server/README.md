@@ -50,3 +50,58 @@ Set `OPENWALLA_API_TOKEN` to require `Authorization: Bearer <token>`. Enter the 
 - `POST /api/v1/maintenance/prune`
 
 Flow endpoints also accept `protocol`, `mac`, and `search` query parameters.
+
+## Optional reverse tunnel
+
+Openwalla Server includes an optional SSH gateway for reaching a router behind NAT without opening an inbound router firewall port. The router initiates a key-authenticated outbound SSH connection to the VPS. LuCI is forwarded to port `10080` inside the gateway container and router SSH to port `10022`. Neither forwarded port is published directly by Docker.
+
+The first implementation supports one router per Openwalla Server instance.
+
+### 1. Prepare the router
+
+Download the router installer and run it with the public VPS hostname or IP:
+
+```sh
+wget -qO /tmp/install-openwalla-tunnel.sh https://raw.githubusercontent.com/benisai/Openwalla/main/openwalla-server/tunnel/install-router.sh
+chmod +x /tmp/install-openwalla-tunnel.sh
+OPENWALLA_TUNNEL_HOST=vps.example.com /tmp/install-openwalla-tunnel.sh
+```
+
+The installer creates a dedicated key and prints its public key. It does not copy the private key off the router.
+
+### 2. Authorize the router
+
+Paste the printed public-key line into:
+
+```text
+openwalla-server/tunnel-data/authorized_keys
+```
+
+Make sure the external Docker network used by Traefik exists. The default is `proxy`; change `OPENWALLA_PROXY_NETWORK` in `.env` when your network has another name.
+
+Start the optional gateway:
+
+```sh
+docker compose --profile tunnel up -d --build
+```
+
+Restart the router connection:
+
+```sh
+/etc/init.d/openwalla-tunnel restart
+```
+
+The OpenWrt `procd` service reconnects automatically after a network interruption or VPS restart.
+
+### 3. Route LuCI through Traefik
+
+Copy `tunnel/traefik-dynamic.example.yaml` into the Traefik file-provider directory, change `router.example.com`, and configure the desired certificate resolver or TLS options. Traefik must share the Docker network configured by `OPENWALLA_PROXY_NETWORK`.
+
+Protect the router hostname with Traefik authentication or an IP allowlist. The SSH gateway authenticates the router connection, but the LuCI endpoint still needs normal access controls at the reverse proxy.
+
+Useful checks:
+
+```sh
+docker compose logs -f openwalla-tunnel
+logread -e openwalla-tunnel
+```

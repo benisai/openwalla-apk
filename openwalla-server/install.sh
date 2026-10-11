@@ -45,13 +45,18 @@ download() {
 	mv "$temporary" "$destination"
 }
 
-mkdir -p "$INSTALL_DIR/app" "$INSTALL_DIR/data"
+mkdir -p "$INSTALL_DIR/app" "$INSTALL_DIR/data" "$INSTALL_DIR/tunnel" \
+	"$INSTALL_DIR/tunnel-data/host-keys"
 
 for file in \
 	Dockerfile \
 	compose.yaml \
 	requirements.txt \
 	.env.example \
+	tunnel/Dockerfile \
+	tunnel/entrypoint.sh \
+	tunnel/install-router.sh \
+	tunnel/traefik-dynamic.example.yaml \
 	app/__init__.py \
 	app/config.py \
 	app/processor.py \
@@ -61,6 +66,12 @@ for file in \
 do
 	download "$file"
 done
+
+chmod 0755 "$INSTALL_DIR/tunnel/entrypoint.sh" "$INSTALL_DIR/tunnel/install-router.sh"
+if [ ! -f "$INSTALL_DIR/tunnel-data/authorized_keys" ]; then
+	: >"$INSTALL_DIR/tunnel-data/authorized_keys"
+	chmod 0600 "$INSTALL_DIR/tunnel-data/authorized_keys"
+fi
 
 if [ ! -f "$INSTALL_DIR/.env" ]; then
 	cp "$INSTALL_DIR/.env.example" "$INSTALL_DIR/.env"

@@ -1,0 +1,13 @@
+http:
+  routers:
+    openwalla-router:
+      rule: Host(`router.example.com`)
+      entryPoints:
+        - websecure
+      service: openwalla-router
+      tls: {}
+  services:
+    openwalla-router:
+      loadBalancer:
+        servers:
+          - url: http://openwalla-tunnel:10080

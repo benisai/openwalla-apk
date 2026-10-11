@@ -13,3 +13,26 @@ services:
       OPENWALLA_API_TOKEN: "${OPENWALLA_API_TOKEN:-}"
     volumes:
       - ./data:/data
+
+  openwalla-tunnel:
+    profiles: ["tunnel"]
+    build:
+      context: .
+      dockerfile: tunnel/Dockerfile
+    container_name: openwalla-tunnel
+    restart: unless-stopped
+    ports:
+      - "${OPENWALLA_TUNNEL_SSH_PORT:-2222}:22"
+    environment:
+      OPENWALLA_TUNNEL_USER: "${OPENWALLA_TUNNEL_USER:-openwalla}"
+    volumes:
+      - ./tunnel-data/authorized_keys:/config/authorized_keys:ro
+      - ./tunnel-data/host-keys:/etc/ssh/keys
+    networks:
+      - default
+      - openwalla-proxy
+
+networks:
+  openwalla-proxy:
+    name: "${OPENWALLA_PROXY_NETWORK:-proxy}"
+    external: true
