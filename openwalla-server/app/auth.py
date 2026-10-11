@@ -4,6 +4,8 @@ import base64
 import getpass
 import hashlib
 import hmac
+import json
+import logging
 import os
 import secrets
 import threading
@@ -19,6 +21,7 @@ if TYPE_CHECKING:
 
 
 SESSION_COOKIE = "openwalla_session"
+LOGGER = logging.getLogger("openwalla.auth")
 
 
 def create_password_hash(password: str) -> str:
@@ -59,6 +62,7 @@ class AuthenticationManager:
         self._failures: dict[str, list[float]] = defaultdict(list)
         self._bans: dict[str, float] = {}
         self._lock = threading.RLock()
+        self._load_bans()
 
     @property
     def enabled(self) -> bool:
@@ -74,9 +78,49 @@ class AuthenticationManager:
     def _remaining_ban(self, address: str, now: float) -> int:
         expires = self._bans.get(address, 0)
         if expires <= now:
-            self._bans.pop(address, None)
+            if self._bans.pop(address, None) is not None:
+                self._persist_bans()
             return 0
         return max(1, int(expires - now))
+
+    def _load_bans(self) -> None:
+        path = self.settings.auth_ban_path
+        if not path.exists():
+            return
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            stored = payload.get("bans", {}) if isinstance(payload, dict) else {}
+            now = time.time()
+            if isinstance(stored, dict):
+                self._bans = {
+                    str(address): float(expires)
+                    for address, expires in stored.items()
+                    if isinstance(address, str)
+                    and isinstance(expires, (int, float))
+                    and float(expires) > now
+                }
+            if len(self._bans) != len(stored):
+                self._persist_bans()
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
+            LOGGER.warning("Unable to load persisted authentication bans: %s", error)
+
+    def _persist_bans(self) -> None:
+        path = self.settings.auth_ban_path
+        temporary = path.with_name(f"{path.name}.tmp")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with temporary.open("w", encoding="utf-8") as handle:
+                json.dump({"version": 1, "bans": self._bans}, handle, separators=(",", ":"))
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(temporary, 0o600)
+            os.replace(temporary, path)
+        except OSError as error:
+            LOGGER.error("Unable to persist authentication bans: %s", error)
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def login(self, address: str, username: str, password: str) -> LoginResult:
         now = time.time()
@@ -100,6 +144,7 @@ class AuthenticationManager:
             if len(failures) >= self.settings.auth_max_failures:
                 self._bans[address] = now + self.settings.auth_ban_seconds
                 self._failures.pop(address, None)
+                self._persist_bans()
                 return LoginResult(False, self.settings.auth_ban_seconds)
         return LoginResult(False)
 

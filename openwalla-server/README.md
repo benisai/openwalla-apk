@@ -47,6 +47,7 @@ Set `OPENWALLA_API_TOKEN` to require `Authorization: Bearer <token>`. Enter the 
 | `OPENWALLA_AUTH_MAX_FAILURES` | `5` | Failed logins allowed during the tracking window |
 | `OPENWALLA_AUTH_WINDOW_SECONDS` | `900` | Failed-login tracking window |
 | `OPENWALLA_AUTH_BAN_SECONDS` | `3600` | Temporary IP ban duration |
+| `OPENWALLA_AUTH_BAN_PATH` | `/data/openwalla-auth-bans.json` | Persistent IP-ban state file |
 | `OPENWALLA_AUTH_TRUST_PROXY` | `false` | Trust the first `X-Forwarded-For` address |
 | `OPENWALLA_AUTH_SECURE_COOKIE` | `false` | Send the session cookie over HTTPS only |
 
@@ -80,7 +81,7 @@ docker compose exec openwalla-server python -m app.auth
 
 Paste the resulting value into `OPENWALLA_UI_PASSWORD_HASH`, leave `OPENWALLA_UI_PASSWORD` empty, and recreate the service. Dashboard sessions use signed `HttpOnly`, `SameSite=Strict` cookies. Set `OPENWALLA_AUTH_SECURE_COOKIE=true` when the dashboard is available exclusively through HTTPS.
 
-The server temporarily bans a client address after the configured number of failed logins. The dashboard Security panel displays the active policy and current temporary bans. Bans are held in memory and clear when the container restarts.
+The server temporarily bans a client address after the configured number of failed logins. The dashboard Security panel displays the active policy and current temporary bans. Active bans are written atomically to `/data/openwalla-auth-bans.json`, which is preserved by the existing `./data:/data` volume, and are restored after container updates or restarts. Expired entries are removed automatically.
 
 When Traefik is the only path to Openwalla Server, set `OPENWALLA_AUTH_TRUST_PROXY=true` so limits apply to the original client address. Keep it disabled if clients can connect directly, because an untrusted client could forge `X-Forwarded-For`.
 

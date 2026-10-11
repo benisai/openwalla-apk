@@ -43,6 +43,7 @@ class Settings:
     auth_ban_seconds: int
     auth_trust_proxy: bool
     auth_secure_cookie: bool
+    auth_ban_path: Path
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -86,4 +87,9 @@ class Settings:
             ),
             auth_trust_proxy=_boolean("OPENWALLA_AUTH_TRUST_PROXY"),
             auth_secure_cookie=_boolean("OPENWALLA_AUTH_SECURE_COOKIE"),
+            auth_ban_path=Path(
+                os.getenv(
+                    "OPENWALLA_AUTH_BAN_PATH", "/data/openwalla-auth-bans.json"
+                )
+            ),
         )
