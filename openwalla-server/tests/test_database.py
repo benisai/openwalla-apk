@@ -63,6 +63,15 @@ class FlowDatabaseTest(unittest.TestCase):
         )
         self.assertEqual(count, 1)
 
+    def test_dashboard_summary(self) -> None:
+        summary = self.database.dashboard_summary(24)
+
+        self.assertEqual(summary["flow_count"], 2)
+        self.assertEqual(summary["device_count"], 2)
+        self.assertEqual(len(summary["recent_flows"]), 2)
+        self.assertEqual(summary["top_applications"][0]["count"], 1)
+        self.assertGreater(summary["database_bytes"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import logging
+import socket
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi.responses import FileResponse
 
 from .collector import NetifyCollector
 from .config import Settings
@@ -18,6 +21,7 @@ logging.basicConfig(
 settings = Settings.from_environment()
 database = FlowDatabase(settings.database_path)
 collector = NetifyCollector(settings, database)
+STATIC_DIRECTORY = Path(__file__).parent / "static"
 
 
 def authorize(authorization: Annotated[str | None, Header()] = None) -> None:
@@ -40,6 +44,36 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="Openwalla Server", version="1.0.0", lifespan=lifespan)
 
 
+def _port_reachable(host: str, port: int) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=0.4):
+            return True
+    except (OSError, TimeoutError):
+        return False
+
+
+def _tunnel_status() -> dict[str, object]:
+    luci_available = _port_reachable(settings.tunnel_host, settings.tunnel_http_port)
+    ssh_available = _port_reachable(settings.tunnel_host, settings.tunnel_ssh_port)
+    return {
+        "connected": luci_available or ssh_available,
+        "host": settings.tunnel_host,
+        "luci": {
+            "available": luci_available,
+            "port": settings.tunnel_http_port,
+        },
+        "ssh": {
+            "available": ssh_available,
+            "port": settings.tunnel_ssh_port,
+        },
+    }
+
+
+@app.get("/", include_in_schema=False)
+def dashboard_page() -> FileResponse:
+    return FileResponse(STATIC_DIRECTORY / "dashboard.html")
+
+
 @app.get("/api/v1/health")
 def health() -> dict[str, object]:
     return {"ok": True, "collector_connected": collector.status.connected}
@@ -57,6 +91,31 @@ def status() -> dict[str, object]:
         "discarded": state.discarded,
         "last_event_at": state.last_event_at,
         "last_error": state.last_error,
+        "retention_hours": settings.retention_hours,
+    }
+
+
+@app.get("/api/v1/tunnel/status", dependencies=[Depends(authorize)])
+def tunnel_status() -> dict[str, object]:
+    return _tunnel_status()
+
+
+@app.get("/api/v1/dashboard", dependencies=[Depends(authorize)])
+def dashboard(hours: Annotated[int, Query(ge=1, le=168)] = 24) -> dict[str, object]:
+    state = collector.status
+    return {
+        "collector": {
+            "connected": state.connected,
+            "host": settings.netify_host,
+            "port": settings.netify_port,
+            "received": state.received,
+            "stored": state.stored,
+            "discarded": state.discarded,
+            "last_event_at": state.last_event_at,
+            "last_error": state.last_error,
+        },
+        "tunnel": _tunnel_status(),
+        "flows": database.dashboard_summary(hours),
         "retention_hours": settings.retention_hours,
     }
 

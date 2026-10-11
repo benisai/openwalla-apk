@@ -45,7 +45,7 @@ download() {
 	mv "$temporary" "$destination"
 }
 
-mkdir -p "$INSTALL_DIR/app" "$INSTALL_DIR/data" "$INSTALL_DIR/tunnel" \
+mkdir -p "$INSTALL_DIR/app/static" "$INSTALL_DIR/data" "$INSTALL_DIR/tunnel" \
 	"$INSTALL_DIR/tunnel-data/host-keys"
 
 for file in \
@@ -62,7 +62,8 @@ for file in \
 	app/processor.py \
 	app/database.py \
 	app/collector.py \
-	app/main.py
+	app/main.py \
+	app/static/dashboard.html
 do
 	download "$file"
 done

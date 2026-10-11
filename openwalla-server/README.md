@@ -26,7 +26,7 @@ For a manual installation, copy `.env.example` to `.env`, update the values, the
 docker compose up -d --build
 ```
 
-The API is available at `http://<docker-host>:8080`. Enter that URL under **Network Flows > Flow Settings**.
+The dashboard and API are available at `http://<docker-host>:8080`. Enter that URL under **Network Flows > Flow Settings**.
 
 Set `OPENWALLA_API_TOKEN` to require `Authorization: Bearer <token>`. Enter the same token in the app. Leaving it empty allows LAN access without authentication.
 
@@ -45,11 +45,15 @@ Set `OPENWALLA_API_TOKEN` to require `Authorization: Bearer <token>`. Enter the 
 
 - `GET /api/v1/health`
 - `GET /api/v1/status`
+- `GET /api/v1/dashboard?hours=24`
+- `GET /api/v1/tunnel/status`
 - `GET /api/v1/flows?limit=250&offset=0&hours=24`
 - `GET /api/v1/flows/count?hours=24`
 - `POST /api/v1/maintenance/prune`
 
 Flow endpoints also accept `protocol`, `mac`, and `search` query parameters.
+
+The web dashboard displays collector health, reverse-tunnel reachability, flow and device totals, top detected applications, and recent flows. It refreshes every 10 seconds. When `OPENWALLA_API_TOKEN` is configured, the dashboard asks for the token and stores it in the browser on that device.
 
 ## Optional reverse tunnel
 

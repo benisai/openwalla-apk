@@ -163,6 +163,56 @@ class FlowDatabase:
             ).fetchone()
         return int(row["count"] if row else 0)
 
+    def dashboard_summary(self, hours: int = 24) -> dict[str, Any]:
+        cutoff = int(time.time()) - (hours * 3600)
+        with self._lock:
+            totals = self._connection.execute(
+                """
+                SELECT COUNT(*) AS flow_count,
+                       COUNT(DISTINCT NULLIF(local_mac, '')) AS device_count,
+                       MAX(timeinsert) AS latest_flow
+                FROM flow_raw
+                WHERE timeinsert >= ?
+                """,
+                (cutoff,),
+            ).fetchone()
+            top_applications = self._connection.execute(
+                """
+                SELECT CASE
+                         WHEN detected_app_name != '' THEN detected_app_name
+                         WHEN detected_protocol_name != '' THEN detected_protocol_name
+                         ELSE 'Unknown'
+                       END AS name,
+                       COUNT(*) AS count
+                FROM flow_raw
+                WHERE timeinsert >= ?
+                GROUP BY name
+                ORDER BY count DESC, name ASC
+                LIMIT 8
+                """,
+                (cutoff,),
+            ).fetchall()
+            recent = self._connection.execute(
+                """
+                SELECT timeinsert, local_ip, local_mac, fqdn, dest_ip, dest_port,
+                       detected_protocol_name, detected_app_name, ndpi_risk_score
+                FROM flow_raw
+                WHERE timeinsert >= ?
+                ORDER BY id DESC
+                LIMIT 40
+                """,
+                (cutoff,),
+            ).fetchall()
+        return {
+            "hours": hours,
+            "flow_count": int(totals["flow_count"] if totals else 0),
+            "device_count": int(totals["device_count"] if totals else 0),
+            "latest_flow": totals["latest_flow"] if totals else None,
+            "database_bytes": self.path.stat().st_size if self.path.exists() else 0,
+            "top_applications": [dict(row) for row in top_applications],
+            "recent_flows": [dict(row) for row in recent],
+        }
+
     def prune(self, retention_hours: int) -> int:
         cutoff = int(time.time()) - (retention_hours * 3600)
         with self._lock, self._connection:

@@ -23,6 +23,9 @@ class Settings:
     excluded_protocols: frozenset[str]
     router_lan_ip: str
     reconnect_seconds: int
+    tunnel_host: str
+    tunnel_http_port: int
+    tunnel_ssh_port: int
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -42,4 +45,13 @@ class Settings:
             ),
             router_lan_ip=os.getenv("OPENWALLA_ROUTER_LAN_IP", "").strip(),
             reconnect_seconds=_integer("OPENWALLA_RECONNECT_SECONDS", 5, 1, 300),
+            tunnel_host=os.getenv(
+                "OPENWALLA_TUNNEL_STATUS_HOST", "openwalla-tunnel"
+            ).strip(),
+            tunnel_http_port=_integer(
+                "OPENWALLA_TUNNEL_HTTP_PORT", 10080, 1, 65535
+            ),
+            tunnel_ssh_port=_integer(
+                "OPENWALLA_TUNNEL_REMOTE_SSH_PORT", 10022, 1, 65535
+            ),
         )
