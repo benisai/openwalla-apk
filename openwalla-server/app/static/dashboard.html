@@ -87,6 +87,7 @@
     .status-dot.up { background: var(--green); box-shadow: 0 0 0 4px rgba(46, 204, 113, .12); }
     .status-dot.down { background: var(--red); box-shadow: 0 0 0 4px rgba(255, 85, 115, .12); }
     .grid { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(280px, .8fr); gap: 14px; margin-top: 14px; }
+    .operations-grid { grid-template-columns: minmax(0, 1.35fr) repeat(2, minmax(250px, .8fr)); }
     .panel { min-width: 0; padding: 18px; }
     .panel-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
     .panel h2 { margin: 0; font-size: 16px; letter-spacing: 0; }
@@ -107,6 +108,11 @@
     .badge.up { color: var(--green); border-color: rgba(46, 204, 113, .45); background: rgba(46, 204, 113, .08); }
     .badge.down { color: var(--red); border-color: rgba(255, 85, 115, .45); background: rgba(255, 85, 115, .08); }
     .app-list { display: grid; gap: 13px; }
+    .security-list { display: grid; gap: 0; }
+    .security-row { display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .security-row:last-child { border-bottom: 0; }
+    .security-label { color: var(--muted); }
+    .security-value { text-align: right; font-weight: 650; }
     .app-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; }
     .app-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .app-count { color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -130,9 +136,15 @@
     dialog p { color: var(--muted); margin: 0 0 18px; }
     dialog input { width: 100%; margin-bottom: 14px; }
     .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; }
+    @media (max-width: 1100px) {
+      .operations-grid { grid-template-columns: 1fr 1fr; }
+      .operations-grid > :first-child { grid-column: 1 / -1; }
+    }
     @media (max-width: 900px) {
       .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .grid { grid-template-columns: 1fr; }
+      .operations-grid { grid-template-columns: 1fr; }
+      .operations-grid > :first-child { grid-column: auto; }
       .last-updated { display: none; }
     }
     @media (max-width: 560px) {
@@ -166,6 +178,7 @@
           <option value="168">7 days</option>
         </select>
         <button id="refresh" class="button" type="button">Refresh</button>
+        <form id="logout-form" method="post" action="/logout" hidden><button class="button" type="submit">Sign out</button></form>
       </div>
     </header>
 
@@ -178,7 +191,7 @@
         <article class="metric"><div class="metric-head"><span>Active devices</span></div><div id="device-count" class="metric-value">0</div><div id="database-size" class="metric-note">Database 0 B</div></article>
       </section>
 
-      <section class="grid">
+      <section class="grid operations-grid">
         <article class="panel">
           <div class="panel-header"><div><h2>Active connections</h2><div class="panel-note">Live reachability checks</div></div></div>
           <div id="connections" class="connections"></div>
@@ -186,6 +199,10 @@
         <article class="panel">
           <div class="panel-header"><div><h2>Top applications</h2><div id="applications-note" class="panel-note">Observed flows</div></div></div>
           <div id="applications" class="app-list"></div>
+        </article>
+        <article class="panel">
+          <div class="panel-header"><div><h2>Security</h2><div class="panel-note">Dashboard access policy</div></div></div>
+          <div id="security" class="security-list"></div>
         </article>
       </section>
 
@@ -251,7 +268,7 @@
     }
 
     function render() {
-      const {collector, tunnel, flows, retention_hours: retention} = state.data;
+      const {collector, tunnel, flows, retention_hours: retention, security} = state.data;
       setStatus('collector', collector.connected, collector.connected ? 'Connected' : 'Offline', `${collector.host}:${collector.port}`);
       setStatus('tunnel', tunnel.connected, tunnel.connected ? 'Connected' : 'Offline', tunnel.connected ? `${Number(tunnel.luci.available) + Number(tunnel.ssh.available)} endpoints online` : 'No reverse forwards detected');
       $('flow-count').textContent = number(flows.flow_count);
@@ -270,6 +287,15 @@
       const maximum = Math.max(...apps.map((app) => app.count), 1);
       $('applications-note').textContent = `${number(flows.flow_count)} observed flows`;
       $('applications').innerHTML = apps.length ? apps.map((app) => `<div class="app-row"><span class="app-name">${esc(app.name)}</span><span class="app-count">${number(app.count)}</span><div class="bar"><span style="width:${Math.max(3, app.count / maximum * 100)}%"></span></div></div>`).join('') : '<div class="empty">No application data yet.</div>';
+      $('logout-form').hidden = !security.enabled;
+      const banned = security.banned || [];
+      $('security').innerHTML = [
+        ['Authentication', security.enabled ? 'Enabled' : 'Disabled'],
+        ['Failed attempts', `${security.max_failures} in ${Math.round(security.window_seconds / 60)} min`],
+        ['Ban duration', `${Math.round(security.ban_seconds / 60)} min`],
+        ['Session', `${security.session_hours} hours`],
+        ['Banned addresses', banned.length ? banned.map((entry) => `${esc(entry.address)} (${Math.ceil(entry.remaining_seconds / 60)}m)`).join('<br>') : 'None']
+      ].map(([label, value]) => `<div class="security-row"><span class="security-label">${label}</span><span class="security-value">${value}</span></div>`).join('');
       renderFlows();
     }
 

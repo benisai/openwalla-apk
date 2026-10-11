@@ -58,12 +58,14 @@ for file in \
 	tunnel/install-router.sh \
 	tunnel/traefik-dynamic.example.yaml \
 	app/__init__.py \
+	app/auth.py \
 	app/config.py \
 	app/processor.py \
 	app/database.py \
 	app/collector.py \
 	app/main.py \
-	app/static/dashboard.html
+	app/static/dashboard.html \
+	app/static/login.html
 do
 	download "$file"
 done
@@ -76,6 +78,9 @@ fi
 
 if [ ! -f "$INSTALL_DIR/.env" ]; then
 	cp "$INSTALL_DIR/.env.example" "$INSTALL_DIR/.env"
+	session_secret="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
+	sed -i.bak "s/^OPENWALLA_SESSION_SECRET=.*/OPENWALLA_SESSION_SECRET=$session_secret/" "$INSTALL_DIR/.env"
+	rm -f "$INSTALL_DIR/.env.bak"
 	log "Created $INSTALL_DIR/.env with default settings."
 fi
 

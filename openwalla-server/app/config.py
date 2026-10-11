@@ -13,6 +13,13 @@ def _integer(name: str, default: int, minimum: int, maximum: int) -> int:
     return max(minimum, min(maximum, value))
 
 
+def _boolean(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True)
 class Settings:
     netify_host: str
@@ -26,6 +33,16 @@ class Settings:
     tunnel_host: str
     tunnel_http_port: int
     tunnel_ssh_port: int
+    ui_username: str
+    ui_password: str
+    ui_password_hash: str
+    session_secret: str
+    session_hours: int
+    auth_max_failures: int
+    auth_window_seconds: int
+    auth_ban_seconds: int
+    auth_trust_proxy: bool
+    auth_secure_cookie: bool
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -54,4 +71,19 @@ class Settings:
             tunnel_ssh_port=_integer(
                 "OPENWALLA_TUNNEL_REMOTE_SSH_PORT", 10022, 1, 65535
             ),
+            ui_username=os.getenv("OPENWALLA_UI_USERNAME", "admin").strip()
+            or "admin",
+            ui_password=os.getenv("OPENWALLA_UI_PASSWORD", ""),
+            ui_password_hash=os.getenv("OPENWALLA_UI_PASSWORD_HASH", "").strip(),
+            session_secret=os.getenv("OPENWALLA_SESSION_SECRET", "").strip(),
+            session_hours=_integer("OPENWALLA_SESSION_HOURS", 24, 1, 720),
+            auth_max_failures=_integer("OPENWALLA_AUTH_MAX_FAILURES", 5, 2, 100),
+            auth_window_seconds=_integer(
+                "OPENWALLA_AUTH_WINDOW_SECONDS", 900, 30, 86400
+            ),
+            auth_ban_seconds=_integer(
+                "OPENWALLA_AUTH_BAN_SECONDS", 3600, 30, 604800
+            ),
+            auth_trust_proxy=_boolean("OPENWALLA_AUTH_TRUST_PROXY"),
+            auth_secure_cookie=_boolean("OPENWALLA_AUTH_SECURE_COOKIE"),
         )

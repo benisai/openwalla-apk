@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import logging
+import hmac
 import socket
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import parse_qs
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.responses import FileResponse, RedirectResponse
 
+from .auth import AuthenticationManager, SESSION_COOKIE
 from .collector import NetifyCollector
 from .config import Settings
 from .database import FlowDatabase
@@ -21,16 +24,24 @@ logging.basicConfig(
 settings = Settings.from_environment()
 database = FlowDatabase(settings.database_path)
 collector = NetifyCollector(settings, database)
+authentication = AuthenticationManager(settings)
 STATIC_DIRECTORY = Path(__file__).parent / "static"
 
 
-def authorize(authorization: Annotated[str | None, Header()] = None) -> None:
-    if not settings.api_token:
+def authorize(
+    request: Request, authorization: Annotated[str | None, Header()] = None
+) -> None:
+    if settings.api_token and hmac.compare_digest(
+        authorization or "", f"Bearer {settings.api_token}"
+    ):
         return
-    if authorization != f"Bearer {settings.api_token}":
-        raise HTTPException(status_code=401, detail="Invalid API token")
-
-
+    if authentication.enabled and authentication.valid_session(
+        request.cookies.get(SESSION_COOKIE)
+    ):
+        return
+    if not settings.api_token and not authentication.enabled:
+        return
+    raise HTTPException(status_code=401, detail="Authentication required")
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     collector.start()
@@ -70,8 +81,52 @@ def _tunnel_status() -> dict[str, object]:
 
 
 @app.get("/", include_in_schema=False)
-def dashboard_page() -> FileResponse:
+def dashboard_page(request: Request) -> FileResponse | RedirectResponse:
+    if authentication.enabled and not authentication.valid_session(
+        request.cookies.get(SESSION_COOKIE)
+    ):
+        return RedirectResponse("/login", status_code=303)
     return FileResponse(STATIC_DIRECTORY / "dashboard.html")
+
+
+@app.get("/login", include_in_schema=False)
+def login_page(request: Request) -> FileResponse | RedirectResponse:
+    if not authentication.enabled or authentication.valid_session(
+        request.cookies.get(SESSION_COOKIE)
+    ):
+        return RedirectResponse("/", status_code=303)
+    return FileResponse(STATIC_DIRECTORY / "login.html")
+
+
+@app.post("/login", include_in_schema=False)
+async def login(request: Request) -> RedirectResponse:
+    values = parse_qs((await request.body()).decode("utf-8", errors="replace"))
+    username = values.get("username", [""])[0]
+    password = values.get("password", [""])[0]
+    result = authentication.login(
+        authentication.client_ip(request), username, password
+    )
+    if not result.accepted:
+        suffix = f"?banned={result.banned_seconds}" if result.banned_seconds else "?error=1"
+        return RedirectResponse(f"/login{suffix}", status_code=303)
+    response = RedirectResponse("/", status_code=303)
+    response.set_cookie(
+        SESSION_COOKIE,
+        authentication.create_session(),
+        max_age=settings.session_hours * 3600,
+        httponly=True,
+        secure=settings.auth_secure_cookie,
+        samesite="strict",
+        path="/",
+    )
+    return response
+
+
+@app.post("/logout", include_in_schema=False)
+def logout() -> RedirectResponse:
+    response = RedirectResponse("/login", status_code=303)
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    return response
 
 
 @app.get("/api/v1/health")
@@ -117,6 +172,7 @@ def dashboard(hours: Annotated[int, Query(ge=1, le=168)] = 24) -> dict[str, obje
         "tunnel": _tunnel_status(),
         "flows": database.dashboard_summary(hours),
         "retention_hours": settings.retention_hours,
+        "security": authentication.status(),
     }
 
 
